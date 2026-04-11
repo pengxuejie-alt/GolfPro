@@ -1,0 +1,9 @@
+{
+  "name": "GolfPro微信小程序",
+  "description": "A fashionable, modern social golf scoring application for the next generation of golfers.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
