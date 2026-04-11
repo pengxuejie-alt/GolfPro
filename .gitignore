@@ -7,6 +7,16 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Temp and artifacts
+temp/
+.temp/
+*.tmp
+*.temp
+*.json.bak
+*.json.old
+history.json
+match_history_*.json
+
 node_modules
 dist
 dist-ssr

@@ -549,10 +549,73 @@ const getRewardText = (config: string) => {
   return options[config] || '';
 };
 
-const getHandicapText = (config: any) => {
-  if (!config || config.type === 'none') return `总分让 ${config?.value || 0}杆`;
+const getHandicapText = (config: any, isHoles: boolean = false) => {
+  const unit = isHoles ? '洞' : '杆';
+  if (!config || (config.type === 'none' && config.value === 0)) return '平打';
+  if (config.type === 'none') return `总让 ${config.value}${unit}`;
   if (config.type === 'virtual') return '虚让';
+  if (config.type === '单洞') return `单洞让${config.value}${unit}`;
   return `${config.type}让1`;
+};
+
+const getRuleSummary = (rule: PKRule) => {
+  const parts = [];
+  const conf = rule.config || {};
+  
+  if (rule.type === 'vegas_4') {
+    // Grouping
+    parts.push(conf.grouping || '乱拉');
+    
+    // Scoring Mode
+    if (conf.scoring_mode === '8421') parts.push('8421');
+    else if (conf.scoring_mode === 'points_3') parts.push('123分');
+    else if (conf.scoring_mode === 'product') parts.push('公鸡母鸡');
+    else if (conf.scoring_mode === 'sum') parts.push('杆数相加');
+    
+    // Deduction
+    if (conf.double_par_plus_1 && conf.double_par_plus_1 !== '不扣分') {
+      parts.push('扣分');
+    } else {
+      parts.push('不扣分');
+    }
+    
+    // Tie Hole
+    if (conf.tie_hole) {
+      parts.push(conf.tie_hole);
+    }
+  } else if (rule.type === 'strokes' || rule.type === 'holes') {
+    parts.push(`${rule.participant_count || 2}人单挂`);
+    
+    // Handicap
+    const hcpText = getHandicapText(rule.handicap_config, rule.type === 'holes');
+    parts.push(hcpText);
+    
+    // Players
+    if (rule.player_ids && rule.player_ids.length > 0) {
+      const names = rule.player_ids.map(id => players.value.find(p => p.id === id)?.nickname || '未知').join(',');
+      parts.push(names);
+    }
+    
+    // Rewards
+    if (rule.birdie_double) {
+      parts.push('鸟1鹰5');
+    }
+    
+    if (rule.reward_config === 'hio_10') {
+      parts.push('HIO(双鹰)10');
+    }
+  } else if (rule.type === '8421_1v1') {
+    parts.push('2人8421');
+    if (rule.deduction_type && rule.deduction_type !== 'none') {
+      parts.push('扣分');
+    }
+  } else if (rule.type === 'landlord' || rule.type === 'tiger') {
+    parts.push(rule.type === 'landlord' ? '斗地主' : '打老虎');
+    parts.push(conf.landlord_type || '流动地主');
+    if (conf.tie_hole) parts.push(conf.tie_hole);
+  }
+  
+  return parts.join('/');
 };
 
 // Tiger Logic Functions
@@ -753,30 +816,8 @@ const getHoleProfit = (pid: string, holeIndex: number) => {
 };
 
 const getRuleDisplayName = (rule: any) => {
-  let typeStr = '';
-  if (rule.type === 'holes') typeStr = '比洞';
-  else if (rule.type === 'strokes') typeStr = '比杆';
-  else if (rule.type === '8421_1v1') typeStr = '挂8421';
-  else if (rule.type === 'landlord') typeStr = '斗地主';
-  else if (rule.type.includes('vegas')) typeStr = '拉斯';
-  else typeStr = rule.name;
-
-  const pNames = (rule.player_ids || []).map((id: string) => {
-    const p = players.value.find(p => p.id === id);
-    return p ? p.nickname : '未知';
-  }).join(';');
-
-  let handicapStr = '平打';
-  if (rule.handicap_type === 'strokes' || (rule.handicap_config && rule.handicap_config.type !== 'none')) {
-    handicapStr = '让杆';
-  } else if (rule.handicap_type === 'holes') {
-    handicapStr = '让洞';
-  }
-
-  if (rule.type === 'holes' || rule.type === 'strokes' || rule.type === '8421_1v1') {
-    return `${typeStr}:${rule.name}/${pNames}/${handicapStr}`;
-  }
-  return `${typeStr}:${rule.name}`;
+  const summary = getRuleSummary(rule);
+  return `${rule.name}：${summary}`;
 };
 
 const getScoreRelativeText = (pid: string, holeIndex: number) => {
@@ -860,6 +901,7 @@ const getTotalPar = () => {
 
 const getFront9 = (pid: string) => {
   const pIdx = players.value.findIndex(p => p.id === pid);
+  if (pIdx === -1) return '0';
   const playedHoles = matchStore.holeScores.slice(0, 9).filter(h => h.scores[pIdx] > 0);
   if (playedHoles.length === 0) return '0';
   
@@ -871,6 +913,7 @@ const getFront9 = (pid: string) => {
 
 const getBack9 = (pid: string) => {
   const pIdx = players.value.findIndex(p => p.id === pid);
+  if (pIdx === -1) return '0';
   const playedHoles = matchStore.holeScores.slice(9, 18).filter(h => h.scores[pIdx] > 0);
   if (playedHoles.length === 0) return '0';
 
@@ -882,6 +925,7 @@ const getBack9 = (pid: string) => {
 
 const getTotalDiff = (pid: string) => {
   const pIdx = players.value.findIndex(p => p.id === pid);
+  if (pIdx === -1) return '0';
   const playedHoles = matchStore.holeScores.filter(h => h.scores[pIdx] > 0);
   if (playedHoles.length === 0) return '0';
 
@@ -1004,20 +1048,23 @@ const isLandmineExploded = (holeIndex: number) => {
 <template>
   <div class="fixed inset-0 bg-slate-950 text-slate-100 flex flex-col font-sans select-none safe-top">
     <!-- Header -->
-    <header class="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-50 pr-[90px]">
-      <button @click="emit('back')" class="p-2 -ml-2 hover:bg-slate-800 rounded-full transition-colors">
-        <ChevronLeft class="w-6 h-6" />
-      </button>
-      <div class="flex flex-col items-center flex-1">
+    <header class="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-50">
+      <div class="flex items-center gap-1">
+        <button @click="emit('back')" class="p-2 -ml-2 hover:bg-slate-800 rounded-full transition-colors">
+          <ChevronLeft class="w-6 h-6" />
+        </button>
+        <button @click="handleShare('friend')" class="p-2 hover:bg-slate-800 rounded-full transition-colors">
+          <Share class="w-5 h-5" />
+        </button>
+      </div>
+      <div class="flex flex-col items-center">
         <h1 class="text-base font-bold tracking-tight truncate max-w-[150px]">{{ currentMatch?.course_name || '高尔夫比赛' }}</h1>
         <div class="flex items-center gap-2 text-[10px] text-slate-400">
           <span>{{ currentMatch?.create_time ? new Date(currentMatch.create_time).toLocaleDateString() : '2026-03-21' }}</span>
           <span>{{ currentMatch?.create_time ? new Date(currentMatch.create_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '' }}</span>
         </div>
       </div>
-      <button @click="handleShare('friend')" class="p-2 hover:bg-slate-800 rounded-full transition-colors absolute left-12">
-        <Share class="w-5 h-5" />
-      </button>
+      <div class="w-20"></div>
     </header>
 
     <!-- Quick Navigation Toggle -->
@@ -1117,7 +1164,7 @@ const isLandmineExploded = (holeIndex: number) => {
                   <div class="h-12 flex flex-col items-center justify-center gap-0.5">
                     <div class="w-8 h-8 flex items-center justify-center border transition-all relative"
                          :class="getScoreShapeClasses(player.id, h.index)">
-                      <span class="text-sm font-bold">{{ getScoreDiffText(player.id, h.index) || '-' }}</span>
+                      <span class="text-sm font-bold font-mono">{{ getScoreDiffText(player.id, h.index) || '-' }}</span>
                       <!-- Role Indicator -->
                       <div v-if="getRoleBadge(player.id, h.index)" 
                            class="absolute -top-1 -left-1 w-3.5 h-3.5 bg-red-600 rounded-sm flex items-center justify-center border border-white/20 shadow-sm z-10">
@@ -1221,7 +1268,7 @@ const isLandmineExploded = (holeIndex: number) => {
             <button @click="updateScore(-1)" class="w-14 h-14 rounded-full border-2 border-slate-200 flex items-center justify-center hover:bg-slate-50 active:scale-90 transition-all">
               <Minus class="w-6 h-6 text-slate-600" />
             </button>
-            <div class="text-5xl font-black text-slate-900 w-24 text-center">
+            <div class="text-5xl font-black text-slate-900 w-24 text-center font-mono">
               {{ editingCell ? getScoreRelativeText(editingCell.pid, editingCell.holeIndex) : 'E' }}
             </div>
             <button @click="updateScore(1)" class="w-14 h-14 rounded-full border-2 border-slate-200 flex items-center justify-center hover:bg-slate-50 active:scale-90 transition-all">
@@ -1262,7 +1309,7 @@ const isLandmineExploded = (holeIndex: number) => {
                 </div>
                 <div class="flex flex-col">
                   <span class="text-sm font-medium">{{ rule.name }}</span>
-                  <span class="text-[10px] text-slate-500">基数: {{ rule.base_score }}</span>
+                  <span class="text-[10px] text-slate-500">{{ getRuleSummary(rule) }}</span>
                 </div>
               </div>
               <div class="flex items-center gap-1">
@@ -1357,48 +1404,26 @@ const isLandmineExploded = (holeIndex: number) => {
       </header>
 
       <div class="flex-1 overflow-y-auto bg-black">
-        <!-- Tiger Specific UI -->
-        <template v-if="currentConfigRule?.type === 'strokes'">
-
-            <!-- Handicap List -->
-            <div v-if="currentConfigRule?.handicap_list?.length > 0" class="px-4 space-y-2">
-              <div v-for="h in currentConfigRule.handicap_list" :key="h.playerId" class="flex items-center justify-between bg-slate-900/40 p-3 rounded-xl border border-slate-800">
-                <div class="flex items-center gap-3">
-                  <div class="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold">
-                    {{ players.find(p => p.id === h.playerId)?.nickname?.charAt(0) || '?' }}
-                  </div>
-                  <span class="text-sm">{{ h.playerName }}</span>
-                </div>
-                <div class="flex items-center gap-4">
-                  <span class="text-sm text-orange-500">受让 {{ h.strokes }} 杆</span>
-                  <button @click="removeHandicap(h.playerId)" class="p-1 text-slate-500">
-                    <X class="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-        </template>
-
         <!-- Match Play Configuration (比洞) -->
-        <template v-else-if="currentConfigRule?.type === 'holes'">
+        <template v-if="currentConfigRule?.type === 'holes'">
           <div class="p-4 space-y-6">
             <!-- Header Icons -->
-            <div class="flex justify-end gap-4 mb-4">
+            <div class="flex justify-end gap-3 mb-4">
               <button @click="showLandmineModal = true" 
-                      class="flex flex-col items-center justify-center w-20 h-20 rounded-2xl transition-all"
+                      class="flex flex-col items-center justify-center w-14 h-14 rounded-2xl transition-all"
                       :class="currentConfigRule?.landmines?.assignedHoles?.length > 0 ? 'bg-red-600 border-red-400' : 'bg-red-950/30 border border-red-900/50'">
-                <Bomb class="w-8 h-8 mb-1" :class="currentConfigRule?.landmines?.assignedHoles?.length > 0 ? 'text-white' : 'text-red-500'" />
-                <span class="text-[10px]" :class="currentConfigRule?.landmines?.assignedHoles?.length > 0 ? 'text-white' : 'text-red-400'">埋地雷</span>
+                <Bomb class="w-5 h-5 mb-0.5" :class="currentConfigRule?.landmines?.assignedHoles?.length > 0 ? 'text-white' : 'text-red-500'" />
+                <span class="text-[8px]" :class="currentConfigRule?.landmines?.assignedHoles?.length > 0 ? 'text-white' : 'text-red-400'">埋地雷</span>
               </button>
-              <div class="flex flex-col items-center justify-center w-20 h-20 rounded-2xl bg-red-900 text-white relative">
-                <span class="text-2xl font-black">{{ currentConfigRule?.base_score || 1 }}</span>
-                <span class="text-[10px] opacity-70">基本单位</span>
+              <div class="flex flex-col items-center justify-center w-14 h-14 rounded-2xl bg-red-900 text-white relative">
+                <span class="text-lg font-black">{{ currentConfigRule?.base_score || 1 }}</span>
+                <span class="text-[8px] opacity-70">基本单位</span>
                 <div class="absolute -bottom-2 flex gap-1">
-                  <button @click.stop="currentConfigRule && (currentConfigRule.base_score = Math.max(1, currentConfigRule.base_score - 1))" class="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700">
-                    <Minus class="w-3 h-3" />
+                  <button @click.stop="currentConfigRule && (currentConfigRule.base_score = Math.max(1, currentConfigRule.base_score - 1))" class="w-4 h-4 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700">
+                    <Minus class="w-2.5 h-2.5" />
                   </button>
-                  <button @click.stop="currentConfigRule && (currentConfigRule.base_score++)" class="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700">
-                    <Plus class="w-3 h-3" />
+                  <button @click.stop="currentConfigRule && (currentConfigRule.base_score++)" class="w-4 h-4 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700">
+                    <Plus class="w-2.5 h-2.5" />
                   </button>
                 </div>
               </div>
@@ -1575,22 +1600,22 @@ const isLandmineExploded = (holeIndex: number) => {
         <template v-else-if="currentConfigRule?.type === 'strokes'">
           <div class="p-4 space-y-6">
             <!-- Header Icons -->
-            <div class="flex justify-end gap-4 mb-4">
+            <div class="flex justify-end gap-3 mb-4">
               <button @click="showLandmineModal = true" 
-                      class="flex flex-col items-center justify-center w-20 h-20 rounded-2xl transition-all"
+                      class="flex flex-col items-center justify-center w-14 h-14 rounded-2xl transition-all"
                       :class="currentConfigRule?.landmines?.assignedHoles?.length > 0 ? 'bg-red-600 border-red-400' : 'bg-red-950/30 border border-red-900/50'">
-                <Bomb class="w-8 h-8 mb-1" :class="currentConfigRule?.landmines?.assignedHoles?.length > 0 ? 'text-white' : 'text-red-500'" />
-                <span class="text-[10px]" :class="currentConfigRule?.landmines?.assignedHoles?.length > 0 ? 'text-white' : 'text-red-400'">埋地雷</span>
+                <Bomb class="w-5 h-5 mb-0.5" :class="currentConfigRule?.landmines?.assignedHoles?.length > 0 ? 'text-white' : 'text-red-500'" />
+                <span class="text-[8px]" :class="currentConfigRule?.landmines?.assignedHoles?.length > 0 ? 'text-white' : 'text-red-400'">埋地雷</span>
               </button>
-              <div class="flex flex-col items-center justify-center w-20 h-20 rounded-2xl bg-red-900 text-white relative">
-                <span class="text-2xl font-black">{{ currentConfigRule?.base_score || 1 }}</span>
-                <span class="text-[10px] opacity-70">基本单位</span>
+              <div class="flex flex-col items-center justify-center w-14 h-14 rounded-2xl bg-red-900 text-white relative">
+                <span class="text-lg font-black">{{ currentConfigRule?.base_score || 1 }}</span>
+                <span class="text-[8px] opacity-70">基本单位</span>
                 <div class="absolute -bottom-2 flex gap-1">
-                  <button @click.stop="currentConfigRule && (currentConfigRule.base_score = Math.max(1, currentConfigRule.base_score - 1))" class="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700">
-                    <Minus class="w-3 h-3" />
+                  <button @click.stop="currentConfigRule && (currentConfigRule.base_score = Math.max(1, currentConfigRule.base_score - 1))" class="w-4 h-4 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700">
+                    <Minus class="w-2.5 h-2.5" />
                   </button>
-                  <button @click.stop="currentConfigRule && (currentConfigRule.base_score++)" class="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700">
-                    <Plus class="w-3 h-3" />
+                  <button @click.stop="currentConfigRule && (currentConfigRule.base_score++)" class="w-4 h-4 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700">
+                    <Plus class="w-2.5 h-2.5" />
                   </button>
                 </div>
               </div>
@@ -1633,18 +1658,18 @@ const isLandmineExploded = (holeIndex: number) => {
             <div class="flex items-center justify-center gap-4 py-6 overflow-x-auto no-scrollbar">
               <div v-for="i in (currentConfigRule?.participant_count || 0)" :key="i" 
                    @click="strokesSelectIndex = i-1; showStrokesPlayerSelect = true"
-                   class="w-32 h-32 rounded-full border-2 flex flex-col items-center justify-center transition-all cursor-pointer overflow-hidden flex-shrink-0"
+                   class="w-24 h-24 rounded-full border-2 flex flex-col items-center justify-center transition-all cursor-pointer overflow-hidden flex-shrink-0"
                    :class="currentConfigRule?.player_ids?.[i-1] ? 'border-orange-500 bg-orange-500/10' : 'border-dashed border-slate-800 bg-slate-900/10'">
                 <template v-if="currentConfigRule?.player_ids?.[i-1]">
-                  <div class="w-16 h-16 rounded-full mb-1 border-2 border-white bg-slate-800 flex items-center justify-center text-xl font-bold">
+                  <div class="w-12 h-12 rounded-full mb-1 border-2 border-white bg-slate-800 flex items-center justify-center text-lg font-bold">
                     {{ players.find(p => p.id === currentConfigRule.player_ids[i-1])?.nickname?.charAt(0) || '?' }}
                   </div>
-                  <span class="text-xs font-bold">{{ players.find(p => p.id === currentConfigRule.player_ids[i-1])?.nickname || '未知' }}</span>
-                  <span class="text-[10px] opacity-60">选手{{ i }}</span>
+                  <span class="text-[10px] font-bold truncate w-20 text-center">{{ players.find(p => p.id === currentConfigRule.player_ids[i-1])?.nickname || '未知' }}</span>
+                  <span class="text-[8px] opacity-60">选手{{ i }}</span>
                 </template>
                 <template v-else>
-                  <UserPlus class="w-8 h-8 text-slate-700 mb-1" />
-                  <span class="text-sm font-bold text-slate-500">选手{{ i }}</span>
+                  <UserPlus class="w-6 h-6 text-slate-700 mb-1" />
+                  <span class="text-xs font-bold text-slate-500">选手{{ i }}</span>
                 </template>
               </div>
             </div>
@@ -1821,6 +1846,15 @@ const isLandmineExploded = (holeIndex: number) => {
                       </div>
                       <input type="radio" v-model="currentConfigRule.deduction_type" value="single_double_par" class="hidden">
                       <span class="text-sm text-slate-300 group-hover:text-white transition-colors">只扣1分 (双帕及以上)</span>
+                    </label>
+
+                    <label class="flex items-center gap-3 cursor-pointer group">
+                      <div class="w-5 h-5 rounded border border-slate-700 flex items-center justify-center transition-colors"
+                           :class="currentConfigRule.deduction_type === 'none' ? 'bg-orange-600 border-orange-500' : 'bg-slate-800'">
+                        <Check v-if="currentConfigRule.deduction_type === 'none'" class="w-3.5 h-3.5 text-white" />
+                      </div>
+                      <input type="radio" v-model="currentConfigRule.deduction_type" value="none" class="hidden">
+                      <span class="text-sm text-slate-300 group-hover:text-white transition-colors">不扣分</span>
                     </label>
                   </div>
                 </div>

@@ -83,16 +83,13 @@ const viewProfile = (friendId: string) => {
 <template>
   <div class="min-h-screen bg-slate-50 pb-24 safe-top">
     <!-- Header -->
-    <div class="sticky top-0 bg-white/80 backdrop-blur-md z-20 border-b border-slate-100">
-      <div class="px-4 py-3 flex items-center justify-between pr-[90px]">
-        <button @click="emit('back')" class="w-10 h-10 flex items-center justify-center rounded-full active:bg-slate-100">
+    <div class="sticky top-0 bg-slate-50/80 backdrop-blur-md z-20 border-b border-slate-100">
+      <div class="px-4 py-3 flex items-center justify-between">
+        <button @click="emit('back')" class="w-10 h-10 flex items-center justify-center rounded-full active:bg-slate-200 transition-colors">
           <ChevronLeft class="text-slate-800" />
         </button>
-        <div class="flex bg-slate-100 p-1 rounded-xl">
-          <button 
-            class="px-10 py-1.5 rounded-lg text-sm font-bold bg-white text-slate-900 shadow-sm"
-          >球友列表</button>
-        </div>
+        <h1 class="text-base font-bold text-slate-900">球友</h1>
+        <div class="w-10"></div> <!-- Spacer -->
       </div>
     </div>
 

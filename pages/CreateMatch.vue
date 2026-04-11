@@ -183,11 +183,12 @@ const handleStart = async () => {
 <template>
   <div class="min-h-screen bg-slate-50 pb-24 safe-top">
     <!-- Header -->
-    <div class="sticky top-0 bg-slate-50/80 backdrop-blur-md z-20 px-4 py-3 flex items-center justify-between pr-[90px]">
+    <div class="sticky top-0 bg-slate-50/80 backdrop-blur-md z-20 px-4 py-3 flex items-center justify-between">
       <button @click="handleBack" class="w-10 h-10 flex items-center justify-center rounded-full active:bg-slate-200">
         <ChevronLeft class="text-slate-800" />
       </button>
       <h1 class="text-lg font-bold text-slate-900">创建比赛</h1>
+      <div class="w-10"></div>
     </div>
 
     <div class="px-4 mt-2">

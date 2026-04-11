@@ -127,11 +127,11 @@ const toggleHole = (hole: number) => {
   <div class="fixed inset-0 bg-black text-white flex flex-col font-sans overflow-y-auto pb-32">
     <!-- Header -->
     <header class="flex items-center justify-between px-4 py-4 sticky top-0 bg-black z-50">
-      <button @click="emit('navigate', 'SCORECARD', { match_id: props.params?.match_id })" class="p-2 -ml-2 hover:bg-white/10 rounded-full transition-colors">
+      <button @click="emit('navigate', 'SCORECARD', { match_id: props.params?.match_id })" class="p-2 -ml-2 hover:bg-white/10 rounded-full transition-colors z-10">
         <ChevronLeft class="w-6 h-6" />
       </button>
-      <h1 class="text-2xl font-black tracking-tight">斗地主</h1>
-      <div class="flex gap-3">
+      <h1 class="absolute inset-x-0 flex justify-center text-2xl font-black tracking-tight pointer-events-none">斗地主</h1>
+      <div class="flex gap-3 z-10">
         <button @click="config.is_landmine = !config.is_landmine" 
                 class="flex flex-col items-center justify-center w-14 h-14 bg-[#1a1a1a] rounded-2xl border transition-all"
                 :class="config.is_landmine ? 'border-red-500 bg-red-500/10' : 'border-white/5'">
@@ -139,7 +139,7 @@ const toggleHole = (hole: number) => {
           <span class="text-[8px] mt-1 font-bold" :class="config.is_landmine ? 'text-red-400' : 'text-slate-400'">埋地雷</span>
         </button>
         <div class="flex flex-col items-center justify-center w-14 h-14 bg-[#1a1a1a] rounded-2xl border border-white/5 relative">
-          <span class="text-xl font-black text-white">{{ config.base_unit }}</span>
+          <span class="text-xl font-black text-white font-mono">{{ config.base_unit }}</span>
           <span class="text-[8px] mt-0.5 text-slate-400 font-bold">基本单位</span>
           <div class="absolute -bottom-2 flex gap-1">
             <button @click="config.base_unit = Math.max(1, config.base_unit - 1)" class="w-4 h-4 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700"><Minus class="w-2 h-2" /></button>
@@ -275,7 +275,7 @@ const toggleHole = (hole: number) => {
           </div>
 
           <div class="w-24 flex flex-col items-center justify-center border-l border-white/5 ml-6">
-            <span class="text-6xl font-black text-white/20">{{ (config.pk_good ? 1 : 0) + (config.pk_bad ? 1 : 0) + (config.pk_avg ? 1 : 0) }}</span>
+            <span class="text-6xl font-black text-white/20 font-mono">{{ (config.pk_good ? 1 : 0) + (config.pk_bad ? 1 : 0) + (config.pk_avg ? 1 : 0) }}</span>
           </div>
         </div>
       </div>
@@ -329,7 +329,7 @@ const toggleHole = (hole: number) => {
             <div class="grid grid-cols-6 gap-3 p-2">
               <button v-for="i in 18" :key="i" 
                       @click="toggleHole(i)"
-                      class="aspect-square rounded-full flex items-center justify-center text-xs font-bold border transition-all"
+                      class="aspect-square rounded-full flex items-center justify-center text-xs font-bold border transition-all font-mono"
                       :class="config.active_holes.includes(i) ? 'bg-orange-500 border-orange-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-500'">
                 {{ i }}
               </button>

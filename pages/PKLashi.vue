@@ -15,22 +15,27 @@ const tabs = ['公鸡母鸡', '北方3分', '南方8421', '贵阳8421'];
 
 const updateDefaults = (tab: string) => {
   if (tab === '北方3分') {
+    config.value.scoring_mode = 'points_3';
     config.value.pk_good = true;
     config.value.pk_bad = true;
     config.value.pk_total = true;
     config.value.reward_amount = '鸟2/鹰5/HIO(双鹰)10';
     config.value.deduction_type = 'none';
   } else if (tab === '南方8421') {
+    config.value.scoring_mode = '8421';
     config.value.pk_good = true;
     config.value.pk_bad = true;
     config.value.pk_total = false;
     config.value.deduction_type = 'progressive';
     config.value.deduction_par3_plus3 = true;
   } else if (tab === '贵阳8421') {
+    config.value.scoring_mode = '8421';
     config.value.pk_good = true;
     config.value.pk_bad = true;
     config.value.pk_total = false;
     config.value.deduction_type = 'single_plus4';
+  } else if (tab === '公鸡母鸡') {
+    config.value.scoring_mode = 'product';
   }
 };
 
@@ -42,8 +47,9 @@ const handleTabClick = (tab: string) => {
 const config = ref({
   base_unit: 1,
   active_holes: Array.from({ length: 18 }, (_, i) => i + 1),
-  grouping: '固拉',
+  grouping: '乱拉',
   pro_limit: '不限制',
+  scoring_mode: 'points_3', // points_3, 8421, sum, product
   pk_good: true,
   pk_bad: true,
   pk_total: true,
@@ -56,8 +62,16 @@ const config = ref({
   collect_tie: '赢洞全收',
   team_a: [] as string[],
   deduction_type: 'none',
-  deduction_par3_plus3: false
+  deduction_par3_plus3: false,
+  player_8421: {} as Record<string, string>
 });
+
+const scoringModes = [
+  { id: 'points_3', name: '1/2/3分' },
+  { id: '8421', name: '8421+' },
+  { id: 'sum', name: '杆数相加' },
+  { id: 'product', name: '杆数相乘' }
+];
 
 const showModal = ref<string | null>(null);
 const modalOptions = {
@@ -161,23 +175,23 @@ const handleSave = async () => {
   <div class="fixed inset-0 bg-black text-white flex flex-col font-sans overflow-y-auto pb-32">
     <!-- Header -->
     <header class="flex items-center justify-between px-4 py-4 sticky top-0 bg-black z-50">
-      <button @click="emit('navigate', 'SCORECARD', { match_id: props.params?.match_id })" class="p-2 -ml-2 hover:bg-white/10 rounded-full transition-colors">
+      <button @click="emit('navigate', 'SCORECARD', { match_id: props.params?.match_id })" class="p-2 -ml-2 hover:bg-white/10 rounded-full transition-colors z-10">
         <ChevronLeft class="w-6 h-6" />
       </button>
-      <h1 class="text-2xl font-black tracking-tight">4人拉斯</h1>
-      <div class="flex gap-3">
+      <h1 class="absolute inset-x-0 flex justify-center text-2xl font-black tracking-tight pointer-events-none">4人拉斯</h1>
+      <div class="flex gap-3 z-10">
         <button @click="config.is_landmine = !config.is_landmine" 
-                class="flex flex-col items-center justify-center w-14 h-14 bg-[#1a1a1a] rounded-2xl border transition-all"
+                class="flex flex-col items-center justify-center w-12 h-12 bg-[#1a1a1a] rounded-2xl border transition-all"
                 :class="config.is_landmine ? 'border-red-500 bg-red-500/10' : 'border-white/5'">
-          <Bomb class="w-6 h-6" :class="config.is_landmine ? 'text-red-500' : 'text-slate-500'" />
-          <span class="text-[8px] mt-1 font-bold" :class="config.is_landmine ? 'text-red-400' : 'text-slate-400'">埋地雷</span>
+          <Bomb class="w-5 h-5" :class="config.is_landmine ? 'text-red-500' : 'text-slate-500'" />
+          <span class="text-[7px] mt-0.5 font-bold" :class="config.is_landmine ? 'text-red-400' : 'text-slate-400'">埋地雷</span>
         </button>
-        <div class="flex flex-col items-center justify-center w-14 h-14 bg-[#1a1a1a] rounded-2xl border border-white/5 relative">
-          <span class="text-xl font-black text-white">{{ config.base_unit }}</span>
-          <span class="text-[8px] mt-0.5 text-slate-400 font-bold">基本单位</span>
+        <div class="flex flex-col items-center justify-center w-12 h-12 bg-[#1a1a1a] rounded-2xl border border-white/5 relative">
+          <span class="text-lg font-black text-white font-mono">{{ config.base_unit }}</span>
+          <span class="text-[7px] mt-0.5 text-slate-400 font-bold">基本单位</span>
           <div class="absolute -bottom-2 flex gap-1">
-            <button @click="config.base_unit = Math.max(1, config.base_unit - 1)" class="w-4 h-4 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700"><Minus class="w-2 h-2" /></button>
-            <button @click="config.base_unit++" class="w-4 h-4 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700"><Plus class="w-2 h-2" /></button>
+            <button @click="config.base_unit = Math.max(1, config.base_unit - 1)" class="w-3.5 h-3.5 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700"><Minus class="w-2 h-2" /></button>
+            <button @click="config.base_unit++" class="w-3.5 h-3.5 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700"><Plus class="w-2 h-2" /></button>
           </div>
         </div>
       </div>
@@ -240,7 +254,7 @@ const handleSave = async () => {
       </div>
 
       <!-- Pro Limit -->
-      <div @click="showModal = 'pro_limit'" class="flex items-center justify-between py-4 border-b border-white/5 active:bg-white/5 px-2 rounded-xl transition-colors cursor-pointer">
+      <div v-if="config.grouping !== '固拉'" @click="showModal = 'pro_limit'" class="flex items-center justify-between py-4 border-b border-white/5 active:bg-white/5 px-2 rounded-xl transition-colors cursor-pointer">
         <div class="flex items-center gap-3">
           <Users class="w-4 h-4 text-slate-500" />
           <span class="text-sm font-bold text-slate-300">高手不见面</span>
@@ -252,18 +266,20 @@ const handleSave = async () => {
       </div>
 
       <!-- Scoring Card -->
-      <div v-if="!activeTab.includes('8421')" class="my-6 bg-[#111] rounded-[32px] p-6 border border-white/5">
+      <div class="my-6 bg-[#111] rounded-[32px] p-6 border border-white/5">
         <div class="flex items-center justify-between mb-6">
           <div class="flex items-center gap-3">
             <span class="text-lg font-bold text-slate-500">Σ</span>
-            <span class="text-sm font-bold text-slate-300">计分 <span class="text-orange-500 ml-2">点这里设8421</span></span>
+            <span class="text-sm font-bold text-slate-300">计分</span>
           </div>
-          <div class="bg-indigo-900/50 text-indigo-400 px-3 py-1 rounded-lg text-[10px] font-black border border-indigo-500/20">
-            1/2/3分
+          <div @click="showModal = 'scoring_mode'" class="bg-indigo-900/50 text-indigo-400 px-3 py-1 rounded-lg text-[10px] font-black border border-indigo-500/20 cursor-pointer flex items-center gap-1">
+            {{ scoringModes.find(m => m.id === config.scoring_mode)?.name }}
+            <ChevronRight class="w-3 h-3" />
           </div>
         </div>
 
-        <div class="flex justify-between items-center">
+        <!-- 3 Points Mode -->
+        <div v-if="config.scoring_mode === 'points_3'" class="flex justify-between items-center">
           <div class="space-y-3 flex-1">
             <label class="flex items-center gap-3 cursor-pointer group">
               <div class="w-5 h-5 rounded border border-white/20 flex items-center justify-center transition-colors"
@@ -297,36 +313,80 @@ const handleSave = async () => {
           </div>
 
           <div class="w-24 flex flex-col items-center justify-center border-l border-white/5 ml-6">
-            <span class="text-7xl font-black text-white/20">{{ (config.pk_good ? 1 : 0) + (config.pk_bad ? 1 : 0) + (config.pk_total ? 1 : 0) }}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 8421 Deductions -->
-      <div v-if="activeTab.includes('8421')" class="my-6 bg-[#111] rounded-[32px] p-6 border border-white/5 space-y-4">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <span class="text-lg font-bold text-slate-500">Σ</span>
-            <span class="text-sm font-bold text-slate-300">8421 扣分设置</span>
+            <span class="text-7xl font-black text-white/20 font-mono">{{ (config.pk_good ? 1 : 0) + (config.pk_bad ? 1 : 0) + (config.pk_total ? 1 : 0) }}</span>
           </div>
         </div>
 
-        <div @click="showModal = 'deduction_type'" class="flex items-center justify-between py-2 cursor-pointer">
-          <span class="text-xs font-bold text-slate-400">扣分类型</span>
-          <div class="flex items-center gap-2">
-            <span class="text-xs font-bold text-white">{{ deductionNames[config.deduction_type] }}</span>
-            <ChevronRight class="w-4 h-4 text-slate-600" />
+        <!-- 8421 Mode -->
+        <div v-else-if="config.scoring_mode === '8421'" class="space-y-6">
+          <div class="space-y-3">
+            <label class="flex items-center gap-3 cursor-pointer group">
+              <div class="w-5 h-5 rounded border border-white/20 flex items-center justify-center transition-colors"
+                   :class="config.deduction_type === 'progressive' ? 'bg-white border-white' : 'bg-transparent'">
+                <Check v-if="config.deduction_type === 'progressive'" class="w-3.5 h-3.5 text-black font-black" />
+              </div>
+              <input type="radio" v-model="config.deduction_type" value="progressive" class="hidden" />
+              <span class="text-xs font-bold text-slate-400 group-active:text-white">一直扣 (+4扣1分+5扣2分...以此类推)</span>
+            </label>
+            <div v-if="config.deduction_type === 'progressive'" class="pl-8">
+              <label class="flex items-center gap-3 cursor-pointer group">
+                <div class="w-4 h-4 rounded border border-white/20 flex items-center justify-center transition-colors"
+                     :class="config.deduction_par3_plus3 ? 'bg-white border-white' : 'bg-transparent'">
+                  <Check v-if="config.deduction_par3_plus3" class="w-3 h-3 text-black font-black" />
+                </div>
+                <input type="checkbox" v-model="config.deduction_par3_plus3" class="hidden" />
+                <span class="text-[10px] font-bold text-slate-500 group-active:text-white">3杆洞从+3开始扣分</span>
+              </label>
+            </div>
+
+            <label class="flex items-center gap-3 cursor-pointer group">
+              <div class="w-5 h-5 rounded border border-white/20 flex items-center justify-center transition-colors"
+                   :class="config.deduction_type === 'single_plus4' ? 'bg-white border-white' : 'bg-transparent'">
+                <Check v-if="config.deduction_type === 'single_plus4'" class="w-3.5 h-3.5 text-black font-black" />
+              </div>
+              <input type="radio" v-model="config.deduction_type" value="single_plus4" class="hidden" />
+              <span class="text-xs font-bold text-slate-400 group-active:text-white">最多扣1分 (+4开始扣)</span>
+            </label>
+
+            <label class="flex items-center gap-3 cursor-pointer group">
+              <div class="w-5 h-5 rounded border border-white/20 flex items-center justify-center transition-colors"
+                   :class="config.deduction_type === 'single_double_par' ? 'bg-white border-white' : 'bg-transparent'">
+                <Check v-if="config.deduction_type === 'single_double_par'" class="w-3.5 h-3.5 text-black font-black" />
+              </div>
+              <input type="radio" v-model="config.deduction_type" value="single_double_par" class="hidden" />
+              <span class="text-xs font-bold text-slate-400 group-active:text-white">最多扣1分 (双帕开始扣)</span>
+            </label>
+
+            <label class="flex items-center gap-3 cursor-pointer group">
+              <div class="w-5 h-5 rounded border border-white/20 flex items-center justify-center transition-colors"
+                   :class="config.deduction_type === 'none' ? 'bg-white border-white' : 'bg-transparent'">
+                <Check v-if="config.deduction_type === 'none'" class="w-3.5 h-3.5 text-black font-black" />
+              </div>
+              <input type="radio" v-model="config.deduction_type" value="none" class="hidden" />
+              <span class="text-xs font-bold text-slate-400 group-active:text-white">不扣分</span>
+            </label>
+          </div>
+
+          <div class="space-y-3 pt-4 border-t border-white/5">
+            <div v-for="player in selectedPlayers" :key="player.id" class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <img :src="player.avatar" class="w-8 h-8 rounded-full border border-white/10" />
+                <span class="text-xs font-bold text-slate-300">{{ player.name }}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <div class="bg-red-600 px-2 py-0.5 rounded text-[10px] font-black text-white">8421</div>
+                <input v-model="config.player_8421[player.id]" 
+                       class="w-16 bg-blue-900/40 border border-blue-500/20 rounded px-2 py-0.5 text-[10px] font-black text-blue-400 text-center"
+                       placeholder="8421" />
+              </div>
+            </div>
           </div>
         </div>
 
-        <div v-if="config.deduction_type === 'progressive'" class="flex items-center justify-between py-2">
-          <span class="text-xs font-bold text-slate-400">三杆洞+3起扣</span>
-          <div @click="config.deduction_par3_plus3 = !config.deduction_par3_plus3" 
-               class="w-10 h-5 rounded-full relative transition-colors"
-               :class="config.deduction_par3_plus3 ? 'bg-orange-500' : 'bg-slate-800'">
-            <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform"
-                 :class="config.deduction_par3_plus3 ? 'translate-x-5' : ''"></div>
-          </div>
+        <!-- Other Modes -->
+        <div v-else class="flex flex-col items-center justify-center py-8 text-slate-500">
+          <span class="text-sm font-bold">{{ scoringModes.find(m => m.id === config.scoring_mode)?.name }} 已启用</span>
+          <span class="text-[10px] mt-1 opacity-60">按杆数差额计算得分</span>
         </div>
       </div>
 
@@ -412,18 +472,18 @@ const handleSave = async () => {
             <div class="grid grid-cols-6 gap-3 p-2">
               <button v-for="i in 18" :key="i" 
                       @click="toggleHole(i)"
-                      class="aspect-square rounded-full flex items-center justify-center text-xs font-bold border transition-all"
+                      class="aspect-square rounded-full flex items-center justify-center text-xs font-bold border transition-all font-mono"
                       :class="config.active_holes.includes(i) ? 'bg-orange-500 border-orange-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-500'">
                 {{ i }}
               </button>
             </div>
           </template>
-          <template v-else-if="showModal === 'deduction_type'">
-            <button v-for="opt in modalOptions.deduction_type" :key="opt"
-                    @click="selectOption('deduction_type', opt)"
+          <template v-else-if="showModal === 'scoring_mode'">
+            <button v-for="opt in scoringModes" :key="opt.id"
+                    @click="selectOption('scoring_mode', opt.id)"
                     class="w-full py-4 px-6 bg-slate-800 hover:bg-slate-700 text-white rounded-2xl font-bold flex items-center justify-between transition-colors">
-              <span>{{ deductionNames[opt] }}</span>
-              <Check v-if="config.deduction_type === opt" class="w-5 h-5 text-orange-500" />
+              <span>{{ opt.name }}</span>
+              <Check v-if="config.scoring_mode === opt.id" class="w-5 h-5 text-orange-500" />
             </button>
           </template>
           <template v-else>
@@ -440,10 +500,7 @@ const handleSave = async () => {
 
     <!-- Footer -->
     <div class="fixed bottom-0 left-0 right-0 p-6 bg-black/80 backdrop-blur-md flex gap-4">
-      <button class="flex-1 py-5 bg-[#1a1a1a] text-white rounded-full font-bold text-lg border border-white/5 active:scale-95 transition-all">
-        常用设置
-      </button>
-      <button @click="handleSave" class="flex-[2] py-5 bg-red-700 text-white rounded-full font-black text-lg shadow-2xl shadow-red-900/40 active:scale-95 transition-all">
+      <button @click="handleSave" class="w-full py-5 bg-red-700 text-white rounded-full font-black text-lg shadow-2xl shadow-red-900/40 active:scale-95 transition-all">
         确认并返回
       </button>
     </div>

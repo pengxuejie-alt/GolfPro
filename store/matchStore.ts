@@ -104,8 +104,11 @@ export const useMatchStore = defineStore('match', {
      */
     total8421Points(): number[] {
       const totals = new Array(this.user_list.length).fill(0);
+      // Try to find a rule that has custom 8421 settings
+      const ruleWith8421 = this.activeRules.find(r => r.config && r.config.player_8421);
+      
       for (let i = 0; i < 18; i++) {
-        const points = this.calculate8421Points(i);
+        const points = this.calculate8421Points(i, ruleWith8421);
         for (let j = 0; j < this.user_list.length; j++) {
           totals[j] += points[j] || 0;
         }
@@ -430,7 +433,7 @@ export const useMatchStore = defineStore('match', {
       const pIndices = pIds.map(id => this.user_list.findIndex(p => p.id === id)).filter(idx => idx !== -1);
       if (pIndices.some(idx => scores[idx] === 0)) return { profits, nextCarryover };
 
-      if (rule.type === 'vegas_4' || rule.type === 'vegas_big') {
+      if (rule.type === 'vegas_big') {
         if (scores.length < 4 || this.user_list.length < 4) return { profits, nextCarryover };
         const s1 = relScores[0], s2 = relScores[1], s3 = relScores[2], s4 = relScores[3];
         
@@ -456,35 +459,6 @@ export const useMatchStore = defineStore('match', {
         
         const avgPoints = pPoints.reduce((a, b) => a + b, 0) / playerCount;
         let ruleProfits = pPoints.map(p => (p - avgPoints) * playerCount * (rule.base_score || 1));
-
-        // Deductions
-        if (rule.deduction_type && rule.deduction_type !== 'none') {
-          const deductions = new Array(playerCount).fill(0);
-          for (let k = 0; k < playerCount; k++) {
-            const rel = scores[pIndices[k]] - hole.par;
-            let d = 0;
-            if (rule.deduction_type === 'progressive') {
-              let threshold = 4;
-              if (rule.deduction_par3_plus3 && hole.par === 3) threshold = 3;
-              if (rel >= threshold) d = rel - threshold + 1;
-            } else if (rule.deduction_type === 'single_plus4') {
-              if (rel >= 4) d = 1;
-            } else if (rule.deduction_type === 'single_double_par') {
-              if (scores[pIndices[k]] >= hole.par * 2) d = 1;
-            }
-            deductions[k] = d;
-          }
-          
-          for (let k = 0; k < playerCount; k++) {
-            if (deductions[k] > 0) {
-              const loss = deductions[k] * (rule.base_score || 1);
-              ruleProfits[k] -= loss * (playerCount - 1);
-              for (let m = 0; m < playerCount; m++) {
-                if (m !== k) ruleProfits[m] += loss;
-              }
-            }
-          }
-        }
 
         // Carryover (顶洞) - For 8421 point system, we check if top points are tied
         const sortedPoints = [...pPoints].sort((a, b) => b - a);
@@ -628,14 +602,34 @@ export const useMatchStore = defineStore('match', {
 
         if (sA.some(s => s === 0) || sB.some(s => s === 0)) return { profits, nextCarryover };
 
-        const relA = sA.map(s => s - par);
-        const relB = sB.map(s => s - par);
+        const relA = teamA.map(idx => relScores[idx]);
+        const relB = teamB.map(idx => relScores[idx]);
 
         let pkPoints = 0;
-        const is8421 = config.tab && config.tab.includes('8421');
+        const scoringMode = config.scoring_mode || (config.tab === '公鸡母鸡' ? 'product' : (config.tab?.includes('8421') ? '8421' : 'points_3'));
+        const is8421 = scoringMode === '8421';
+        const isStandard = scoringMode === 'product';
+        const isSum = scoringMode === 'sum';
 
-        if (is8421) {
-          const all8421Points = this.calculate8421Points(holeIndex);
+        if (isStandard) {
+          const s1 = relA[0], s2 = relA[1], s3 = relB[0], s4 = relB[1];
+          const scoreA = (s1 <= 0 || s2 <= 0) ? (Math.min(s1, s2) * 10 + Math.max(s1, s2)) : (Math.max(s1, s2) * 10 + Math.min(s1, s2));
+          const scoreB = (s3 <= 0 || s4 <= 0) ? (Math.min(s3, s4) * 10 + Math.max(s3, s4)) : (Math.max(s3, s4) * 10 + Math.min(s3, s4));
+          pkPoints = scoreB - scoreA;
+          
+          // Birdie Double for Standard Vegas
+          if (rule.birdie_double && (s1 < 0 || s2 < 0 || s3 < 0 || s4 < 0)) pkPoints *= 2;
+          // Mon logic
+          if (rule.is_mon) {
+            if (scoreA < scoreB && s3 > 0 && s4 > 0) pkPoints *= 2;
+            else if (scoreB < scoreA && s1 > 0 && s2 > 0) pkPoints *= 2;
+          }
+        } else if (isSum) {
+          const totalA = sA.reduce((a, b) => a + b, 0);
+          const totalB = sB.reduce((a, b) => a + b, 0);
+          pkPoints = totalB - totalA;
+        } else if (is8421) {
+          const all8421Points = this.calculate8421Points(holeIndex, rule);
           const teamAPoints = all8421Points[teamA[0]] + all8421Points[teamA[1]];
           const teamBPoints = all8421Points[teamB[0]] + all8421Points[teamB[1]];
           pkPoints = teamAPoints - teamBPoints;
@@ -662,18 +656,20 @@ export const useMatchStore = defineStore('match', {
 
         let holeProfit = pkPoints * (rule.base_score || 1);
 
-        // Rewards (Multipliers)
-        const rewardConfig = config.reward_amount;
-        let multiplier = 1;
-        if (pkPoints > 0) {
-          const bestA = Math.min(...relA);
-          multiplier = this.getMultiplier(bestA, rewardConfig);
-        } else if (pkPoints < 0) {
-          const bestB = Math.min(...relB);
-          multiplier = this.getMultiplier(bestB, rewardConfig);
+        // Rewards (Multipliers) - Apply to Northern 3 Points mode only
+        // To be consistent with 2-player 8421, 8421 modes don't use these multipliers
+        if (!isStandard && !is8421) {
+          const rewardConfig = config.reward_amount;
+          let multiplier = 1;
+          if (pkPoints > 0) {
+            const bestA = Math.min(...relA);
+            multiplier = this.getMultiplier(bestA, rewardConfig);
+          } else if (pkPoints < 0) {
+            const bestB = Math.min(...relB);
+            multiplier = this.getMultiplier(bestB, rewardConfig);
+          }
+          holeProfit *= multiplier;
         }
-
-        holeProfit *= multiplier;
 
         // Carryover
         const winnerRel = pkPoints > 0 ? Math.min(...relA) : Math.min(...relB);
@@ -692,40 +688,8 @@ export const useMatchStore = defineStore('match', {
         profits[teamB[0]] = -holeProfit;
         profits[teamB[1]] = -holeProfit;
 
-        // Deductions for 8421
-        if (is8421 && config.deduction_type && config.deduction_type !== 'none') {
-          const pIndices = [...teamA, ...teamB];
-          const deductions = new Array(4).fill(0);
-          for (let k = 0; k < 4; k++) {
-            const idx = pIndices[k];
-            const rel = scores[idx] - par;
-            let d = 0;
-            if (config.deduction_type === 'progressive') {
-              let threshold = 4;
-              if (config.deduction_par3_plus3 && par === 3) threshold = 3;
-              if (rel >= threshold) d = rel - threshold + 1;
-            } else if (config.deduction_type === 'single_plus4') {
-              if (rel >= 4) d = 1;
-            } else if (config.deduction_type === 'single_double_par') {
-              if (scores[idx] >= par * 2) d = 1;
-            }
-            deductions[k] = d;
-          }
-
-          for (let k = 0; k < 4; k++) {
-            if (deductions[k] > 0) {
-              const loss = deductions[k] * (rule.base_score || 1);
-              profits[pIndices[k]] -= loss * 3;
-              for (let m = 0; m < 4; m++) {
-                if (m !== k) profits[pIndices[m]] += loss;
-              }
-            }
-          }
-        }
-
-        // Blowup Hole (包洞) - Only for non-8421 or if explicitly requested?
-        // Usually 8421 doesn't have "blowup" in the same way, but let's keep it if it's not 8421
-        if (!is8421) {
+        // Blowup Hole (包洞) - Only for non-8421 and non-standard
+        if (!is8421 && !isStandard) {
           const threshold = config.hole_guarantee === 'double par包洞' ? par * 2 : (config.hole_guarantee === 'double par+1包洞' ? par * 2 + 1 : 999);
           
           if (holeProfit > 0) {
@@ -883,7 +847,7 @@ export const useMatchStore = defineStore('match', {
       return 0;
     },
 
-    calculate8421Points(holeIndex: number): number[] {
+    calculate8421Points(holeIndex: number, rule?: PKRule): number[] {
       const hole = this.holeScores[holeIndex];
       if (!hole) return new Array(this.user_list.length).fill(0);
       
@@ -898,13 +862,48 @@ export const useMatchStore = defineStore('match', {
         }
         const rel = score - hole.par;
         
-        if (rel <= -3) pPoints[i] = 32; // Albatross or better
-        else if (rel === -2) pPoints[i] = 16; // Eagle
-        else if (rel === -1) pPoints[i] = 8; // Birdie
-        else if (rel === 0) pPoints[i] = 4; // Par
-        else if (rel === 1) pPoints[i] = 2; // Bogey
-        else if (rel === 2) pPoints[i] = 1; // Double Bogey
-        else pPoints[i] = 0; // Triple Bogey or worse
+        let points = 0;
+        if (rel <= -3) points = 32; // Albatross or better
+        else if (rel === -2) points = 16; // Eagle
+        else if (rel === -1) points = 8; // Birdie
+        else if (rel === 0) points = 4; // Par
+        else if (rel === 1) points = 2; // Bogey
+        else if (rel === 2) points = 1; // Double Bogey
+        else points = 0; // Triple Bogey or worse
+
+        // Custom player-specific 8421 values
+        if (rule && rule.config && rule.config.player_8421 && rule.config.player_8421[this.user_list[i].id]) {
+          const customStr = rule.config.player_8421[this.user_list[i].id];
+          // Index 0: Birdie (-1), 1: Par (0), 2: +1, 3: +2, 4: +3
+          if (rel === -1 && customStr.length >= 1) points = parseInt(customStr[0]);
+          else if (rel === 0 && customStr.length >= 2) points = parseInt(customStr[1]);
+          else if (rel === 1 && customStr.length >= 3) points = parseInt(customStr[2]);
+          else if (rel === 2 && customStr.length >= 4) points = parseInt(customStr[3]);
+          else if (rel === 3 && customStr.length >= 5) points = parseInt(customStr[4]);
+          else if (rel === -2) points = (parseInt(customStr[0]) || 8) * 2;
+          else if (rel <= -3) points = (parseInt(customStr[0]) || 8) * 4;
+          else if (rel > 3) points = 0;
+        }
+
+        // Deduction logic
+        const deductionType = rule?.config?.deduction_type || rule?.deduction_type;
+        const deductionPar3 = rule?.config?.deduction_par3_plus3 || rule?.deduction_par3_plus3;
+
+        if (deductionType && deductionType !== 'none') {
+          let d = 0;
+          if (deductionType === 'progressive') {
+            let threshold = 4;
+            if (deductionPar3 && hole.par === 3) threshold = 3;
+            if (rel >= threshold) d = rel - threshold + 1;
+          } else if (deductionType === 'single_plus4') {
+            if (rel >= 4) d = 1;
+          } else if (deductionType === 'single_double_par') {
+            if (score >= hole.par * 2) d = 1;
+          }
+          points -= d;
+        }
+        
+        pPoints[i] = points;
       }
       return pPoints;
     },

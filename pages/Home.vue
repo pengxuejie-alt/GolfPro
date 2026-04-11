@@ -91,34 +91,36 @@ const executeDelete = async () => {
 <template>
   <div class="min-h-screen pb-24 px-4 pt-4 bg-slate-50 safe-top">
     <!-- Header -->
-    <header class="flex justify-between items-center mb-6 pt-2 pr-[90px]">
-      <div class="flex items-center gap-3">
-        <div class="w-12 h-12 rounded-full border-2 border-green-500 p-0.5">
-          <img 
-            :src="userStore.profile.avatar" 
-            :alt="userStore.profile.nickname" 
-            class="w-full h-full rounded-full object-cover" 
-          />
-        </div>
-        <div>
-          <h1 class="text-lg font-bold text-slate-900">{{ t(T.greeting) }}, {{ userStore.profile.nickname }}! 👋</h1>
-          <p class="text-xs text-slate-500 font-medium">{{ t(T.hcp) }}: {{ averageHandicap }}</p>
+    <header class="flex flex-col mb-6 pt-2">
+      <div class="flex justify-between items-center mb-4 pr-[90px]">
+        <div class="flex items-center gap-3">
+          <div class="w-12 h-12 rounded-full border-2 border-green-500 p-0.5">
+            <img 
+              :src="userStore.profile.avatar" 
+              :alt="userStore.profile.nickname" 
+              class="w-full h-full rounded-full object-cover" 
+            />
+          </div>
+          <div>
+            <h1 class="text-lg font-bold text-slate-900">{{ t(T.greeting) }}, {{ userStore.profile.nickname }}! 👋</h1>
+            <p class="text-xs text-slate-500 font-medium">{{ t(T.hcp) }}: <span class="font-mono font-bold">{{ averageHandicap }}</span></p>
+          </div>
         </div>
       </div>
     </header>
 
     <!-- Weather Widget -->
-    <div class="mb-8">
-      <div class="bg-white rounded-[32px] p-6 border-2 border-slate-100 shadow-sm flex justify-between items-center">
+    <div class="mb-6">
+      <div class="bg-white rounded-[32px] p-5 border-2 border-slate-100 shadow-sm flex justify-between items-center">
         <div class="flex flex-col">
-          <div class="flex items-center gap-2 text-slate-500 text-sm font-medium mb-2">
+          <div class="flex items-center gap-2 text-slate-500 text-sm font-medium mb-1.5">
             <MapPin :size="16" class="text-slate-400" /> 广州·天河区
           </div>
-          <div class="flex items-baseline gap-2 mb-1">
-            <div class="text-4xl font-bold text-slate-900">26°C</div>
-            <div class="text-lg text-slate-400 font-medium">/ 20°C</div>
+          <div class="flex items-baseline gap-2 mb-0.5">
+            <div class="text-3xl font-bold text-slate-900 font-mono">26°C</div>
+            <div class="text-base text-slate-400 font-medium font-mono">/ 20°C</div>
           </div>
-          <div class="text-base text-slate-800 font-bold">晴 · 优</div>
+          <div class="text-sm text-slate-800 font-bold">晴 · 优</div>
         </div>
         
         <div class="flex flex-col items-end">
@@ -138,30 +140,37 @@ const executeDelete = async () => {
     </div>
 
     <!-- Quick Actions -->
-    <div class="grid grid-cols-2 gap-4 mb-8">
+    <div class="grid grid-cols-2 gap-3 mb-5">
       <div 
         @click="handleNavigate(Tab.CREATE)"
-        class="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 active:scale-95 transition-transform cursor-pointer"
+        class="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 active:scale-95 transition-transform cursor-pointer flex items-center gap-3"
       >
-        <div class="w-10 h-10 rounded-2xl bg-lime-100 text-lime-600 flex items-center justify-center mb-3">
+        <div class="w-10 h-10 rounded-xl bg-lime-100 text-lime-600 flex items-center justify-center shrink-0">
           <Flag :size="20" fill="currentColor" />
         </div>
-        <h3 class="font-bold text-slate-800">{{ T.createMatch.zh || T.createMatch }}</h3>
-        <p class="text-xs text-slate-400 mt-1">{{ T.startNewRound.zh || T.startNewRound }}</p>
+        <div class="min-w-0">
+          <h3 class="font-bold text-slate-800 text-sm truncate">{{ T.createMatch.zh || T.createMatch }}</h3>
+          <p class="text-[10px] text-slate-400 truncate">{{ T.startNewRound.zh || T.startNewRound }}</p>
+        </div>
       </div>
-      <div class="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 active:scale-95 transition-transform cursor-pointer" @click="handleNavigate(Tab.PLAYERS)">
-        <div class="w-10 h-10 rounded-2xl bg-orange-100 text-orange-600 flex items-center justify-center mb-3">
+      <div 
+        @click="handleNavigate(Tab.MATCH_SQUARE)"
+        class="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 active:scale-95 transition-transform cursor-pointer flex items-center gap-3"
+      >
+        <div class="w-10 h-10 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center shrink-0">
           <Trophy :size="20" />
         </div>
-        <h3 class="font-bold text-slate-800">{{ T.matchSquare.zh || T.matchSquare }}</h3>
-        <p class="text-xs text-slate-400 mt-1">{{ T.viewNearby.zh || T.viewNearby }}</p>
+        <div class="min-w-0">
+          <h3 class="font-bold text-slate-800 text-sm truncate">{{ T.matchSquare.zh || T.matchSquare }}</h3>
+          <p class="text-[10px] text-slate-400 truncate">{{ T.viewNearby.zh || T.viewNearby }}</p>
+        </div>
       </div>
     </div>
 
     <!-- Today's Match Section -->
     <div class="mb-4 flex items-center justify-between px-1">
       <h2 class="text-lg font-bold text-slate-800">{{ T.todayMatch.zh || T.todayMatch }} ({{ todayMatches.length }})</h2>
-      <span @click="handleNavigate(Tab.PLAYERS)" class="text-xs text-slate-400 flex items-center cursor-pointer active:opacity-70">{{ T.viewAll.zh || T.viewAll }} <ChevronRight :size="12" /></span>
+      <span @click="handleNavigate(Tab.MATCH_SQUARE)" class="text-xs text-slate-400 flex items-center cursor-pointer active:opacity-70">{{ T.viewAll.zh || T.viewAll }} <ChevronRight :size="12" /></span>
     </div>
 
     <div v-if="todayMatches.length > 0" class="space-y-4 mb-8">
@@ -217,7 +226,7 @@ const executeDelete = async () => {
     <!-- History Section -->
     <div class="mb-4 flex items-center justify-between px-1">
       <h2 class="text-lg font-bold text-slate-800">{{ T.historyMatch.zh || T.historyMatch }} ({{ historyMatches.length }})</h2>
-      <span @click="handleNavigate(Tab.PLAYERS)" class="text-xs text-slate-400 flex items-center cursor-pointer active:opacity-70">{{ T.viewAll.zh || T.viewAll }} <ChevronRight :size="12" /></span>
+      <span @click="handleNavigate(Tab.MATCH_SQUARE)" class="text-xs text-slate-400 flex items-center cursor-pointer active:opacity-70">{{ T.viewAll.zh || T.viewAll }} <ChevronRight :size="12" /></span>
     </div>
 
     <div v-if="historyMatches.length > 0" class="space-y-4">

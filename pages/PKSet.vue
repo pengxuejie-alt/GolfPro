@@ -96,14 +96,20 @@ const saveAndStart = async () => {
   
   // Update store if needed
   matchStore.addRule({
-    id: Math.random().toString(36).substr(2, 9),
-    type: ruleConfig.value.pk_mode === 1 ? 'vegas_4' : (ruleConfig.value.pk_mode === 2 ? '8421_1v1' : 'strokes'),
+    id: props.params?.rule_id || Math.random().toString(36).substr(2, 9),
+    type: ruleConfig.value.pk_mode === 1 ? 'vegas_4' : (ruleConfig.value.pk_mode === 2 ? '8421_1v1' : (ruleConfig.value.pk_mode === 3 ? 'holes' : 'strokes')),
     category: 'multi',
     name: modeNames[ruleConfig.value.pk_mode - 1],
     base_score: ruleConfig.value.base_score,
     is_mon: ruleConfig.value.is_mon,
     birdie_double: ruleConfig.value.birdie_double,
-    player_ids: ruleConfig.value.players.filter(p => p).map(p => p.id)
+    player_ids: ruleConfig.value.players.filter(p => p).map(p => p.id),
+    participant_count: ruleConfig.value.players.filter(p => p).length,
+    handicap_config: {
+      type: ruleConfig.value.strokes_type === 'hole' ? '单洞' : 'none',
+      value: ruleConfig.value.give_strokes
+    },
+    config: { ...ruleConfig.value }
   });
 
   await matchStore.saveMatch();
@@ -154,7 +160,7 @@ const saveAndStart = async () => {
           <span class="text-sm font-medium">底分</span>
           <div class="flex items-center gap-4 bg-[#1a1a1a] rounded-lg p-1">
             <button @click="ruleConfig.base_score = Math.max(1, ruleConfig.base_score - 1)" class="w-8 h-8 flex items-center justify-center text-red-500"><Minus class="w-4 h-4" /></button>
-            <input type="number" v-model="ruleConfig.base_score" class="w-12 text-center bg-transparent text-sm font-bold" />
+            <input type="number" v-model="ruleConfig.base_score" class="w-12 text-center bg-transparent text-sm font-bold font-mono" />
             <button @click="ruleConfig.base_score += 1" class="w-8 h-8 flex items-center justify-center text-red-500"><Plus class="w-4 h-4" /></button>
           </div>
         </div>
@@ -203,7 +209,7 @@ const saveAndStart = async () => {
         <div class="grid grid-cols-6 gap-3">
           <div v-for="(hole, idx) in holeList" :key="idx" 
                @click="toggleHole(idx)"
-               class="aspect-square rounded-full flex items-center justify-center text-xs font-bold border transition-all"
+               class="aspect-square rounded-full flex items-center justify-center text-xs font-bold border transition-all font-mono"
                :class="hole.selected ? 'bg-red-500 border-red-500 text-white shadow-lg shadow-red-500/20' : 'bg-[#1a1a1a] border-[#333] text-slate-500'">
             {{ hole.no }}
           </div>

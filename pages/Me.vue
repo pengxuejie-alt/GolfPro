@@ -240,12 +240,13 @@ const updateProfile = () => {
 
     <!-- History Page (Horizontal Poster Style Cards) -->
     <div v-else-if="currentSubPage === 'history'" class="pb-24">
-      <div class="sticky top-0 bg-slate-50 z-20 px-6 py-4 flex items-center justify-between border-b border-slate-100 pr-[90px]">
-        <button @click="currentSubPage = 'main'" class="flex items-center gap-1 text-slate-900 font-bold">
+      <div class="sticky top-0 bg-slate-50 z-20 px-6 py-4 flex items-center justify-between border-b border-slate-100">
+        <button @click="currentSubPage = 'main'" class="flex items-center gap-1 text-slate-900 font-bold w-20">
           <ChevronLeft :size="20" />
           <span>返回</span>
         </button>
-        <h1 class="text-lg font-black text-slate-900 tracking-tight">历史战绩</h1>
+        <h1 class="text-lg font-black text-slate-900 tracking-tight">历史比赛</h1>
+        <div class="w-20"></div>
       </div>
 
       <div class="p-4 space-y-6">

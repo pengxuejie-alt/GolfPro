@@ -11,6 +11,7 @@ import PlayerProfile from './pages/PlayerProfile.vue';
 import PKDizhu from './pages/PKDizhu.vue';
 import PKTiger from './pages/PKTiger.vue';
 import PKLashi from './pages/PKLashi.vue';
+import MatchSquare from './pages/MatchSquare.vue';
 import { Home as HomeIcon, Users, User } from 'lucide-vue-next';
 import { Tab } from './types';
 
@@ -41,6 +42,8 @@ const currentComponent = computed(() => {
       return PKTiger;
     case Tab.PK_LASHI:
       return PKLashi;
+    case Tab.MATCH_SQUARE:
+      return MatchSquare;
     default:
       return Home;
   }

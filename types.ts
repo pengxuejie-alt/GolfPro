@@ -9,7 +9,8 @@ export enum Tab {
   PLAYER_PROFILE = 'PLAYER_PROFILE',
   PK_DIZHU = 'PK_DIZHU',
   PK_TIGER = 'PK_TIGER',
-  PK_LASHI = 'PK_LASHI'
+  PK_LASHI = 'PK_LASHI',
+  MATCH_SQUARE = 'MATCH_SQUARE'
 }
 
 export interface Player {
