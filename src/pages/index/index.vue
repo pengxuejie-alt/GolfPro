@@ -15,6 +15,7 @@ import {
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { hydratePlayerAvatarsInMatchList, mergeRosterAvatarFieldsIntoUserList, safeMpAvatarImgSrc } from '@/utils/mpAvatarSrc';
 import { hydrateMatchListRostersFromUserProfiles } from '@/utils/mpMatchListRosterHydrate';
+import { resolveCloudAvatarsInMatchList } from '@/utils/rosterAvatarDisplay';
 import { formatMatchKickoffCn } from '@/utils/matchKickoff';
 import { golfHoleMarkKind, type GolfHoleMarkKind } from '@/utils/golfScoreShapes';
 const DEFAULT_AVATAR_URL = mpStaticAbsolute('tab/me.png');
@@ -668,6 +669,7 @@ const loadMatches = async (opts?: { showLoading?: boolean }) => {
     const deduped = Array.isArray(list) ? list : [];
     await hydrateMatchListRostersFromUserProfiles(deduped);
     await hydratePlayerAvatarsInMatchList(deduped);
+    await resolveCloudAvatarsInMatchList(deduped);
     matches.value = deduped;
     console.info('[index] loadMatches 完成，共', matches.value.length, '条');
     if (matches.value.length === 0) {
@@ -678,6 +680,7 @@ const loadMatches = async (opts?: { showLoading?: boolean }) => {
     matches.value = readMatchesFromStorage();
     await hydrateMatchListRostersFromUserProfiles(matches.value);
     await hydratePlayerAvatarsInMatchList(matches.value);
+    await resolveCloudAvatarsInMatchList(matches.value);
     offlineBannerText.value = '加载异常 · 已显示本机缓存';
   } finally {
     matchListLoading.value = false;

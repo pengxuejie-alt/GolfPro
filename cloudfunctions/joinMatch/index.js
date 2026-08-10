@@ -104,6 +104,8 @@ exports.main = async (event) => {
 
     players.push({
       uid: openId,
+      id: openId,
+      openId,
       nickName: nickName || '球友',
       nickname: nickName || '球友',
       avatarUrl,
@@ -143,17 +145,30 @@ exports.main = async (event) => {
 
     try {
       const uSnap = await db.collection('users').where({ _openid: openId }).limit(1).get();
+      const userPayload = {
+        nickName: nickName || '球友',
+        avatarUrl,
+        updated_at: db.serverDate(),
+      };
       if (uSnap.data && uSnap.data.length > 0) {
-        await db.collection('users').doc(uSnap.data[0]._id).update({
+        await db.collection('users').doc(uSnap.data[0]._id).update({ data: userPayload });
+      } else {
+        await db.collection('users').add({
           data: {
+            _openid: openId,
+            openid: openId,
             nickName: nickName || '球友',
             avatarUrl,
+            handicap: Number.isFinite(handicap) ? handicap : 0,
+            gender: 0,
+            city: '',
             updated_at: db.serverDate(),
+            created_at: db.serverDate(),
           },
         });
       }
     } catch (e) {
-      console.warn('[joinMatch] users update', e);
+      console.warn('[joinMatch] users upsert', e);
     }
 
     const updatedSnap = await db.collection('matches').doc(docId).get();

@@ -14,6 +14,7 @@ import { savePackagedImageToAlbum, saveImageToPhotosAlbumSafe } from '@/utils/sa
 import { signInWithWeChat } from '@/utils/auth';
 import { requestPrivacyAgreementViaPopup, requirePrivacyAuthorizeAsync } from '@/utils/mpPrivacyBridge';
 import { safeMpAvatarImgSrc, looksLikeExpiredProneTencentTempHttps } from '@/utils/mpAvatarSrc';
+import { buildRosterAvatarDisplayMap, isLikelyWeChatOpenId } from '@/utils/rosterAvatarDisplay';
 import { golfScoreCellMarkClasses, golfHoleMarkKind } from '@/utils/golfScoreShapes';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { formatMatchKickoffCn, shouldAutoEndByKickoffTtl } from '@/utils/matchKickoff';
@@ -162,7 +163,27 @@ const scorecardCourseName = computed(() => {
   );
 });
 
-/** 从比赛 players / user_list 收集 openId（对齐 normalizeMatchPlayer 的 id/openId/player_uid） */
+/** 展示用临时 https（不写回云库，避免签名过期） */
+const rosterAvatarDisplay = ref<Record<string, string>>({});
+
+async function refreshRosterAvatarDisplay(): Promise<void> {
+  const players = matchStore.user_list;
+  if (!players.length) {
+    rosterAvatarDisplay.value = {};
+    return;
+  }
+  const ids = players.map((p) => p.id).filter(Boolean);
+  const profileMap = await fetchUsersProfilesByOpenIds(ids);
+  const profileHttps = new Map<string, string>();
+  for (const [oid, prof] of profileMap) {
+    const av = prof.avatarUrl?.trim();
+    if (av && av.startsWith('https://') && !looksLikeExpiredProneTencentTempHttps(av)) {
+      profileHttps.set(oid, av);
+    }
+  }
+  rosterAvatarDisplay.value = await buildRosterAvatarDisplayMap(players, profileHttps);
+}
+
 function collectPlayerOpenIdsFromMatch(m: Record<string, unknown>): string[] {
   const roster = (m.user_list ?? m.players ?? []) as unknown[];
   if (!Array.isArray(roster)) return [];
@@ -287,11 +308,6 @@ function mergeAvatarForCloudCosmeticSync(cloudRowAv: string | undefined, storeAv
   return mergeAvatarFromCloudRoster(cloudRowAv, storeAv);
 }
 
-/** 计分卡 roster 保持 cloud:// fileID，勿写回 COS 临时 HTTPS（下一刷 safeMp 清空后无 cloud 可追溯 → 默认头像）。<image> 已支持 cloud://。 */
-async function resolveRosterCloudAvatarsToTempUrls(): Promise<boolean> {
-  return false;
-}
-
 /** 根据 openId 对齐 matchStore · currentMatch，完成计分卡展示闭环 */
 function applyUsersProfilesToRoster(profileMap: Map<string, { nickName: string; avatarUrl: string }>): boolean {
   let modified = false;
@@ -309,7 +325,16 @@ function applyUsersProfilesToRoster(profileMap: Map<string, { nickName: string; 
     const profileAvFiltered =
       avCloudRaw && looksLikeExpiredProneTencentTempHttps(avCloudRaw) ? undefined : avCloudRaw || undefined;
     const avatar = mergeAvatarFromCloudRoster(pl.avatar, profileAvFiltered);
-    const nickname = (u.nickName && String(u.nickName).trim()) || pl.nickname;
+    let nickname = (u.nickName && String(u.nickName).trim()) || pl.nickname;
+    if (
+      u.nickName &&
+      (!pl.nickname?.trim() ||
+        pl.nickname === '球友' ||
+        isLikelyWeChatOpenId(pl.nickname) ||
+        pl.nickname === pl.id)
+    ) {
+      nickname = String(u.nickName).trim();
+    }
     if (nickname !== pl.nickname || avatar !== pl.avatar) modified = true;
     return {
       ...pl,
@@ -345,8 +370,8 @@ async function hydrateTeammatesFromUsersCollection(match: Record<string, unknown
   } catch (e) {
     console.warn('[scorecard] hydrateTeammatesFromUsersCollection', e);
   }
-  const urlTouched = await resolveRosterCloudAvatarsToTempUrls();
-  return updated || urlTouched;
+  await refreshRosterAvatarDisplay();
+  return updated || Object.keys(rosterAvatarDisplay.value).length > 0;
 }
 
 const isWechatFriendShareReady = computed(() => {
@@ -2072,13 +2097,8 @@ async function syncMatchFromCloud(source: 'show' | 'poll' | 'pull') {
       await MatchManager.upsertLocalMatch(currentMatch.value);
       await saveMatch({ skipCloudPush: true });
     }
-    const avatarUrlTouched =
-      rosterStable && source === 'poll'
-        ? false
-        : await resolveRosterCloudAvatarsToTempUrls();
-    if (avatarUrlTouched && currentMatch.value) {
-      await MatchManager.upsertLocalMatch(currentMatch.value);
-      await saveMatch({ skipCloudPush: true });
+    if (shouldHydrateProfiles || needsAvatarHydrate) {
+      await refreshRosterAvatarDisplay();
     }
     if (source === 'poll' || source === 'pull') {
       if (newPlayers || scoreUpdate || rulesMeta.pk || rulesMeta.meta) {
@@ -2177,8 +2197,10 @@ const players = computed(() => {
 
 const DEFAULT_RULE_SLOT_AVATAR = mpStaticAbsolute('tab/me.png');
 
-function avatarOrDefault(p: { avatar?: string } | null | undefined): string {
-  const a = p?.avatar != null ? String(p.avatar).trim() : '';
+function avatarOrDefault(p: { id?: string; avatar?: string } | null | undefined): string {
+  const id = p?.id != null ? String(p.id).trim() : '';
+  const resolved = id ? rosterAvatarDisplay.value[id] : '';
+  const a = resolved || (p?.avatar != null ? String(p.avatar).trim() : '');
   return safeMpAvatarImgSrc(a, DEFAULT_RULE_SLOT_AVATAR);
 }
 
@@ -4075,7 +4097,7 @@ const posterPreviewSrc = ref('');
     <div v-if="showPlayerActionModal" class="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm" @click.self="showPlayerActionModal = false">
       <div class="w-full max-w-lg bg-white rounded-t-3xl overflow-hidden animate-in slide-in-from-bottom duration-300">
         <div class="p-6 flex flex-col items-center border-b border-slate-100">
-          <img :src="selectedPlayer?.avatar || `https://picsum.photos/seed/${selectedPlayer?.id}/100/100`" class="w-16 h-16 rounded-full border-2 border-slate-200 mb-3" />
+          <image :src="avatarOrDefault(selectedPlayer ?? undefined)" class="w-16 h-16 rounded-full border-2 border-slate-200 mb-3" mode="aspectFill" />
           <h3 class="text-lg font-bold text-slate-900">{{ selectedPlayer?.nickname }}</h3>
           <p v-if="selectedPlayer?.handicap != null" class="text-xs text-slate-500 mt-1">差点: {{ selectedPlayer.handicap }}</p>
         </div>

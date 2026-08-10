@@ -3,6 +3,7 @@
  */
 
 import { looksLikeExpiredProneTencentTempHttps } from './mpAvatarSrc';
+import { isLikelyWeChatOpenId } from './rosterAvatarDisplay';
 
 function rosterAvatarForMerge(raw: unknown): string {
   const s = raw != null && String(raw).trim() !== '' ? String(raw).trim() : '';
@@ -113,10 +114,13 @@ function applyProfilesToRoster(roster: unknown, profiles: Map<string, { nickName
     /** users 里也常存已过期的 COS 临时链；勿用它盖住 cloud:// */
     const incoming = rosterAvatarForMerge(prof.avatarUrl);
     const curExpiredCos = !!(curBest && looksLikeExpiredProneTencentTempHttps(curBest));
+    const curIsCloud = curBest.startsWith('cloud://');
+    const incomingHttps = incoming.startsWith('https://') && !looksLikeExpiredProneTencentTempHttps(incoming);
 
     const needAvatar =
       !curBest ||
       curExpiredCos ||
+      (curIsCloud && incomingHttps) ||
       (!isShareableHttpsAvatar(curBest) &&
         incoming &&
         (incoming.startsWith('https://') || incoming.startsWith('cloud://')));
@@ -126,11 +130,23 @@ function applyProfilesToRoster(roster: unknown, profiles: Map<string, { nickName
       o.avatarUrl = incoming;
       o.avatar = incoming;
     }
-    if (prof.nickName && typeof o.nickname === 'string' && !o.nickname.trim()) {
-      o.nickname = prof.nickName;
-    }
-    if (prof.nickName && typeof o.nickName === 'string' && !o.nickName.trim()) {
-      o.nickName = prof.nickName;
+    if (prof.nickName) {
+      const nick = String(prof.nickName).trim();
+      const curNick = typeof o.nickname === 'string' ? o.nickname.trim() : '';
+      const curNick2 = typeof o.nickName === 'string' ? o.nickName.trim() : '';
+      const oid = rosterPlayerKey(o);
+      const shouldNick =
+        nick &&
+        (!curNick || curNick === '球友' || isLikelyWeChatOpenId(curNick) || (oid && curNick === oid));
+      if (shouldNick) {
+        o.nickname = nick;
+      }
+      const shouldNick2 =
+        nick &&
+        (!curNick2 || curNick2 === '球友' || isLikelyWeChatOpenId(curNick2) || (oid && curNick2 === oid));
+      if (shouldNick2) {
+        o.nickName = nick;
+      }
     }
   }
 }
