@@ -24,6 +24,11 @@ import {
 } from '@/utils/avatarDisplayCache';
 import { formatMatchKickoffCn } from '@/utils/matchKickoff';
 import { golfHoleMarkKind, type GolfHoleMarkKind } from '@/utils/golfScoreShapes';
+import {
+  requestDeviceLocationCached,
+  hasWeatherRefreshedThisSession,
+  markWeatherRefreshedThisSession,
+} from '@/utils/deviceLocationCache';
 const DEFAULT_AVATAR_URL = mpStaticAbsolute('tab/me.png');
 const SHARE_CARD_POSTER_BG = mpStaticAbsolute('share-card.png');
 
@@ -753,39 +758,11 @@ const hasMpWechatProfile = computed(() => {
   return n != null && String(n).trim() !== '';
 });
 
-function requestDeviceLocation(): Promise<{ latitude: number; longitude: number } | null> {
-  return new Promise((resolve) => {
-    try {
-      uni.getLocation({
-        type: 'gcj02',
-        isHighAccuracy: false,
-        success: (res) => {
-          const lat = Number(res.latitude);
-          const lng = Number(res.longitude);
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-            console.warn('[index] getLocation: invalid coords', res);
-            applyMockWeatherSilently();
-            resolve(null);
-            return;
-          }
-          resolve({ latitude: lat, longitude: lng });
-        },
-        fail: (err) => {
-          const errno = getLocationFailErrno(err);
-          applyLocationMockForErrno(errno);
-          resolve(null);
-        },
-      });
-    } catch (e) {
-      console.warn('[index] requestDeviceLocation', e);
-      applyMockWeatherSilently();
-      resolve(null);
-    }
-  });
-}
-
-async function refreshLocationWeather() {
+async function refreshLocationWeather(opts?: { force?: boolean }) {
   try {
+    const force = opts?.force === true;
+    if (!force && hasWeatherRefreshedThisSession()) return;
+
     const needAuth = await getPrivacyNeedAuthorizationAsync();
     if (needAuth) {
       weatherLocationHint.value = '请同意隐私指引后使用定位';
@@ -793,7 +770,10 @@ async function refreshLocationWeather() {
       return;
     }
 
-    const loc = await requestDeviceLocation();
+    const loc = await requestDeviceLocationCached({
+      force,
+      onFail: (errno) => applyLocationMockForErrno(errno),
+    });
     if (!loc) return;
 
     weatherLocationHint.value = '';
@@ -802,7 +782,9 @@ async function refreshLocationWeather() {
     const ok = await fetchOpenMeteoWeather(loc.latitude, loc.longitude);
     if (!ok) {
       applyMockWeatherSilently();
+      return;
     }
+    markWeatherRefreshedThisSession();
   } catch (e) {
     console.warn('[index] refreshLocationWeather', e);
     applyMockWeatherSilently();
@@ -942,10 +924,10 @@ onLoad((options?: Record<string, string | undefined>) => {
     console.warn('[index] share_invite 写入失败', e);
   }
 
-  /** 隐私仅注册回调；errno 112 等只在 getLocation fail 内处理，不中断页面生命周期 */
+  /** 隐私同意后再拉一次真实定位与天气（force 绕过本会话缓存） */
   onPrivacyContractAgreed(() => {
     try {
-      void refreshLocationWeather();
+      void refreshLocationWeather({ force: true });
     } catch (e) {
       console.warn('[index] refresh after privacy agree', e);
     }
@@ -963,6 +945,9 @@ onLoad((options?: Record<string, string | undefined>) => {
       return;
     }
     // #endif
+
+    void refreshLocationWeather();
+
     // ── Step 1: 调用 login 云函数拿 openId ──
     let myOpenId = userStore.openId || '';
     if (!myOpenId) {
@@ -1028,17 +1013,6 @@ onLoad((options?: Record<string, string | undefined>) => {
 onShow(() => {
   syncIndexTopPadForMenu();
   greetingI18n.value = getTimeGreeting();
-  void getPrivacyNeedAuthorizationAsync()
-    .then((needAuth) => {
-      if (!needAuth) {
-        try {
-          void refreshLocationWeather();
-        } catch (e) {
-          console.warn('[index] refreshLocation onShow', e);
-        }
-      }
-    })
-    .catch((e) => console.warn('[index] getPrivacyNeedAuthorizationAsync', e));
 
   if (isFirstShow) {
     isFirstShow = false;

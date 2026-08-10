@@ -11,6 +11,7 @@ import { goBack, replaceRoute } from '@/utils/uniNav';
 import { courseNeedsSectionCombo, sectionsForCoursePicker } from '@/utils/courseSections';
 import { sortCoursesForPicker } from '@/utils/coursePickerSort';
 import { kickoffTimeMs, matchListSortTimeMs } from '@/utils/matchKickoff';
+import { getPickerLocationSync, resolvePickerLocation } from '@/utils/deviceLocationCache';
 
 const matchStore = useMatchStore();
 const userStore = useUserStore();
@@ -70,21 +71,9 @@ const allCourses = computed(() => {
 
 const catalogStats = courseCatalogStats();
 
-const pickerLocation = ref<{ lat: number; lng: number } | null>(null);
+const pickerLocation = ref<{ lat: number; lng: number }>(getPickerLocationSync());
 const coursePlayCounts = ref<Record<string, number>>({});
 const courseLastPlayedMs = ref<Record<string, number>>({});
-
-function requestPickerLocation() {
-  uni.getLocation({
-    type: 'gcj02',
-    success: (res) => {
-      pickerLocation.value = { lat: res.latitude, lng: res.longitude };
-    },
-    fail: () => {
-      pickerLocation.value = { lat: 23.1291, lng: 113.3239 };
-    },
-  });
-}
 
 async function loadCoursePlayCounts() {
   try {
@@ -108,7 +97,10 @@ async function loadCoursePlayCounts() {
 
 watch(showCoursePicker, (open) => {
   if (!open) return;
-  requestPickerLocation();
+  pickerLocation.value = getPickerLocationSync();
+  void resolvePickerLocation().then((loc) => {
+    pickerLocation.value = loc;
+  });
   void loadCoursePlayCounts();
 });
 
