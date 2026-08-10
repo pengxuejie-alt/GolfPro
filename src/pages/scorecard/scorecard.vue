@@ -1800,6 +1800,7 @@ const saveMatch = async (opts?: { skipCloudPush?: boolean }) => {
     currentMatch.value.user_list = matchStore.user_list;
     await MatchManager.updateMatch(currentMatch.value, { skipCloudSave: opts?.skipCloudPush === true });
     lastLocalScoreCommitAt.value = Date.now();
+    markScorecardPollActivity();
     if (!opts?.skipCloudPush) {
       queueCloudScoreSync();
     }
@@ -1927,6 +1928,50 @@ function parseCloudUpdatedAt(v: unknown): number {
   return 0;
 }
 
+type MatchCloudRevision = {
+  match_id: string;
+  updated_at_ms: number;
+  match_meta_sync_ts: number;
+  pk_rules_sync_ts: number;
+  roster_sig: string;
+  roster_len: number;
+  embed_strokes: number;
+  legacy_scores_ms: number;
+  legacy_scores_count: number;
+};
+
+function matchRevisionSig(rev: MatchCloudRevision | null | undefined): string {
+  if (!rev) return '';
+  return JSON.stringify(rev);
+}
+
+function sortedRosterIdsSigFromMatch(m: Record<string, unknown> | null | undefined): string {
+  if (!m) return '';
+  const roster = (m.user_list ?? m.players) as unknown[];
+  if (!Array.isArray(roster)) return '';
+  return roster
+    .map((raw, i) => rosterRowToPlayer(raw, i).id)
+    .filter(Boolean)
+    .sort()
+    .join('\u001f');
+}
+
+function buildRevisionFromCloudMatch(cm: Record<string, unknown>): MatchCloudRevision {
+  const embed = (cm.hole_scores ?? cm.scores) as unknown;
+  const roster = (cm.user_list ?? cm.players) as unknown[];
+  return {
+    match_id: String(cm.match_id ?? ''),
+    updated_at_ms: parseCloudUpdatedAt(cm.updated_at),
+    match_meta_sync_ts: Number(cm.match_meta_sync_ts || 0),
+    pk_rules_sync_ts: Number(cm.pk_rules_sync_ts || 0),
+    roster_sig: sortedRosterIdsSigFromMatch(cm),
+    roster_len: Array.isArray(roster) ? roster.length : 0,
+    embed_strokes: strokeCountInHoleList(embed),
+    legacy_scores_ms: 0,
+    legacy_scores_count: 0,
+  };
+}
+
 function buildMatchMetaSig(m: Record<string, unknown> | null | undefined): string {
   if (!m) return '';
   const em = enrichMatchKickoffFromDoc(m) ?? m;
@@ -2045,6 +2090,54 @@ function mergeHoleScoresFromCloud(cloudMatch: any): boolean {
 
 let matchSyncInFlight = false;
 let rosterPollTimer: ReturnType<typeof setInterval> | null = null;
+/** 上次完整同步后云端 revision 指纹；轮询先比对，未变则跳过 getMatch 全量 */
+let lastKnownCloudRevisionSig = '';
+const POLL_INTERVAL_ACTIVE_MS = 5000;
+const POLL_INTERVAL_IDLE_MS = 15000;
+const POLL_ACTIVITY_WINDOW_MS = 120000;
+let pollIntervalMs = POLL_INTERVAL_ACTIVE_MS;
+let lastPollActivityAt = 0;
+
+function markScorecardPollActivity() {
+  lastPollActivityAt = Date.now();
+  rescheduleScorecardPollTimer();
+}
+
+function computeScorecardPollIntervalMs(): number {
+  if (lastPollActivityAt > 0 && Date.now() - lastPollActivityAt < POLL_ACTIVITY_WINDOW_MS) {
+    return POLL_INTERVAL_ACTIVE_MS;
+  }
+  return POLL_INTERVAL_IDLE_MS;
+}
+
+function rescheduleScorecardPollTimer() {
+  if (rosterPollTimer != null) {
+    clearInterval(rosterPollTimer);
+    rosterPollTimer = null;
+  }
+  pollIntervalMs = computeScorecardPollIntervalMs();
+  rosterPollTimer = setInterval(() => {
+    void syncMatchFromCloud('poll');
+    const next = computeScorecardPollIntervalMs();
+    if (next !== pollIntervalMs) {
+      rescheduleScorecardPollTimer();
+    }
+  }, pollIntervalMs);
+}
+
+async function fetchMatchRevision(mid: string): Promise<MatchCloudRevision | null> {
+  const res = await callWxCloudFn<{ success?: boolean; revision?: MatchCloudRevision }>('getMatch', {
+    match_id: mid,
+    revision_only: true,
+  });
+  if (!res?.success || !res.revision) return null;
+  return res.revision;
+}
+
+function rememberCloudRevision(rev: MatchCloudRevision | null | undefined, cm?: Record<string, unknown>) {
+  const sig = matchRevisionSig(rev ?? (cm ? buildRevisionFromCloudMatch(cm) : null));
+  if (sig) lastKnownCloudRevisionSig = sig;
+}
 
 /** 从云端拉取：头像/昵称、新球友、成绩（最后录入为准） */
 async function syncMatchFromCloud(source: 'show' | 'poll' | 'pull') {
@@ -2053,9 +2146,24 @@ async function syncMatchFromCloud(source: 'show' | 'poll' | 'pull') {
   if (matchSyncInFlight) return;
   matchSyncInFlight = true;
   try {
-    const cloudRes = await callWxCloudFn<{ success?: boolean; match?: any }>('getMatch', { match_id: mid });
+    if (source === 'poll') {
+      const rev = await fetchMatchRevision(mid);
+      if (rev) {
+        const cloudSig = matchRevisionSig(rev);
+        if (cloudSig && cloudSig === lastKnownCloudRevisionSig) {
+          console.info('[scorecard] syncMatchFromCloud poll skip unchanged', { mid });
+          return;
+        }
+      }
+    }
+
+    const cloudRes = await callWxCloudFn<{ success?: boolean; match?: any; revision?: MatchCloudRevision }>(
+      'getMatch',
+      { match_id: mid },
+    );
     if (!cloudRes?.success || !cloudRes.match) return;
     const cm = cloudRes.match;
+    rememberCloudRevision(cloudRes.revision, cm as Record<string, unknown>);
     let changed = false;
     let newPlayers = false;
     let scoreUpdate = false;
@@ -2136,6 +2244,9 @@ async function syncMatchFromCloud(source: 'show' | 'poll' | 'pull') {
       rulesMeta,
       changed,
     });
+    if (source === 'poll' && (newPlayers || scoreUpdate || rulesMeta.pk || rulesMeta.meta)) {
+      markScorecardPollActivity();
+    }
     await finalizeCurrentMatchKickoffAutoEnd();
   } catch (e) {
     console.warn('[scorecard] syncMatchFromCloud', e);
@@ -2162,9 +2273,8 @@ onPullDownRefresh(async () => {
 });
 
 onMounted(() => {
-  rosterPollTimer = setInterval(() => {
-    void syncMatchFromCloud('poll');
-  }, 5000);
+  markScorecardPollActivity();
+  rescheduleScorecardPollTimer();
 });
 
 onUnmounted(() => {

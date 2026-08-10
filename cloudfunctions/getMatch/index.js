@@ -1,7 +1,72 @@
 const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
-const { findMatchDocsByMid } = require('./matchCanonical');
+const { findMatchDocsByMid, rosterLen } = require('./matchCanonical');
+
+function parseUpdatedAtMs(v) {
+  if (v == null) return 0;
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string') {
+    const t = Date.parse(v);
+    return Number.isNaN(t) ? 0 : t;
+  }
+  if (typeof v === 'object' && v !== null && '_seconds' in v) {
+    const sec = Number(v._seconds);
+    return Number.isFinite(sec) ? sec * 1000 : 0;
+  }
+  return 0;
+}
+
+function rosterIdsSig(doc) {
+  if (!doc || typeof doc !== 'object') return '';
+  const roster = doc.user_list || doc.players || [];
+  if (!Array.isArray(roster)) return '';
+  return roster
+    .map((p) =>
+      p && typeof p === 'object'
+        ? String(p.uid || p.id || p.openId || p.openid || p.player_uid || '').trim()
+        : '',
+    )
+    .filter(Boolean)
+    .sort()
+    .join('\u001f');
+}
+
+/** 轻量 revision：供记分卡轮询比对，避免每 5s 拉整份 scores 矩阵 */
+async function buildMatchRevision(dbConn, rawDoc, matchId) {
+  const embed = rawDoc.scores || rawDoc.hole_scores;
+  const nEmbed = strokeCountInHoleList(embed);
+  let legacyScoresMs = 0;
+  let legacyScoresCount = 0;
+  if (nEmbed === 0) {
+    try {
+      const legacySnap = await dbConn
+        .collection('scores')
+        .where({ match_id: matchId })
+        .field({ updated_at: true })
+        .limit(50)
+        .get();
+      const rows = legacySnap.data || [];
+      legacyScoresCount = rows.length;
+      for (const row of rows) {
+        legacyScoresMs = Math.max(legacyScoresMs, parseUpdatedAtMs(row.updated_at));
+      }
+    } catch (e) {
+      console.warn('[getMatch] revision legacy scores', e);
+    }
+  }
+  return {
+    match_id: matchId,
+    updated_at_ms: parseUpdatedAtMs(rawDoc.updated_at),
+    match_meta_sync_ts: Number(rawDoc.match_meta_sync_ts || 0),
+    pk_rules_sync_ts: Number(rawDoc.pk_rules_sync_ts || 0),
+    roster_sig: rosterIdsSig(rawDoc),
+    roster_len: rosterLen(rawDoc),
+    embed_strokes: nEmbed,
+    legacy_scores_ms: legacyScoresMs,
+    legacy_scores_count: legacyScoresCount,
+  };
+}
 
 function strokeCountInHoleList(arr) {
   if (!Array.isArray(arr)) return 0;
@@ -131,6 +196,7 @@ function mapDocToClient(doc) {
 
 exports.main = async (event) => {
   const matchId = event?.match_id != null ? String(event.match_id).trim() : '';
+  const revisionOnly = event?.revision_only === true;
   if (!matchId) {
     return { success: false, error: 'missing match_id' };
   }
@@ -141,6 +207,10 @@ exports.main = async (event) => {
     }
     if (duplicates.length > 0) {
       console.info('[getMatch] deduped', matchId, duplicates.length, 'copies');
+    }
+    if (revisionOnly) {
+      const revision = await buildMatchRevision(db, rawDoc, matchId);
+      return { success: true, revision };
     }
     const row = mapDocToClient(rawDoc);
     const embed = row.scores || row.hole_scores;
@@ -174,7 +244,8 @@ exports.main = async (event) => {
       }
     }
 
-    return { success: true, match: row };
+    const revision = await buildMatchRevision(db, row, matchId);
+    return { success: true, match: row, revision };
   } catch (e) {
     console.warn('[getMatch]', e);
     return { success: false, error: e.message || String(e) };
