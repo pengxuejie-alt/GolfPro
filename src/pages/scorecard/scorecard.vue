@@ -2530,16 +2530,16 @@ const get8421Points = (pid: string) => {
   return Math.round(matchStore.total8421Points[pIdx]);
 };
 
-const saveScore = async () => {
+const saveScore = () => {
   if (!editingCell.value || modalDraftStrokes.value == null) return;
   const pIdx = players.value.findIndex(p => p.id === editingCell.value!.pid);
   const hIdx = editingCell.value!.holeIndex;
   let v = modalDraftStrokes.value;
   if (v <= 0) v = matchStore.holeScores[hIdx].par;
   matchStore.updateScore(hIdx, pIdx, v);
-  await saveMatch();
   showScoreModal.value = false;
   modalDraftStrokes.value = null;
+  void saveMatch();
 };
 
 const closeScoreModalDiscard = () => {
@@ -2571,13 +2571,13 @@ const getModalRelativeText = (): string => {
   return diff === 0 ? 'E' : (diff > 0 ? `+${diff}` : `${diff}`);
 };
 
-const clearScore = async () => {
+const clearScore = () => {
   if (!editingCell.value) return;
   const pIdx = players.value.findIndex(p => p.id === editingCell.value!.pid);
   matchStore.updateScore(editingCell.value!.holeIndex, pIdx, 0);
-  await saveMatch();
   showScoreModal.value = false;
   modalDraftStrokes.value = null;
+  void saveMatch();
 };
 
 const handleRemovePlayer = (player: Player) => {
