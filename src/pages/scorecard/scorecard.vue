@@ -509,8 +509,8 @@ async function upsertLocalMatchFromCloudAndRefetch(matchId: string, cloudDoc: an
 }
 
 async function loadMatchForScorecard(mid: string): Promise<any | null> {
-  const needPrivacy = await getPrivacyNeedAuthorizationAsync();
-  /** 未同意隐私：禁止 cloud，避免系统 toast 盖住加入/围观浮层 */
+  /** 受邀分享路径不拦 cloud（__usePrivacyCheck__ 已关；首页分享已跳过隐私 gate） */
+  const needPrivacy = !enteredViaInvite.value && (await getPrivacyNeedAuthorizationAsync());
   if (needPrivacy) {
     const cached = await MatchManager.getMatch(mid);
     if (cached) {
@@ -712,8 +712,10 @@ async function applySelfProfileAfterEdit(nick: string, avatarRaw: string) {
 
 /** 游客 / 缺资料：点自己的头像或昵称，与首页一致拉起资料浮层 */
 async function openSelfProfileEditGate() {
-  const privacyOk = await ensurePrivacyForJoin();
-  if (!privacyOk) return;
+  if (!enteredViaInvite.value) {
+    const privacyOk = await ensurePrivacyForJoin();
+    if (!privacyOk) return;
+  }
   profileGateMode.value = 'edit';
   pendingJoinAfterProfile.value = false;
   const nick = userStore.profile.nickname && String(userStore.profile.nickname).trim();
@@ -933,18 +935,15 @@ async function bootstrapScorecardPage() {
   seedRosterAvatarDisplayFromCache();
   lastLocalScoreCommitAt.value = Date.now();
   refreshSavedRuleAndMetaFingerprints();
-  const inviteNeedPrivacy = enteredViaInvite.value ? await getPrivacyNeedAuthorizationAsync() : false;
-  if (!inviteNeedPrivacy) {
-    await hydrateTeammatesFromUsersCollection(match as Record<string, unknown>);
-    await hydrateRosterAvatarDisplay(true);
-  }
+  await hydrateTeammatesFromUsersCollection(match as Record<string, unknown>);
+  await hydrateRosterAvatarDisplay(true);
   await maybeRunInviteFlow(match);
 
   matchStore.ensureEighteenHoles();
 
   if (seq !== scorecardBootstrapSeq) return;
   await nextTick();
-  if (matchId.value && currentMatch.value && !inviteNeedPrivacy) {
+  if (matchId.value && currentMatch.value) {
     void syncMatchFromCloud('show');
   }
 }
@@ -1209,8 +1208,6 @@ async function executeJoinMatch(): Promise<boolean> {
 
 const handleJoinAsPlayer = async () => {
   if (!joiningUser.value || !matchId.value) return;
-  const privacyOk = await ensurePrivacyForJoin();
-  if (!privacyOk) return;
   const sessionOk = await ensureInviteSession();
   if (!sessionOk) return;
   const loaded = await ensureInviteMatchLoaded();
@@ -1231,8 +1228,6 @@ const handleJoinAsPlayer = async () => {
 };
 
 const handleSpectate = async () => {
-  const privacyOk = await ensurePrivacyForJoin();
-  if (!privacyOk) return;
   const sessionOk = await ensureInviteSession();
   if (!sessionOk) return;
   const loaded = await ensureInviteMatchLoaded();
@@ -2373,7 +2368,6 @@ function rememberCloudRevision(rev: MatchCloudRevision | null | undefined, cm?: 
 async function syncMatchFromCloud(source: 'show' | 'poll' | 'pull') {
   const mid = matchId.value;
   if (!mid || !currentMatch.value) return;
-  if (enteredViaInvite.value && (await getPrivacyNeedAuthorizationAsync())) return;
   if (matchSyncInFlight) return;
   matchSyncInFlight = true;
   try {

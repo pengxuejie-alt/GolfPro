@@ -4,7 +4,7 @@ import { onShow, onLoad, onShareAppMessage, onShareTimeline } from '@dcloudio/un
 import { Tab } from '@/types';
 import { MatchManager } from '@/utils/match_manager';
 import { useUserStore } from '@/store/userStore';
-import { openRoute } from '@/utils/uniNav';
+import { openRoute, replaceRoute } from '@/utils/uniNav';
 import { db } from '@/utils/db';
 import { signInWithWeChat } from '@/utils/auth';
 import {
@@ -191,6 +191,14 @@ function buildHomeShareTimelineQuery(): string {
   const uid = userStore.openId || '';
   if (!uid) return '';
   return `inviter=${encodeURIComponent(uid)}`;
+}
+
+/** 分享卡片带 match_id 落地首页：跳过隐私弹窗，直达计分加入流 */
+function isShareMatchLanding(options?: Record<string, string | undefined>): boolean {
+  const mid = options?.match_id != null ? String(options.match_id).trim() : '';
+  if (!mid) return false;
+  const from = options?.from;
+  return from === 'share' || from === 'timeline';
 }
 
 /** 不传 imageUrl：微信使用当前页面截图作为分享卡片图（与常见小程序一致） */
@@ -900,17 +908,21 @@ const loadMatches = async (opts?: { showLoading?: boolean }) => {
 
 onLoad((options?: Record<string, string | undefined>) => {
   syncIndexTopPadForMenu();
-  /** ① 同步播种基础 UI：先 hydrate 解析 cloud://，再写入列表（避免渲染层误拼 /pages/index/cloud://） */
-  void (async () => {
-    try {
-      const cached = readMatchesFromStorage();
-      await hydrateIndexMatchAvatars(cached);
-      matches.value = [...cached];
-    } catch {
-      matches.value = [];
-    }
-  })();
   applyMockWeatherSilently();
+
+  const shareMatchLanding = isShareMatchLanding(options);
+
+  if (!shareMatchLanding) {
+    /** 普通进入：先用本地缓存渲染列表，头像 hydrate 等隐私 gate 后再做 */
+    void (async () => {
+      try {
+        const cached = readMatchesFromStorage();
+        matches.value = [...cached];
+      } catch {
+        matches.value = [];
+      }
+    })();
+  }
 
   try {
     const inviter = options?.inviter;
@@ -934,10 +946,28 @@ onLoad((options?: Record<string, string | undefined>) => {
     }
   });
 
-  /** ④ 登录 → 身份诊断 → users 静默拓荒 → 拉列表（signIn 前必须经过 gateIndexPrivacyBeforeLogin） */
   void nextTick(async () => {
     // #ifdef MP-WEIXIN
     await db.waitForInit();
+
+    /** 分享卡片落地：不弹首页隐私协议，登录后直达计分加入/围观 */
+    if (shareMatchLanding) {
+      const mid = String(options?.match_id || '').trim();
+      if (!mid) return;
+      let myOpenId = userStore.openId || '';
+      if (!myOpenId) {
+        try {
+          const auth = await signInWithWeChat();
+          userStore.applyAuthResult(auth);
+          myOpenId = auth?.openId || '';
+        } catch (e) {
+          console.warn('[index] share landing signIn', e);
+        }
+      }
+      replaceRoute(Tab.SCORECARD, { match_id: mid, from: 'share' });
+      return;
+    }
+
     console.log('[index][privacy] onLoad bootstrap before gate');
     const gated = await gateIndexPrivacyBeforeLogin();
     console.log('[index][privacy] onLoad bootstrap after gate', gated);
@@ -948,6 +978,14 @@ onLoad((options?: Record<string, string | undefined>) => {
     // #endif
 
     void refreshLocationWeather();
+
+    try {
+      const cached = readMatchesFromStorage();
+      await hydrateIndexMatchAvatars(cached);
+      matches.value = [...cached];
+    } catch {
+      /* ignore */
+    }
 
     // ── Step 1: 调用 login 云函数拿 openId ──
     let myOpenId = userStore.openId || '';
