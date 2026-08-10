@@ -4,8 +4,43 @@
  */
 import { nationalCourseData, type NationalCourse } from './nationalCourses';
 import { gdCourseData } from './guangdongCourses';
+import { courseGeoCoords } from './courseGeoCoords';
 
 export type { NationalCourse };
+
+export type CatalogCourse = NationalCourse & {
+  latitude?: number;
+  longitude?: number;
+};
+
+/** 应用内显示名 / 半场名等校对（GolfLive 导入后覆盖） */
+const COURSE_CATALOG_OVERRIDES: Record<string, Partial<CatalogCourse>> = {
+  '12500-BA0C-0331': {
+    name: '广州华美麓湖高尔夫',
+    sections: [
+      { name: '前9', holes_par: [5, 4, 4, 4, 3, 4, 4, 3, 5] },
+      { name: '后9', holes_par: [4, 4, 3, 5, 4, 4, 3, 5, 4] },
+    ],
+  },
+};
+
+function attachGeo(c: NationalCourse): CatalogCourse {
+  const g = courseGeoCoords[c.id];
+  if (!g) return { ...c };
+  return { ...c, latitude: g.lat, longitude: g.lng };
+}
+
+function applyCatalogOverrides(c: NationalCourse): CatalogCourse {
+  const ov = COURSE_CATALOG_OVERRIDES[c.id];
+  const base = attachGeo(c);
+  if (!ov) return base;
+  return {
+    ...base,
+    ...ov,
+    sections: ov.sections ?? base.sections,
+    holes_par: ov.holes_par ?? base.holes_par,
+  };
+}
 
 function normCourseKey(name: string): string {
   return String(name || '')
@@ -43,8 +78,8 @@ const GD_CITY_MAP: Record<string, string> = {
   其他城市: '广东省',
 };
 
-function buildCourseCatalog(): Record<string, NationalCourse[]> {
-  const out: Record<string, NationalCourse[]> = {};
+function buildCourseCatalog(): Record<string, CatalogCourse[]> {
+  const out: Record<string, CatalogCourse[]> = {};
   for (const [prov, list] of Object.entries(nationalCourseData)) {
     out[prov] = list.map((c) => ({
       ...c,
@@ -102,6 +137,7 @@ function buildCourseCatalog(): Record<string, NationalCourse[]> {
   }
 
   for (const prov of Object.keys(out)) {
+    out[prov] = out[prov].map((c) => applyCatalogOverrides(c));
     out[prov].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
   }
 
