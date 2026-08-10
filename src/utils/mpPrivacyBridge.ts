@@ -109,6 +109,14 @@ export function setupWxOnNeedPrivacyAuthorization(): void {
   }
 }
 
+/** 分享/扫码进入计分页（非首页点进），与 scorecard enteredViaInvite 对齐 */
+export function isShareInviteLaunchQuery(q: Record<string, unknown> | undefined | null): boolean {
+  if (!q || typeof q !== 'object') return false;
+  const fromShare = q.from === 'share' || q.from === 'timeline';
+  const hasScene = q.scene != null && String(q.scene).trim() !== '';
+  return fromShare || hasScene;
+}
+
 /** 是否仍需用户同意隐私协议（未同意则勿调 getLocation 等） */
 export function getPrivacyNeedAuthorizationAsync(): Promise<boolean> {
   return new Promise((resolve) => {

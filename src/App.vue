@@ -3,12 +3,12 @@ import { onLaunch, onShow, onHide } from '@dcloudio/uni-app';
 import { useUserStore } from '@/store/userStore';
 import { signInWithWeChat } from '@/utils/auth';
 import PrivacyPopup from '@/components/PrivacyPopup.vue';
-import { setupWxOnNeedPrivacyAuthorization } from '@/utils/mpPrivacyBridge';
+import { setupWxOnNeedPrivacyAuthorization, isShareInviteLaunchQuery } from '@/utils/mpPrivacyBridge';
 import { db } from '@/utils/db';
 import AppUniIcon from '@/components/AppUniIcon.vue';
 import LucideIconByName from '@/components/LucideIconByName.vue';
 
-onLaunch(() => {
+onLaunch((options) => {
   // #ifdef MP-WEIXIN
   /** 云开发 init 须在 onLaunch 尽早执行，勿在 main.ts 模块顶；可减轻开发者工具内 wx.cloud.init 内部 timeout 日志 */
   try {
@@ -24,20 +24,26 @@ onLaunch(() => {
   // #endif
   const userStore = useUserStore();
   userStore.hydrateAuthFromStorage();
-  /** 不 await 登录：先让首屏与 TabBar 出来，数据后填 */
-  void signInWithWeChat()
-    .then((session) => {
-      userStore.applyAuthResult(session);
-    })
-    .catch((e) => {
-      console.warn('[App] signInWithWeChat', e);
-      userStore.applyAuthResult({
-        mode: 'mock',
-        openId: 'mock_golfpro_user',
-        nickname: userStore.profile.nickname,
-        avatar: userStore.profile.avatar,
+  /** 分享直进计分页：勿在 PrivacyPopup 就绪前调 login 云函数，否则会弹出「需同意隐私指引后继续使用」且无按钮 */
+  const launchPath = String((options as { path?: string })?.path || '');
+  const launchQuery = ((options as { query?: Record<string, unknown> })?.query || {}) as Record<string, unknown>;
+  const deferSignInForInvite =
+    launchPath.includes('scorecard') && isShareInviteLaunchQuery(launchQuery);
+  if (!deferSignInForInvite) {
+    void signInWithWeChat()
+      .then((session) => {
+        userStore.applyAuthResult(session);
+      })
+      .catch((e) => {
+        console.warn('[App] signInWithWeChat', e);
+        userStore.applyAuthResult({
+          mode: 'mock',
+          openId: 'mock_golfpro_user',
+          nickname: userStore.profile.nickname,
+          avatar: userStore.profile.avatar,
+        });
       });
-    });
+  }
 });
 
 onShow(() => {});

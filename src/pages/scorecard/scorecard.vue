@@ -504,19 +504,28 @@ async function upsertLocalMatchFromCloudAndRefetch(matchId: string, cloudDoc: an
 }
 
 async function loadMatchForScorecard(mid: string): Promise<any | null> {
-  /** 分享 / 扫码 / scene 进入：必须用云端覆盖本机缓存，否则陈旧 create_time、名单会「冲」正式数据观感 */
+  /** 分享 / 扫码 / scene 进入：优先云端，但未同意隐私时勿调 cloud（会触发系统 toast 且无按钮） */
   const preferCloudFirst = enteredViaInvite.value;
+  const needPrivacy = preferCloudFirst ? await getPrivacyNeedAuthorizationAsync() : false;
 
   const fetchCloud = () =>
     callWxCloudFn<{ success?: boolean; match?: any; error?: string }>('getMatch', { match_id: mid });
 
   let cloudMatch: any | null = null;
-  if (preferCloudFirst) {
+  if (preferCloudFirst && !needPrivacy) {
     const cloudRes = await fetchCloud();
     if (cloudRes?.success && cloudRes.match) {
       cloudMatch = enrichMatchKickoffFromDoc(cloudRes.match as Record<string, unknown>) as any;
       return upsertLocalMatchFromCloudAndRefetch(mid, cloudMatch);
     }
+  }
+
+  if (preferCloudFirst && needPrivacy) {
+    const cached = await MatchManager.getMatch(mid);
+    if (cached) {
+      return enrichMatchKickoffFromDoc(cached as Record<string, unknown>) as typeof cached;
+    }
+    return null;
   }
 
   let match = await MatchManager.getMatch(mid);
@@ -773,7 +782,30 @@ async function confirmProfileGateAndContinue() {
 }
 
 async function maybeRunInviteFlow(match: any) {
-  if (!enteredViaInvite.value || !match || !matchId.value) return;
+  if (!enteredViaInvite.value || !matchId.value) return;
+  if (userStore.openId && match && isOpenIdInMatchRoster(match, userStore.openId)) return;
+  if (!invitePromptShown.value) {
+    openJoinChoiceModal();
+  }
+}
+
+async function ensurePrivacyForJoin(): Promise<boolean> {
+  const needAuth = await getPrivacyNeedAuthorizationAsync();
+  if (!needAuth) return true;
+  const ready = await waitForPrivacyUiReady(8000);
+  if (!ready) {
+    uni.showToast({ title: '隐私弹窗加载中，请稍候再试', icon: 'none' });
+    return false;
+  }
+  const agreed = await requestPrivacyAgreementViaPopup();
+  if (!agreed) {
+    uni.showToast({ title: '需同意隐私指引后才能加入比赛', icon: 'none' });
+  }
+  return agreed;
+}
+
+/** 受邀落地：先登录，不拉云（避免 PrivacyPopup 未就绪时 cloud 触发系统 toast） */
+async function prepareInviteSessionEarly(): Promise<boolean> {
   try {
     const session = await signInWithWeChat();
     userStore.applyAuthResult(session);
@@ -788,26 +820,58 @@ async function maybeRunInviteFlow(match: any) {
   }
   if (userStore.authMode !== 'wx' || !userStore.openId) {
     uni.showToast({ title: '请使用微信登录后加入球局', icon: 'none' });
-    return;
-  }
-  if (isOpenIdInMatchRoster(match, userStore.openId)) return;
-  /** 先展示加入/围观；隐私与资料在用户点「加入比赛」后再 gate */
-  openJoinChoiceModal();
-}
-
-async function ensurePrivacyForJoin(): Promise<boolean> {
-  const needAuth = await getPrivacyNeedAuthorizationAsync();
-  if (!needAuth) return true;
-  const ready = await waitForPrivacyUiReady();
-  if (!ready) {
-    uni.showToast({ title: '隐私弹窗加载中，请稍候再试', icon: 'none' });
     return false;
   }
-  const agreed = await requestPrivacyAgreementViaPopup();
-  if (!agreed) {
-    uni.showToast({ title: '需同意隐私指引后才能加入比赛', icon: 'none' });
+  return true;
+}
+
+async function applyLoadedMatchToScorecard(
+  match: any,
+  seq: number,
+  opts?: { skipCloudHydrate?: boolean },
+): Promise<any | null> {
+  if (seq !== scorecardBootstrapSeq) return null;
+  match = await finalizeMatchKickoffAutoEnd(match);
+  if (seq !== scorecardBootstrapSeq) return null;
+  currentMatch.value = match;
+  matchStore.initMatch(match);
+  seedRosterAvatarDisplayFromCache();
+  lastLocalScoreCommitAt.value = Date.now();
+  refreshSavedRuleAndMetaFingerprints();
+  if (!opts?.skipCloudHydrate) {
+    await hydrateTeammatesFromUsersCollection(match as Record<string, unknown>);
+    await hydrateRosterAvatarDisplay(true);
   }
-  return agreed;
+  matchStore.ensureEighteenHoles();
+  return match;
+}
+
+/** 用户同意隐私后，受邀路径强制从云端拉局并渲染 */
+async function ensureInviteMatchLoaded(): Promise<boolean> {
+  const routeMid = String(matchId.value || '').trim();
+  if (!routeMid) return false;
+  if (currentMatch.value) return true;
+  uni.showLoading({ title: '加载球局…', mask: true });
+  try {
+    const cloudRes = await callWxCloudFn<{ success?: boolean; match?: any; error?: string }>('getMatch', {
+      match_id: routeMid,
+    });
+    if (!cloudRes?.success || !cloudRes.match) {
+      uni.showToast({ title: '未找到比赛，请确认链接有效', icon: 'none' });
+      return false;
+    }
+    let match = enrichMatchKickoffFromDoc(cloudRes.match as Record<string, unknown>) as any;
+    match = await upsertLocalMatchFromCloudAndRefetch(routeMid, match);
+    const seq = scorecardBootstrapSeq;
+    await applyLoadedMatchToScorecard(match, seq);
+    return !!currentMatch.value;
+  } catch (e) {
+    console.warn('[scorecard] ensureInviteMatchLoaded', e);
+    uni.showToast({ title: '加载球局失败', icon: 'none' });
+    return false;
+  } finally {
+    uni.hideLoading();
+  }
 }
 
 /**
@@ -819,6 +883,17 @@ async function bootstrapScorecardPage() {
   const seq = ++scorecardBootstrapSeq;
   const routeMid = String(matchId.value || '').trim();
   if (!routeMid) return;
+
+  /** 分享直进：先等 PrivacyPopup 就绪并弹出加入/围观，同意隐私后再登录/拉云 */
+  if (enteredViaInvite.value) {
+    await waitForPrivacyUiReady(8000);
+    if (!invitePromptShown.value) {
+      joiningUser.value = buildJoiningUserFromProfile();
+      openJoinChoiceModal();
+    }
+  }
+
+  const inviteNeedPrivacy = enteredViaInvite.value ? await getPrivacyNeedAuthorizationAsync() : false;
 
   let match = await loadMatchForScorecard(routeMid);
   if (seq !== scorecardBootstrapSeq) return;
@@ -838,6 +913,11 @@ async function bootstrapScorecardPage() {
   console.log('[scorecard] loaded match:', routeMid, 'user_list:', match?.user_list?.length, 'holes:', match?.hole_scores?.length);
 
   if (!match) {
+    if (enteredViaInvite.value) {
+      matchStore.ensureEighteenHoles();
+      await maybeRunInviteFlow(null);
+      return;
+    }
     uni.showToast({ title: '未找到比赛，请确认已同步至云端', icon: 'none' });
     matchStore.ensureEighteenHoles();
     return;
@@ -866,22 +946,13 @@ async function bootstrapScorecardPage() {
     await MatchManager.updateMatch(match);
     console.log('[scorecard] injected host player:', me.nickname);
   }
-  match = await finalizeMatchKickoffAutoEnd(match);
+  await applyLoadedMatchToScorecard(match, seq, { skipCloudHydrate: inviteNeedPrivacy });
   if (seq !== scorecardBootstrapSeq) return;
-  currentMatch.value = match;
-  matchStore.initMatch(match);
-  seedRosterAvatarDisplayFromCache();
-  lastLocalScoreCommitAt.value = Date.now();
-  refreshSavedRuleAndMetaFingerprints();
-  await hydrateTeammatesFromUsersCollection(match as Record<string, unknown>);
-  await hydrateRosterAvatarDisplay(true);
   await maybeRunInviteFlow(match);
-
-  matchStore.ensureEighteenHoles();
 
   if (seq !== scorecardBootstrapSeq) return;
   await nextTick();
-  if (matchId.value && currentMatch.value) {
+  if (matchId.value && currentMatch.value && !inviteNeedPrivacy) {
     void syncMatchFromCloud('show');
   }
 }
@@ -902,21 +973,24 @@ watch(
 );
 
 onMounted(async () => {
-  const allMatches = await MatchManager.getMatchList();
-  const friendsMap = new Map();
+  /** 分享直进计分页时跳过 listMyMatches，避免未同意隐私前触发 cloud */
+  if (!enteredViaInvite.value) {
+    const allMatches = await MatchManager.getMatchList();
+    const friendsMap = new Map();
 
-  const selfId = userStore.openId || '';
-  allMatches.forEach((m) => {
-    const roster = m.user_list || m.players || [];
-    roster.forEach((u: any) => {
-      const uid = u.id || u.uid || u.openId;
-      if (uid && uid !== selfId && !String(uid).startsWith('temp_') && !String(uid).startsWith('virtual')) {
-        friendsMap.set(String(uid), { ...u, id: String(uid), nickname: u.nickname || u.nickName || '球友' });
-      }
+    const selfId = userStore.openId || '';
+    allMatches.forEach((m) => {
+      const roster = m.user_list || m.players || [];
+      roster.forEach((u: any) => {
+        const uid = u.id || u.uid || u.openId;
+        if (uid && uid !== selfId && !String(uid).startsWith('temp_') && !String(uid).startsWith('virtual')) {
+          friendsMap.set(String(uid), { ...u, id: String(uid), nickname: u.nickname || u.nickName || '球友' });
+        }
+      });
     });
-  });
 
-  historyFriends.value = Array.from(friendsMap.values());
+    historyFriends.value = Array.from(friendsMap.values());
+  }
 
   /** 兜底：极少数环境下 watch 未及时触发首次加载 */
   await nextTick();
@@ -1146,8 +1220,13 @@ const handleJoinAsPlayer = async () => {
   if (!joiningUser.value || !matchId.value) return;
   const privacyOk = await ensurePrivacyForJoin();
   if (!privacyOk) return;
+  const sessionOk = await prepareInviteSessionEarly();
+  if (!sessionOk) return;
+  joiningUser.value = buildJoiningUserFromProfile();
+  const loaded = await ensureInviteMatchLoaded();
+  if (!loaded) return;
   const hasNick = !!(userStore.profile.nickname && String(userStore.profile.nickname).trim());
-  if (!hasNick) {
+  if (!hasNick || isGuestOrPlaceholderNickname(userStore.profile.nickname, userStore.openId)) {
     pendingJoinAfterProfile.value = true;
     profileGateMode.value = 'join';
     gateNickname.value = '';
@@ -1161,12 +1240,18 @@ const handleJoinAsPlayer = async () => {
   await executeJoinMatch();
 };
 
-const handleSpectate = () => {
+const handleSpectate = async () => {
+  const privacyOk = await ensurePrivacyForJoin();
+  if (!privacyOk) return;
+  const sessionOk = await prepareInviteSessionEarly();
+  if (!sessionOk) return;
+  const loaded = await ensureInviteMatchLoaded();
+  if (!loaded) return;
   isSpectatorMode.value = true;
   showJoinChoiceModal.value = false;
   joiningUser.value = null;
   const nick = userStore.profile.nickname && String(userStore.profile.nickname).trim();
-  if (!nick) {
+  if (!nick || isGuestOrPlaceholderNickname(nick, userStore.openId)) {
     userStore.updateProfile({ nickname: GUEST_NICKNAME });
   }
   uni.showToast({ title: '已进入围观（只读）', icon: 'none' });
@@ -2298,6 +2383,7 @@ function rememberCloudRevision(rev: MatchCloudRevision | null | undefined, cm?: 
 async function syncMatchFromCloud(source: 'show' | 'poll' | 'pull') {
   const mid = matchId.value;
   if (!mid || !currentMatch.value) return;
+  if (enteredViaInvite.value && (await getPrivacyNeedAuthorizationAsync())) return;
   if (matchSyncInFlight) return;
   matchSyncInFlight = true;
   try {
