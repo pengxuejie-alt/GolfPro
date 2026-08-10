@@ -7,7 +7,7 @@ import { useMatchStore, PKRule, normalizePkRulePlayerIds } from '@/store/matchSt
 import { useUserStore } from '@/store/userStore';
 import { MatchManager } from '@/utils/match_manager';
 import { db } from '@/utils/db';
-import { nationalCourseData } from '@/data/nationalCourses';
+import { courseCatalogData } from '@/data/courseCatalog';
 import { courseNeedsSectionCombo, sectionsForCoursePicker } from '@/utils/courseSections';
 import { openRoute, goBack, markScorecardReopenPkRulesModal, consumeScorecardReopenPkRulesModal } from '@/utils/uniNav';
 import { savePackagedImageToAlbum, saveImageToPhotosAlbumSafe } from '@/utils/savePosterToAlbum';
@@ -828,7 +828,7 @@ const quickAddName = ref('');
 
 const filteredEditCourses = computed(() => {
   const all: any[] = [];
-  Object.entries(nationalCourseData).forEach(([province, provinceCourses]) => {
+  Object.entries(courseCatalogData).forEach(([province, provinceCourses]) => {
     provinceCourses.forEach(c => {
       all.push({
         ...c,

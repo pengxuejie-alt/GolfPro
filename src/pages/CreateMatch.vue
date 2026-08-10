@@ -6,7 +6,7 @@ import { useMatchStore } from '@/store/matchStore';
 import { useUserStore } from '@/store/userStore';
 import { MatchManager } from '@/utils/match_manager';
 import { gdMockCourses } from '@/utils/mockData';
-import { nationalCourseData } from '@/data/nationalCourses';
+import { courseCatalogData, courseCatalogStats } from '@/data/courseCatalog';
 import { goBack, replaceRoute } from '@/utils/uniNav';
 import { courseNeedsSectionCombo, sectionsForCoursePicker } from '@/utils/courseSections';
 
@@ -46,10 +46,10 @@ const selectedSections = ref<any[]>([]);
 const editingMatchId = ref('');
 const isEditMode = computed(() => editingMatchId.value !== '');
 
-// Flatten nationalCourseData for easier filtering
+// Flatten courseCatalogData for easier filtering
 const allCourses = computed(() => {
   const courses: any[] = [];
-  Object.entries(nationalCourseData).forEach(([province, provinceCourses]) => {
+  Object.entries(courseCatalogData).forEach(([province, provinceCourses]) => {
     provinceCourses.forEach(c => {
       courses.push({
         ...c,
@@ -65,14 +65,24 @@ const allCourses = computed(() => {
   return courses;
 });
 
+const catalogStats = courseCatalogStats();
+
 const filteredCourses = computed(() => {
-  if (!searchKey.value) return allCourses.value;
-  const key = searchKey.value.toLowerCase();
+  const key = searchKey.value.trim().toLowerCase();
+  if (!key) return allCourses.value.slice(0, 100);
   return allCourses.value.filter(c => 
     c.name.toLowerCase().includes(key) || 
     c.city.toLowerCase().includes(key) ||
     (c.province && c.province.toLowerCase().includes(key))
   );
+});
+
+const courseListHint = computed(() => {
+  const total = catalogStats.courses;
+  if (searchKey.value.trim()) {
+    return `共 ${total} 座 · 匹配 ${filteredCourses.value.length} 条`;
+  }
+  return total > 100 ? `全国 ${total} 座 · 显示前 100 条，请搜索省份/城市/球场名` : `全国 ${total} 座球场`;
 });
 
 /** 半场组合弹层：多半场用 sections；标准 18 洞用合成的前 9 / 后 9 */
@@ -511,17 +521,18 @@ const handleStart = async () => {
           </view>
         </div>
 
-        <div class="relative mb-4">
+        <div class="relative mb-2">
             <input 
               v-model="searchKey"
               type="text"
               class="mp-safe-input-full w-full pl-12 pr-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-lime-400 font-medium text-slate-900"
-              placeholder="输入球场名称或城市搜索..."
+              placeholder="搜索省份、城市或球场名…"
             />
           <view class="absolute left-4 top-1/2 -translate-y-1/2">
             <uni-icons type="location" :size="20" color="#94a3b8" />
           </view>
         </div>
+        <p class="text-xs text-slate-400 mb-4 px-1">{{ courseListHint }}</p>
 
         <div class="flex-1 overflow-y-auto no-scrollbar space-y-2">
           <div 

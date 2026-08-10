@@ -1,8 +1,8 @@
 // utils/mockData.js
-import { nationalCourseData } from '../data/nationalCourses';
+import { courseCatalogData } from '../data/courseCatalog';
 
 // Flatten the grouped data into a single array for searching
-export const gdMockCourses = Object.entries(nationalCourseData).flatMap(([province, courses]) => 
+export const gdMockCourses = Object.entries(courseCatalogData).flatMap(([province, courses]) => 
   courses.map((course) => ({
     id: course.id,
     name: course.name,
