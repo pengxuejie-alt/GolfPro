@@ -138,6 +138,39 @@ export function isShareInviteLaunchQuery(q: Record<string, unknown> | undefined 
   return fromShare || hasScene;
 }
 
+/** 微信冷启动场景：分享卡片 / 扫码 / 朋友圈等（非 App 内 navigateTo） */
+export function isWxShareOrScanEntryScene(scene: unknown): boolean {
+  const n = Number(scene);
+  if (!Number.isFinite(n)) return false;
+  /** 1007/1008 单聊群聊卡片；1044 小程序消息；1011–1013/1047–1049 扫码；1154/1155 朋友圈 */
+  const SHARE_OR_SCAN = new Set([
+    1007, 1008, 1011, 1012, 1013, 1036, 1044, 1047, 1048, 1049, 1154, 1155,
+  ]);
+  return SHARE_OR_SCAN.has(n);
+}
+
+/**
+ * 计分页受邀落地：query 带 from=share/scene，或冷启动为分享/扫码场景且带 match_id。
+ * 真机上 from 参数有时丢失，需结合 getEnterOptionsSync().scene 判断。
+ */
+export function detectScorecardInviteEntry(
+  q: Record<string, unknown>,
+  hasMatchId: boolean,
+): boolean {
+  if (!hasMatchId) return false;
+  if (isShareInviteLaunchQuery(q)) return true;
+  try {
+    const wxApi = typeof wx !== 'undefined' ? (wx as Record<string, unknown>) : null;
+    const entFn = wxApi?.getEnterOptionsSync as
+      | (() => { scene?: number; query?: Record<string, unknown> }) | undefined;
+    const ent = entFn?.();
+    if (ent && isWxShareOrScanEntryScene(ent.scene)) return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 /** App.onLaunch options 在真机上 query 可能不全，对齐 wx.getEnterOptionsSync */
 export function getLaunchContextFromOptions(options: unknown): {
   path: string;

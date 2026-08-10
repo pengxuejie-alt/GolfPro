@@ -2,7 +2,7 @@
 import { onLaunch, onShow, onHide } from '@dcloudio/uni-app';
 import { useUserStore } from '@/store/userStore';
 import { signInWithWeChat } from '@/utils/auth';
-import { setupWxOnNeedPrivacyAuthorization, isShareInviteLaunchQuery, getLaunchContextFromOptions } from '@/utils/mpPrivacyBridge';
+import { setupWxOnNeedPrivacyAuthorization, isShareInviteLaunchQuery, getLaunchContextFromOptions, isWxShareOrScanEntryScene } from '@/utils/mpPrivacyBridge';
 import { db } from '@/utils/db';
 import AppUniIcon from '@/components/AppUniIcon.vue';
 import LucideIconByName from '@/components/LucideIconByName.vue';
@@ -27,9 +27,19 @@ onLaunch((options) => {
   const { path: launchPath, query: launchQuery } = getLaunchContextFromOptions(options);
   const hasScorecardMatch =
     launchQuery.match_id != null && String(launchQuery.match_id).trim() !== '';
+  let launchScene: number | undefined;
+  try {
+    const ent = (wx as Record<string, unknown>).getEnterOptionsSync as
+      | (() => { scene?: number }) | undefined;
+    launchScene = ent?.()?.scene;
+  } catch {
+    /* ignore */
+  }
   const deferSignInForInvite =
     launchPath.includes('scorecard') &&
-    (isShareInviteLaunchQuery(launchQuery) || hasScorecardMatch);
+    (isShareInviteLaunchQuery(launchQuery) ||
+      hasScorecardMatch ||
+      (hasScorecardMatch && isWxShareOrScanEntryScene(launchScene)));
   if (!deferSignInForInvite) {
     void signInWithWeChat()
       .then((session) => {

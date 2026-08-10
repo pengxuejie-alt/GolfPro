@@ -17,6 +17,7 @@ import {
   requirePrivacyAuthorizeAsync,
   getPrivacyNeedAuthorizationAsync,
   waitForPrivacyUiReady,
+  detectScorecardInviteEntry,
 } from '@/utils/mpPrivacyBridge';
 import { mpAvatarImgSrcForDisplay, looksLikeExpiredProneTencentTempHttps } from '@/utils/mpAvatarSrc';
 import { buildRosterAvatarDisplayMap, isLikelyWeChatOpenId } from '@/utils/rosterAvatarDisplay';
@@ -122,11 +123,14 @@ onLoad((query) => {
     mid = parseSceneMatchId(sceneOnly);
   }
 
+  enteredViaInvite.value = detectScorecardInviteEntry(q, !!mid);
+  /** 须在 matchId 写入（触发 bootstrap watch）之前同步弹出，避免 cloud 抢先触发隐私 toast */
+  if (enteredViaInvite.value && mid) {
+    joiningUser.value = buildJoiningUserFromProfile();
+    invitePromptShown.value = true;
+    showJoinChoiceModal.value = true;
+  }
   matchId.value = mid;
-  const fromShare = q.from === 'share' || q.from === 'timeline';
-  const hasScene = !!(q.scene != null && String(q.scene).trim() !== '');
-  /** 仅分享/朋友圈/扫码 scene：普通从首页点进计分板只有 match_id，不应走受邀弹层 */
-  enteredViaInvite.value = fromShare || hasScene;
 });
 
 const scorecardSharePath = computed(() => {
@@ -416,14 +420,21 @@ function callWxCloudFn<T extends Record<string, unknown>>(name: string, data: Re
         resolve(null);
         return;
       }
-      wx.cloud.callFunction({
-        name,
-        data,
-        success: (r: { result?: T }) => resolve((r?.result as T) ?? null),
-        fail: (e: unknown) => {
-          console.warn(`[scorecard] cloud ${name}`, e);
+      void getPrivacyNeedAuthorizationAsync().then((need) => {
+        if (need && enteredViaInvite.value) {
+          console.info(`[scorecard] skip cloud ${name} until privacy agreed (invite landing)`);
           resolve(null);
-        },
+          return;
+        }
+        wx.cloud.callFunction({
+          name,
+          data,
+          success: (r: { result?: T }) => resolve((r?.result as T) ?? null),
+          fail: (e: unknown) => {
+            console.warn(`[scorecard] cloud ${name}`, e);
+            resolve(null);
+          },
+        });
       });
       // #endif
       // #ifndef MP-WEIXIN
@@ -505,28 +516,28 @@ async function upsertLocalMatchFromCloudAndRefetch(matchId: string, cloudDoc: an
 }
 
 async function loadMatchForScorecard(mid: string): Promise<any | null> {
-  /** 分享 / 扫码 / scene 进入：优先云端，但未同意隐私时勿调 cloud（会触发系统 toast 且无按钮） */
+  /** 未同意隐私：禁止任何 cloud（含 getMatch / db.getMatch），否则会弹系统 toast 盖住加入/围观浮层 */
+  const needPrivacy = await getPrivacyNeedAuthorizationAsync();
   const preferCloudFirst = enteredViaInvite.value;
-  const needPrivacy = preferCloudFirst ? await getPrivacyNeedAuthorizationAsync() : false;
 
   const fetchCloud = () =>
     callWxCloudFn<{ success?: boolean; match?: any; error?: string }>('getMatch', { match_id: mid });
 
-  let cloudMatch: any | null = null;
-  if (preferCloudFirst && !needPrivacy) {
-    const cloudRes = await fetchCloud();
-    if (cloudRes?.success && cloudRes.match) {
-      cloudMatch = enrichMatchKickoffFromDoc(cloudRes.match as Record<string, unknown>) as any;
-      return upsertLocalMatchFromCloudAndRefetch(mid, cloudMatch);
-    }
-  }
-
-  if (preferCloudFirst && needPrivacy) {
+  if (needPrivacy) {
     const cached = await MatchManager.getMatch(mid);
     if (cached) {
       return enrichMatchKickoffFromDoc(cached as Record<string, unknown>) as typeof cached;
     }
     return null;
+  }
+
+  let cloudMatch: any | null = null;
+  if (preferCloudFirst) {
+    const cloudRes = await fetchCloud();
+    if (cloudRes?.success && cloudRes.match) {
+      cloudMatch = enrichMatchKickoffFromDoc(cloudRes.match as Record<string, unknown>) as any;
+      return upsertLocalMatchFromCloudAndRefetch(mid, cloudMatch);
+    }
   }
 
   let match = await MatchManager.getMatch(mid);
@@ -884,15 +895,6 @@ async function bootstrapScorecardPage() {
   const seq = ++scorecardBootstrapSeq;
   const routeMid = String(matchId.value || '').trim();
   if (!routeMid) return;
-
-  /** 分享直进：先等 PrivacyPopup 就绪并弹出加入/围观，同意隐私后再登录/拉云 */
-  if (enteredViaInvite.value) {
-    await waitForPrivacyUiReady(8000);
-    if (!invitePromptShown.value) {
-      joiningUser.value = buildJoiningUserFromProfile();
-      openJoinChoiceModal();
-    }
-  }
 
   const inviteNeedPrivacy = enteredViaInvite.value ? await getPrivacyNeedAuthorizationAsync() : false;
 
@@ -4463,8 +4465,8 @@ const posterPreviewSrc = ref('');
       </div>
     </div>
 
-    <!-- Join/Spectate Choice Modal -->
-    <div v-if="showJoinChoiceModal" class="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-xl p-6">
+    <!-- Join/Spectate Choice Modal（受邀落地须最先可见，z 高于计分表内容） -->
+    <div v-if="showJoinChoiceModal" class="fixed inset-0 z-[99990] flex items-center justify-center bg-black/90 backdrop-blur-xl p-6">
       <div class="w-full max-w-sm bg-slate-900 rounded-[40px] p-8 border border-slate-800 shadow-2xl flex flex-col items-center text-center animate-in zoom-in duration-300">
         <div class="w-20 h-20 rounded-full border-4 border-blue-500/30 p-1 mb-6">
           <img
