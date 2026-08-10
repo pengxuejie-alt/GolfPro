@@ -139,8 +139,7 @@ onShareTimeline(() => ({
   query: buildHomeShareTimelineQuery(),
 }));
 
-/** 模拟器或未授权 / 未同意隐私协议时静默展示，不在 onLoad 调 getLocation */
-/** 固定参考坐标（不使用设备定位）；label 为天气卡片展示的实际城市名 */
+/** 定位失败或未同意隐私时静默展示；广州为默认 fallback 坐标 */
 const MOCK_LOCATION = { latitude: 23.1291, longitude: 113.3239, label: 'Guangzhou · 广州' };
 const MOCK_LOCATION_SH = { label: '上海·模拟' };
 
@@ -640,14 +639,85 @@ const hasMpWechatProfile = computed(() => {
   return n != null && String(n).trim() !== '';
 });
 
+function requestDeviceLocation(): Promise<{ latitude: number; longitude: number } | null> {
+  return new Promise((resolve) => {
+    try {
+      uni.getLocation({
+        type: 'gcj02',
+        isHighAccuracy: false,
+        success: (res) => {
+          const lat = Number(res.latitude);
+          const lng = Number(res.longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            console.warn('[index] getLocation: invalid coords', res);
+            applyMockWeatherSilently();
+            resolve(null);
+            return;
+          }
+          resolve({ latitude: lat, longitude: lng });
+        },
+        fail: (err) => {
+          const errno = getLocationFailErrno(err);
+          applyLocationMockForErrno(errno);
+          resolve(null);
+        },
+      });
+    } catch (e) {
+      console.warn('[index] requestDeviceLocation', e);
+      applyMockWeatherSilently();
+      resolve(null);
+    }
+  });
+}
+
+async function fetchReverseGeocodeLabel(lat: number, lng: number): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      uni.request({
+        url: `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${lat}&longitude=${lng}&language=zh&count=1`,
+        method: 'GET',
+        success: (res) => {
+          const data = res.data as {
+            results?: Array<{ name?: string; admin1?: string }>;
+          } | null;
+          const row = data?.results?.[0];
+          if (!row) {
+            resolve('');
+            return;
+          }
+          const parts = [row.name, row.admin1].filter((x) => x && String(x).trim());
+          resolve(parts.length > 0 ? parts.join(' · ') : '');
+        },
+        fail: () => resolve(''),
+      });
+    } catch {
+      resolve('');
+    }
+  });
+}
+
 async function refreshLocationWeather() {
-  /** 不使用设备定位；展示固定参考城市名称（与坐标一致），避免暴露用户位置 */
-  weatherLocationHint.value = '';
-  weatherAreaLabel.value = MOCK_LOCATION.label;
-  const lat = MOCK_LOCATION.latitude;
-  const lng = MOCK_LOCATION.longitude;
-  const ok = await fetchOpenMeteoWeather(lat, lng);
-  if (!ok) {
+  try {
+    const needAuth = await getPrivacyNeedAuthorizationAsync();
+    if (needAuth) {
+      weatherLocationHint.value = '请同意隐私指引后使用定位';
+      applyMockWeatherSilently();
+      return;
+    }
+
+    const loc = await requestDeviceLocation();
+    if (!loc) return;
+
+    weatherLocationHint.value = '';
+    const label = await fetchReverseGeocodeLabel(loc.latitude, loc.longitude);
+    weatherAreaLabel.value = label || '当前位置';
+
+    const ok = await fetchOpenMeteoWeather(loc.latitude, loc.longitude);
+    if (!ok) {
+      applyMockWeatherSilently();
+    }
+  } catch (e) {
+    console.warn('[index] refreshLocationWeather', e);
     applyMockWeatherSilently();
   }
 }
