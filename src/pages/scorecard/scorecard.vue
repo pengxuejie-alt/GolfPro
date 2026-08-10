@@ -15,6 +15,12 @@ import { signInWithWeChat } from '@/utils/auth';
 import { requestPrivacyAgreementViaPopup, requirePrivacyAuthorizeAsync } from '@/utils/mpPrivacyBridge';
 import { mpAvatarImgSrcForDisplay, looksLikeExpiredProneTencentTempHttps } from '@/utils/mpAvatarSrc';
 import { buildRosterAvatarDisplayMap, isLikelyWeChatOpenId } from '@/utils/rosterAvatarDisplay';
+import {
+  getCachedAvatarDisplay,
+  mergeAvatarDisplayMaps,
+  seedAvatarDisplayMapFromCache,
+  setCachedAvatarDisplay,
+} from '@/utils/avatarDisplayCache';
 import { golfScoreCellMarkClasses, golfHoleMarkKind } from '@/utils/golfScoreShapes';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { formatMatchKickoffCn, shouldAutoEndByKickoffTtl } from '@/utils/matchKickoff';
@@ -165,13 +171,23 @@ const scorecardCourseName = computed(() => {
 
 /** 展示用临时 https（不写回云库，避免签名过期） */
 const rosterAvatarDisplay = ref<Record<string, string>>({});
+let avatarHydratedForMatchId = '';
 
-async function refreshRosterAvatarDisplay(): Promise<void> {
+function seedRosterAvatarDisplayFromCache(): void {
+  const ids = matchStore.user_list.map((p) => p.id).filter(Boolean);
+  const seeded = seedAvatarDisplayMapFromCache(ids);
+  rosterAvatarDisplay.value = mergeAvatarDisplayMaps(rosterAvatarDisplay.value, seeded);
+}
+
+async function hydrateRosterAvatarDisplay(force = false): Promise<void> {
   const players = matchStore.user_list;
-  if (!players.length) {
-    rosterAvatarDisplay.value = {};
-    return;
-  }
+  if (!players.length) return;
+
+  seedRosterAvatarDisplayFromCache();
+
+  const mid = String(matchId.value || matchStore.match_id || '').trim();
+  if (!force && mid && avatarHydratedForMatchId === mid) return;
+
   const ids = players.map((p) => p.id).filter(Boolean);
   const profileMap = await fetchUsersProfilesByOpenIds(ids);
   const profileHttps = new Map<string, string>();
@@ -179,7 +195,9 @@ async function refreshRosterAvatarDisplay(): Promise<void> {
     const av = prof.avatarUrl?.trim();
     if (av) profileHttps.set(oid, av);
   }
-  rosterAvatarDisplay.value = await buildRosterAvatarDisplayMap(players, profileHttps);
+  const built = await buildRosterAvatarDisplayMap(players, profileHttps);
+  rosterAvatarDisplay.value = mergeAvatarDisplayMaps(rosterAvatarDisplay.value, built);
+  if (mid) avatarHydratedForMatchId = mid;
 }
 
 function collectPlayerOpenIdsFromMatch(m: Record<string, unknown>): string[] {
@@ -368,8 +386,7 @@ async function hydrateTeammatesFromUsersCollection(match: Record<string, unknown
   } catch (e) {
     console.warn('[scorecard] hydrateTeammatesFromUsersCollection', e);
   }
-  await refreshRosterAvatarDisplay();
-  return updated || Object.keys(rosterAvatarDisplay.value).length > 0;
+  return updated;
 }
 
 const isWechatFriendShareReady = computed(() => {
@@ -731,9 +748,11 @@ async function bootstrapScorecardPage() {
   if (seq !== scorecardBootstrapSeq) return;
   currentMatch.value = match;
   matchStore.initMatch(match);
+  seedRosterAvatarDisplayFromCache();
   lastLocalScoreCommitAt.value = Date.now();
   refreshSavedRuleAndMetaFingerprints();
   await hydrateTeammatesFromUsersCollection(match as Record<string, unknown>);
+  await hydrateRosterAvatarDisplay(true);
   await maybeRunInviteFlow(match);
 
   matchStore.ensureEighteenHoles();
@@ -748,6 +767,7 @@ async function bootstrapScorecardPage() {
 watch(
   matchId,
   () => {
+    avatarHydratedForMatchId = '';
     const routeMid = String(matchId.value || '').trim();
     if (!routeMid) return;
     if (matchStore.match_id !== routeMid) {
@@ -2095,8 +2115,8 @@ async function syncMatchFromCloud(source: 'show' | 'poll' | 'pull') {
       await MatchManager.upsertLocalMatch(currentMatch.value);
       await saveMatch({ skipCloudPush: true });
     }
-    if (shouldHydrateProfiles || needsAvatarHydrate) {
-      await refreshRosterAvatarDisplay();
+    if (!scoresOnlyPoll && (shouldHydrateProfiles || newPlayers)) {
+      await hydrateRosterAvatarDisplay(!!newPlayers || source !== 'poll');
     }
     if (source === 'poll' || source === 'pull') {
       if (newPlayers || scoreUpdate || rulesMeta.pk || rulesMeta.meta) {
@@ -2197,7 +2217,7 @@ const DEFAULT_RULE_SLOT_AVATAR = mpStaticAbsolute('tab/me.png');
 
 function avatarOrDefault(p: { id?: string; avatar?: string } | null | undefined): string {
   const id = p?.id != null ? String(p.id).trim() : '';
-  const resolved = id ? rosterAvatarDisplay.value[id] : '';
+  const resolved = id ? rosterAvatarDisplay.value[id] || getCachedAvatarDisplay(id) : '';
   const a = resolved || (p?.avatar != null ? String(p.avatar).trim() : '');
   return mpAvatarImgSrcForDisplay(a, DEFAULT_RULE_SLOT_AVATAR);
 }

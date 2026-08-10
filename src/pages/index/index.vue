@@ -16,6 +16,12 @@ import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
 import { hydrateMatchListAvatarsForDisplay } from '@/utils/rosterAvatarDisplay';
 import { resolveCloudFileIdToHttps, isWxCloudFileId } from '@/utils/mpCloudFileUrl';
+import {
+  getCachedAvatarDisplay,
+  getCachedSelfAvatarDisplay,
+  setCachedAvatarDisplay,
+  setCachedSelfAvatarDisplay,
+} from '@/utils/avatarDisplayCache';
 import { formatMatchKickoffCn } from '@/utils/matchKickoff';
 import { golfHoleMarkKind, type GolfHoleMarkKind } from '@/utils/golfScoreShapes';
 const DEFAULT_AVATAR_URL = mpStaticAbsolute('tab/me.png');
@@ -50,7 +56,7 @@ const selfAvatarSrc = computed(() => {
     const safePending = mpAvatarImgSrcForDisplay(pending, '');
     if (safePending) return safePending;
   }
-  const resolved = selfAvatarDisplay.value;
+  const resolved = selfAvatarDisplay.value || getCachedSelfAvatarDisplay(userStore.openId);
   if (resolved) {
     const safeResolved = mpAvatarImgSrcForDisplay(resolved, '');
     if (safeResolved) return safeResolved;
@@ -64,6 +70,12 @@ const selfAvatarSrc = computed(() => {
 });
 
 async function refreshSelfAvatarDisplay(): Promise<boolean> {
+  const oid = userStore.openId || '';
+  const cached = getCachedSelfAvatarDisplay(oid);
+  if (cached) {
+    selfAvatarDisplay.value = cached;
+    return true;
+  }
   const raw = String(userStore.profile.avatar || '').trim();
   if (!raw) {
     if (!selfAvatarPendingTemp.value) selfAvatarDisplay.value = '';
@@ -74,6 +86,7 @@ async function refreshSelfAvatarDisplay(): Promise<boolean> {
     if (https) {
       selfAvatarDisplay.value = https;
       selfAvatarPendingTemp.value = '';
+      if (oid) setCachedSelfAvatarDisplay(oid, https, raw);
       return true;
     }
     return false;
@@ -84,6 +97,7 @@ async function refreshSelfAvatarDisplay(): Promise<boolean> {
   }
   selfAvatarDisplay.value = raw;
   selfAvatarPendingTemp.value = '';
+  if (oid) setCachedSelfAvatarDisplay(oid, raw);
   return true;
 }
 
@@ -125,6 +139,8 @@ function rosterPlayerAvatarSrc(p: unknown, match: unknown): string {
     match && typeof match === 'object'
       ? String((match as Record<string, unknown>).match_id ?? (match as Record<string, unknown>).id ?? '').trim()
       : '';
+  const globalCached = pid ? getCachedAvatarDisplay(pid) : '';
+  if (globalCached) return mpAvatarImgSrcForDisplay(globalCached, DEFAULT_AVATAR_URL);
   const cached = mid && pid ? matchAvatarDisplayMap.value[`${mid}:${pid}`] : '';
   if (cached) return mpAvatarImgSrcForDisplay(cached, DEFAULT_AVATAR_URL);
   const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
@@ -146,6 +162,7 @@ async function rebuildMatchAvatarDisplayMap(list: unknown[]) {
       const av = String(o.avatar ?? o.avatarUrl ?? '').trim();
       if (av.startsWith('https://') && !av.includes('cloud://')) {
         next[`${mid}:${pid}`] = av;
+        setCachedAvatarDisplay(pid, av);
       }
     }
   }
@@ -552,6 +569,7 @@ async function onChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
       if (https) {
         selfAvatarDisplay.value = https;
         selfAvatarPendingTemp.value = '';
+        if (userStore.openId) setCachedSelfAvatarDisplay(userStore.openId, https, fileId);
       }
       userStore.updateProfile({ avatar: fileId });
       if (!https) await refreshSelfAvatarDisplay();
@@ -620,6 +638,7 @@ async function onProfileChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
       if (https) {
         selfAvatarDisplay.value = https;
         selfAvatarPendingTemp.value = '';
+        if (userStore.openId) setCachedSelfAvatarDisplay(userStore.openId, https, fileId);
       }
       userStore.updateProfile({ avatar: fileId });
       if (!https) await refreshSelfAvatarDisplay();

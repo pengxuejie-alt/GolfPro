@@ -10,12 +10,78 @@ import { openRoute } from '@/utils/uniNav';
 import { requirePrivacyAuthorizeAsync } from '@/utils/mpPrivacyBridge';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
+import { resolveCloudFileIdToHttps, isWxCloudFileId } from '@/utils/mpCloudFileUrl';
+import {
+  getCachedSelfAvatarDisplay,
+  setCachedSelfAvatarDisplay,
+} from '@/utils/avatarDisplayCache';
 import { getMpMatchListNavShellStyle } from '@/utils/mpCapsuleSafeInset';
 import { MP_BATCH_CHECK_OFF, MP_BATCH_CHECK_ON, MP_BATCH_CHECK_ICON_COLOR } from '@/utils/mpBatchCheckStyle';
 const userStore = useUserStore();
 const profile = computed(() => userStore.profile);
 const DEFAULT_AVATAR_URL = mpStaticAbsolute('tab/me.png');
 const SHARE_CARD_POSTER_BG = mpStaticAbsolute('share-card.png');
+
+/** 本机头像 cloud:// → 临时 https；优先读全局缓存，避免进页闪默认图 */
+const selfAvatarDisplay = ref('');
+const selfAvatarPendingTemp = ref('');
+
+function isLocalTempAvatarPath(s: unknown): boolean {
+  const v = String(s ?? '').trim();
+  if (!v) return false;
+  return (
+    v.startsWith('wxfile://') ||
+    v.startsWith('file://') ||
+    v.startsWith('http://tmp') ||
+    v.startsWith('https://tmp')
+  );
+}
+
+const selfAvatarSrc = computed(() => {
+  const pending = selfAvatarPendingTemp.value;
+  if (pending) {
+    const safe = mpAvatarImgSrcForDisplay(pending, '');
+    if (safe) return safe;
+  }
+  const resolved = selfAvatarDisplay.value || getCachedSelfAvatarDisplay(userStore.openId);
+  if (resolved) {
+    const safe = mpAvatarImgSrcForDisplay(resolved, '');
+    if (safe) return safe;
+  }
+  return mpAvatarImgSrcForDisplay(profile.value.avatar, DEFAULT_AVATAR_URL);
+});
+
+async function refreshSelfAvatarDisplay(): Promise<boolean> {
+  const oid = userStore.openId || '';
+  const cached = getCachedSelfAvatarDisplay(oid);
+  if (cached) {
+    selfAvatarDisplay.value = cached;
+    return true;
+  }
+  const raw = String(userStore.profile.avatar || '').trim();
+  if (!raw) {
+    if (!selfAvatarPendingTemp.value) selfAvatarDisplay.value = '';
+    return false;
+  }
+  if (isWxCloudFileId(raw)) {
+    const https = await resolveCloudFileIdToHttps(raw);
+    if (https) {
+      selfAvatarDisplay.value = https;
+      selfAvatarPendingTemp.value = '';
+      if (oid) setCachedSelfAvatarDisplay(oid, https, raw);
+      return true;
+    }
+    return false;
+  }
+  if (isLocalTempAvatarPath(raw)) {
+    if (!selfAvatarPendingTemp.value) selfAvatarPendingTemp.value = raw;
+    return true;
+  }
+  selfAvatarDisplay.value = raw;
+  selfAvatarPendingTemp.value = '';
+  if (oid) setCachedSelfAvatarDisplay(oid, raw);
+  return true;
+}
 
 const showEditProfile = ref(false);
 const statsRange = ref<number>(10); // 10, 20, 30, 999
@@ -222,6 +288,9 @@ onShow(() => {
   historyHeaderShell.value = r.shellStyle;
   historyNavRowHeightPx.value = r.navRowHeightPx;
   historyCapsulePaddingRight.value = r.capsulePaddingRight;
+  const cached = getCachedSelfAvatarDisplay(userStore.openId);
+  if (cached) selfAvatarDisplay.value = cached;
+  void refreshSelfAvatarDisplay();
 });
 
 const selectedCourseTitle = computed(() => {
@@ -472,6 +541,8 @@ async function onChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
     const fileId = await uploadAvatarToCloud(tempPath);
     if (fileId) {
       authDraftAvatarCloud.value = fileId;
+      const https = await resolveCloudFileIdToHttps(fileId);
+      if (https && userStore.openId) setCachedSelfAvatarDisplay(userStore.openId, https, fileId);
       uni.showToast({ title: '头像已上传到云端', icon: 'success', duration: 1200 });
     } else {
       uni.showToast({ title: '云上传失败，请检查云开发配置后重试', icon: 'none', duration: 2500 });
@@ -496,10 +567,21 @@ async function onProfileChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
   // #endif
   uni.showLoading({ title: '上传头像中…', mask: true });
   try {
+    selfAvatarPendingTemp.value = tempPath;
     userStore.updateProfile({ avatar: tempPath });
     const fileId = await uploadAvatarToCloud(tempPath);
     const finalAvatar = fileId || tempPath;
     userStore.updateProfile({ avatar: finalAvatar });
+    if (fileId) {
+      const https = await resolveCloudFileIdToHttps(fileId);
+      if (https) {
+        selfAvatarDisplay.value = https;
+        selfAvatarPendingTemp.value = '';
+        if (userStore.openId) setCachedSelfAvatarDisplay(userStore.openId, https, fileId);
+      }
+    } else if (userStore.openId) {
+      setCachedSelfAvatarDisplay(userStore.openId, tempPath);
+    }
     if (!fileId) {
       uni.showToast({ title: '云上传未成功，头像可能无法在真机长期保存', icon: 'none', duration: 2500 });
     } else {
@@ -636,7 +718,7 @@ function getMatchTotalStrokes(m: any): number {
           <div class="flex items-center gap-4">
             <div class="relative">
               <button plain hover-class="none" class="mp-choose-avatar-btn w-20 h-20 rounded-3xl border-2 border-white p-0" open-type="chooseAvatar" @chooseavatar="onProfileChooseAvatar">
-                <image :src="mpAvatarImgSrcForDisplay(profile.avatar, DEFAULT_AVATAR_URL)" mode="aspectFill" class="mp-choose-avatar-img w-20 h-20 rounded-3xl shadow-lg" />
+                <image :src="selfAvatarSrc" mode="aspectFill" class="mp-choose-avatar-img w-20 h-20 rounded-3xl shadow-lg" />
               </button>
               <view @click="showEditProfile = true" class="absolute -bottom-1 -right-1 w-7 h-7 bg-slate-900 text-white rounded-full flex items-center justify-center border-2 border-white">
                 <uni-icons type="gear" :size="14" color="#ffffff" />
@@ -655,7 +737,7 @@ function getMatchTotalStrokes(m: any): number {
         <div class="flex items-center justify-between mb-8 pr-[90px]">
           <div class="flex items-center gap-4">
             <div class="relative">
-              <image :src="mpAvatarImgSrcForDisplay(profile.avatar, DEFAULT_AVATAR_URL)" mode="aspectFill" class="w-20 h-20 rounded-3xl border-4 border-white shadow-lg" />
+              <image :src="selfAvatarSrc" mode="aspectFill" class="w-20 h-20 rounded-3xl border-4 border-white shadow-lg" />
               <view @click="showEditProfile = true" class="absolute -bottom-1 -right-1 w-7 h-7 bg-slate-900 text-white rounded-full flex items-center justify-center border-2 border-white">
                 <uni-icons type="gear" :size="14" color="#ffffff" />
               </view>
@@ -1046,7 +1128,7 @@ function getMatchTotalStrokes(m: any): number {
         <div class="space-y-6">
           <div class="flex flex-col items-center mb-4">
             <div class="relative group">
-              <image :src="mpAvatarImgSrcForDisplay(profile.avatar, DEFAULT_AVATAR_URL)" mode="aspectFill" class="w-24 h-24 rounded-[32px] shadow-xl" />
+              <image :src="selfAvatarSrc" mode="aspectFill" class="w-24 h-24 rounded-[32px] shadow-xl" />
               <div class="absolute inset-0 bg-black/20 rounded-[32px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                 <uni-icons type="camera" :size="24" color="#ffffff" />
               </div>

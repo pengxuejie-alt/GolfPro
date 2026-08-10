@@ -4,6 +4,7 @@
 
 import { looksLikeExpiredProneTencentTempHttps } from './mpAvatarSrc';
 import { isLikelyWeChatOpenId } from './rosterAvatarDisplay';
+import { setCachedAvatarDisplay } from './avatarDisplayCache';
 
 function rosterAvatarForMerge(raw: unknown): string {
   const s = raw != null && String(raw).trim() !== '' ? String(raw).trim() : '';
@@ -132,6 +133,7 @@ function applyProfilesToRoster(roster: unknown, profiles: Map<string, { nickName
       if (incomingSafe) {
         o.avatarUrl = incomingSafe;
         o.avatar = incomingSafe;
+        if (oid) setCachedAvatarDisplay(oid, incomingSafe);
       }
     }
     if (prof.nickName) {
