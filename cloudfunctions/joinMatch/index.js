@@ -58,6 +58,22 @@ function playerKey(p) {
   return String(p.uid || p.id || p.openId || p.openid || '').trim();
 }
 
+function isPlaceholderNick(nick) {
+  const n = String(nick || '').trim();
+  if (!n || n === '球友') return true;
+  if (/^球友[a-zA-Z0-9_-]{1,8}$/.test(n)) return true;
+  if (/^o[A-Za-z0-9_-]{10,}$/.test(n)) return true;
+  return false;
+}
+
+function defaultJoinNickName(openId, nickName) {
+  const nick = String(nickName || '').trim();
+  if (nick && !isPlaceholderNick(nick)) return nick;
+  const oid = String(openId || '').trim();
+  const suffix = oid.length >= 4 ? oid.slice(-4) : '';
+  return suffix ? `球友${suffix}` : '球友';
+}
+
 exports.main = async (event) => {
   const wxContext = cloud.getWXContext();
   const openId = wxContext.OPENID;
@@ -66,7 +82,7 @@ exports.main = async (event) => {
   }
 
   const matchId = event?.match_id != null ? String(event.match_id).trim() : '';
-  const nickName = event?.nickName != null ? String(event.nickName).trim() : '球友';
+  const nickNameRaw = event?.nickName != null ? String(event.nickName).trim() : '';
   const avatarUrl = event?.avatarUrl != null ? String(event.avatarUrl).trim() : '';
   const handicap = event?.handicap != null ? Number(event.handicap) : 0;
 
@@ -101,13 +117,14 @@ exports.main = async (event) => {
     }
 
     const prevLen = players.length;
+    const nickName = defaultJoinNickName(openId, nickNameRaw);
 
     players.push({
       uid: openId,
       id: openId,
       openId,
-      nickName: nickName || '球友',
-      nickname: nickName || '球友',
+      nickName,
+      nickname: nickName,
       avatarUrl,
       avatar: avatarUrl,
       handicap: Number.isFinite(handicap) ? handicap : 0,
@@ -145,19 +162,24 @@ exports.main = async (event) => {
 
     try {
       const uSnap = await db.collection('users').where({ _openid: openId }).limit(1).get();
-      const userPayload = {
-        nickName: nickName || '球友',
-        avatarUrl,
-        updated_at: db.serverDate(),
-      };
+      const userPayload = { updated_at: db.serverDate() };
       if (uSnap.data && uSnap.data.length > 0) {
-        await db.collection('users').doc(uSnap.data[0]._id).update({ data: userPayload });
+        const existing = uSnap.data[0];
+        const exNick = String(existing.nickName || '').trim();
+        const exAv = String(existing.avatarUrl || '').trim();
+        if (!exNick || isPlaceholderNick(exNick)) {
+          userPayload.nickName = nickName;
+        }
+        if (avatarUrl && !exAv) {
+          userPayload.avatarUrl = avatarUrl;
+        }
+        await db.collection('users').doc(existing._id).update({ data: userPayload });
       } else {
         await db.collection('users').add({
           data: {
             _openid: openId,
             openid: openId,
-            nickName: nickName || '球友',
+            nickName,
             avatarUrl,
             handicap: Number.isFinite(handicap) ? handicap : 0,
             gender: 0,

@@ -330,6 +330,16 @@ function mergeAvatarForCloudCosmeticSync(cloudRowAv: string | undefined, storeAv
   return mergeAvatarFromCloudRoster(cloudRowAv, storeAv);
 }
 
+/** 受邀默认昵称 / openId 占位，users 有真实资料时应覆盖 */
+function isPlaceholderJoinNickname(nick: string | undefined, playerId?: string): boolean {
+  const n = String(nick || '').trim();
+  if (!n || n === '球友') return true;
+  if (/^球友[a-zA-Z0-9_-]{1,8}$/.test(n)) return true;
+  if (isLikelyWeChatOpenId(n)) return true;
+  if (playerId && n === playerId) return true;
+  return false;
+}
+
 /** 根据 openId 对齐 matchStore · currentMatch，完成计分卡展示闭环 */
 function applyUsersProfilesToRoster(profileMap: Map<string, { nickName: string; avatarUrl: string }>): boolean {
   let modified = false;
@@ -348,13 +358,7 @@ function applyUsersProfilesToRoster(profileMap: Map<string, { nickName: string; 
       avCloudRaw && looksLikeExpiredProneTencentTempHttps(avCloudRaw) ? undefined : avCloudRaw || undefined;
     const avatar = mergeAvatarFromCloudRoster(pl.avatar, profileAvFiltered);
     let nickname = (u.nickName && String(u.nickName).trim()) || pl.nickname;
-    if (
-      u.nickName &&
-      (!pl.nickname?.trim() ||
-        pl.nickname === '球友' ||
-        isLikelyWeChatOpenId(pl.nickname) ||
-        pl.nickname === pl.id)
-    ) {
+    if (u.nickName && isPlaceholderJoinNickname(pl.nickname, pl.id)) {
       nickname = String(u.nickName).trim();
     }
     if (nickname !== pl.nickname || avatar !== pl.avatar) modified = true;
@@ -559,15 +563,34 @@ function isOpenIdInMatchRoster(m: any, openId: string): boolean {
   });
 }
 
-function openJoinChoiceModal() {
-  if (invitePromptShown.value) return;
-  invitePromptShown.value = true;
-  joiningUser.value = {
-    id: userStore.openId,
-    nickname: userStore.profile.nickname || '球友',
+/** 受邀加入时无资料：默认昵称，便于名单区分 */
+function defaultJoinNickname(openId: string): string {
+  const oid = String(openId || '').trim();
+  if (!oid) return '球友';
+  const suffix = oid.slice(-4);
+  return suffix ? `球友${suffix}` : '球友';
+}
+
+function buildJoiningUserFromProfile(): {
+  id: string;
+  nickname: string;
+  avatar: string;
+  handicap: number;
+} {
+  const openId = userStore.openId || '';
+  const nick = userStore.profile.nickname && String(userStore.profile.nickname).trim();
+  return {
+    id: openId,
+    nickname: nick || defaultJoinNickname(openId),
     avatar: userStore.profile.avatar || '',
     handicap: userStore.profile.handicap ?? 0,
   };
+}
+
+function openJoinChoiceModal() {
+  if (invitePromptShown.value) return;
+  invitePromptShown.value = true;
+  joiningUser.value = buildJoiningUserFromProfile();
   showJoinChoiceModal.value = true;
 }
 
@@ -617,12 +640,12 @@ async function onGateChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
   }
 }
 
-function dismissProfileGateModal() {
+async function dismissProfileGateModal() {
   showProfileGateModal.value = false;
-  if (pendingJoinAfterProfile.value) {
-    pendingJoinAfterProfile.value = false;
-    showJoinChoiceModal.value = true;
-  }
+  if (!pendingJoinAfterProfile.value) return;
+  pendingJoinAfterProfile.value = false;
+  joiningUser.value = buildJoiningUserFromProfile();
+  await executeJoinMatch();
 }
 
 async function confirmProfileGateAndContinue() {
@@ -1015,7 +1038,7 @@ async function executeJoinMatch(): Promise<boolean> {
       error?: string;
     }>('joinMatch', {
       match_id: matchId.value,
-      nickName: joiningUser.value.nickname || '球友',
+      nickName: joiningUser.value.nickname || defaultJoinNickname(userStore.openId || ''),
       avatarUrl: joiningUser.value.avatar || '',
       handicap: joiningUser.value.handicap ?? 0,
     });
@@ -1057,12 +1080,7 @@ const handleJoinAsPlayer = async () => {
     showProfileGateModal.value = true;
     return;
   }
-  joiningUser.value = {
-    ...joiningUser.value,
-    nickname: userStore.profile.nickname || '球友',
-    avatar: userStore.profile.avatar || '',
-    handicap: userStore.profile.handicap ?? 0,
-  };
+  joiningUser.value = buildJoiningUserFromProfile();
   await executeJoinMatch();
 };
 
