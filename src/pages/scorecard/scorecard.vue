@@ -12,7 +12,12 @@ import { courseNeedsSectionCombo, sectionsForCoursePicker } from '@/utils/course
 import { openRoute, goBack, markScorecardReopenPkRulesModal, consumeScorecardReopenPkRulesModal } from '@/utils/uniNav';
 import { savePackagedImageToAlbum, saveImageToPhotosAlbumSafe } from '@/utils/savePosterToAlbum';
 import { signInWithWeChat } from '@/utils/auth';
-import { requestPrivacyAgreementViaPopup, requirePrivacyAuthorizeAsync } from '@/utils/mpPrivacyBridge';
+import {
+  requestPrivacyAgreementViaPopup,
+  requirePrivacyAuthorizeAsync,
+  getPrivacyNeedAuthorizationAsync,
+  waitForPrivacyUiReady,
+} from '@/utils/mpPrivacyBridge';
 import { mpAvatarImgSrcForDisplay, looksLikeExpiredProneTencentTempHttps } from '@/utils/mpAvatarSrc';
 import { buildRosterAvatarDisplayMap, isLikelyWeChatOpenId } from '@/utils/rosterAvatarDisplay';
 import {
@@ -49,6 +54,8 @@ let lastSavedPkRulesJson = '';
 let lastSavedMatchMetaJson = '';
 const showJoinChoiceModal = ref(false);
 const joiningUser = ref<any>(null);
+/** 资料门控完成后直接 joinMatch（而非回到加入/围观弹层） */
+const pendingJoinAfterProfile = ref(false);
 
 const matchStore = useMatchStore();
 const userStore = useUserStore();
@@ -610,6 +617,14 @@ async function onGateChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
   }
 }
 
+function dismissProfileGateModal() {
+  showProfileGateModal.value = false;
+  if (pendingJoinAfterProfile.value) {
+    pendingJoinAfterProfile.value = false;
+    showJoinChoiceModal.value = true;
+  }
+}
+
 async function confirmProfileGateAndContinue() {
   if (gateProfileSaving.value) return;
   const nick = gateNickname.value.trim();
@@ -643,7 +658,18 @@ async function confirmProfileGateAndContinue() {
     }
     // #endif
     showProfileGateModal.value = false;
-    openJoinChoiceModal();
+    if (pendingJoinAfterProfile.value) {
+      pendingJoinAfterProfile.value = false;
+      joiningUser.value = {
+        id: userStore.openId,
+        nickname: nick,
+        avatar: avatarUrl || userStore.profile.avatar || '',
+        handicap: userStore.profile.handicap ?? 0,
+      };
+      await executeJoinMatch();
+    } else {
+      openJoinChoiceModal();
+    }
   } catch (e) {
     console.warn('[scorecard] confirmProfileGate', e);
     uni.showToast({ title: '资料同步失败，请重试', icon: 'none' });
@@ -671,20 +697,23 @@ async function maybeRunInviteFlow(match: any) {
     return;
   }
   if (isOpenIdInMatchRoster(match, userStore.openId)) return;
+  /** 先展示加入/围观；隐私与资料在用户点「加入比赛」后再 gate */
+  openJoinChoiceModal();
+}
+
+async function ensurePrivacyForJoin(): Promise<boolean> {
+  const needAuth = await getPrivacyNeedAuthorizationAsync();
+  if (!needAuth) return true;
+  const ready = await waitForPrivacyUiReady();
+  if (!ready) {
+    uni.showToast({ title: '隐私弹窗加载中，请稍候再试', icon: 'none' });
+    return false;
+  }
   const agreed = await requestPrivacyAgreementViaPopup();
   if (!agreed) {
-    uni.showToast({ title: '需同意隐私指引后继续使用', icon: 'none' });
-    return;
+    uni.showToast({ title: '需同意隐私指引后才能加入比赛', icon: 'none' });
   }
-  const hasNick = !!(userStore.profile.nickname && String(userStore.profile.nickname).trim());
-  if (!hasNick) {
-    gateNickname.value = '';
-    gateAvatarLocal.value = '';
-    gateAvatarCloud.value = '';
-    showProfileGateModal.value = true;
-    return;
-  }
-  openJoinChoiceModal();
+  return agreed;
 }
 
 /**
@@ -976,8 +1005,8 @@ const handleAddPlayerOption = (optId: string) => {
   }
 };
 
-const handleJoinAsPlayer = async () => {
-  if (!joiningUser.value || !matchId.value) return;
+async function executeJoinMatch(): Promise<boolean> {
+  if (!joiningUser.value || !matchId.value) return false;
   uni.showLoading({ title: '加入中…', mask: true });
   try {
     const res = await callWxCloudFn<{
@@ -993,7 +1022,7 @@ const handleJoinAsPlayer = async () => {
     uni.hideLoading();
     if (!res?.success || !res.match) {
       uni.showToast({ title: (res as any)?.error ? String((res as any).error) : '加入失败', icon: 'none' });
-      return;
+      return false;
     }
     const m = await finalizeMatchKickoffAutoEnd(enrichMatchKickoffFromDoc(res.match as Record<string, unknown>) as any);
     currentMatch.value = m;
@@ -1005,11 +1034,36 @@ const handleJoinAsPlayer = async () => {
     joiningUser.value = null;
     isSpectatorMode.value = false;
     uni.showToast({ title: '已加入比赛', icon: 'success' });
+    return true;
   } catch (e) {
     uni.hideLoading();
     console.warn('[scorecard] joinMatch', e);
     uni.showToast({ title: '加入失败', icon: 'none' });
+    return false;
   }
+}
+
+const handleJoinAsPlayer = async () => {
+  if (!joiningUser.value || !matchId.value) return;
+  const privacyOk = await ensurePrivacyForJoin();
+  if (!privacyOk) return;
+  const hasNick = !!(userStore.profile.nickname && String(userStore.profile.nickname).trim());
+  if (!hasNick) {
+    pendingJoinAfterProfile.value = true;
+    gateNickname.value = '';
+    gateAvatarLocal.value = '';
+    gateAvatarCloud.value = '';
+    showJoinChoiceModal.value = false;
+    showProfileGateModal.value = true;
+    return;
+  }
+  joiningUser.value = {
+    ...joiningUser.value,
+    nickname: userStore.profile.nickname || '球友',
+    avatar: userStore.profile.avatar || '',
+    handicap: userStore.profile.handicap ?? 0,
+  };
+  await executeJoinMatch();
 };
 
 const handleSpectate = () => {
@@ -4190,7 +4244,7 @@ const posterPreviewSrc = ref('');
         <button
           type="button"
           class="w-full min-h-11 mt-3 rounded-xl text-slate-400 text-sm flex flex-row items-center justify-center text-center"
-          @click="showProfileGateModal = false"
+          @click="dismissProfileGateModal"
         >
           稍后再说
         </button>

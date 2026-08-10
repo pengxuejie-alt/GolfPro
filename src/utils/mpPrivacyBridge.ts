@@ -21,27 +21,48 @@ export function registerPrivacyAuthorizationUi(handler: (resolve: PrivacyResolve
   showPrivacyAuthorization = handler;
 }
 
+/** PrivacyPopup 是否已挂载（避免分享直进子页时 UI 未就绪就 fallback 导致 toast 闪一下） */
+export function isPrivacyAuthorizationUiReady(): boolean {
+  return showPrivacyAuthorization != null;
+}
+
+/** 等待 App 级 PrivacyPopup 注册，最多 maxMs 毫秒 */
+export async function waitForPrivacyUiReady(maxMs = 4000): Promise<boolean> {
+  if (showPrivacyAuthorization) return true;
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 50));
+    if (showPrivacyAuthorization) return true;
+  }
+  return showPrivacyAuthorization != null;
+}
+
 /**
  * 主动向用户展示与 onNeedPrivacyAuthorization 相同的自定义隐私弹窗（含官方 agreePrivacyAuthorization 按钮）。
  * wx.requirePrivacyAuthorize 单独调用在多数机型上不弹窗，需走此路径完成闭环。
  * @returns 用户点击「同意」为 true，不同意或组件未挂载为 false（未挂载时再尝试 requirePrivacyAuthorize）
  */
-export function requestPrivacyAgreementViaPopup(): Promise<boolean> {
-  return new Promise((resolve) => {
-    try {
-      if (!showPrivacyAuthorization) {
-        console.warn('[privacy] PrivacyPopup 未挂载，尝试 requirePrivacyAuthorize');
-        void requirePrivacyAuthorizeAsync().then(resolve);
-        return;
-      }
-      showPrivacyAuthorization((opts: Record<string, string>) => {
-        resolve(opts?.event === 'agree');
-      });
-    } catch (e) {
-      console.warn('[privacy] requestPrivacyAgreementViaPopup', e);
-      resolve(false);
+export async function requestPrivacyAgreementViaPopup(): Promise<boolean> {
+  try {
+    const ready = await waitForPrivacyUiReady();
+    if (!ready || !showPrivacyAuthorization) {
+      console.warn('[privacy] PrivacyPopup 未挂载，跳过 requirePrivacyAuthorize fallback（避免无 UI toast 闪现）');
+      return false;
     }
-  });
+    return await new Promise<boolean>((resolve) => {
+      try {
+        showPrivacyAuthorization!((opts: Record<string, string>) => {
+          resolve(opts?.event === 'agree');
+        });
+      } catch (e) {
+        console.warn('[privacy] requestPrivacyAgreementViaPopup', e);
+        resolve(false);
+      }
+    });
+  } catch (e) {
+    console.warn('[privacy] requestPrivacyAgreementViaPopup', e);
+    return false;
+  }
 }
 
 const agreedListeners: (() => void)[] = [];
