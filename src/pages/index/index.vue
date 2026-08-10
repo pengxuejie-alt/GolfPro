@@ -13,9 +13,8 @@ import {
   emitPrivacyContractAgreed,
 } from '@/utils/mpPrivacyBridge';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
-import { hydratePlayerAvatarsInMatchList, safeMpAvatarImgSrc, selfAvatarImgSrcForDisplay, stripCloudAvatarsInMatchList } from '@/utils/mpAvatarSrc';
-import { hydrateMatchListRostersFromUserProfiles } from '@/utils/mpMatchListRosterHydrate';
-import { resolveCloudAvatarsInMatchList } from '@/utils/rosterAvatarDisplay';
+import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
+import { hydrateMatchListAvatarsForDisplay } from '@/utils/rosterAvatarDisplay';
 import { resolveCloudFileIdToHttps, isWxCloudFileId } from '@/utils/mpCloudFileUrl';
 import { formatMatchKickoffCn } from '@/utils/matchKickoff';
 import { golfHoleMarkKind, type GolfHoleMarkKind } from '@/utils/golfScoreShapes';
@@ -48,20 +47,20 @@ function isLocalTempAvatarPath(s: unknown): boolean {
 const selfAvatarSrc = computed(() => {
   const pending = selfAvatarPendingTemp.value;
   if (pending) {
-    const safePending = selfAvatarImgSrcForDisplay(pending, '');
+    const safePending = mpAvatarImgSrcForDisplay(pending, '');
     if (safePending) return safePending;
   }
   const resolved = selfAvatarDisplay.value;
   if (resolved) {
-    const safeResolved = selfAvatarImgSrcForDisplay(resolved, '');
+    const safeResolved = mpAvatarImgSrcForDisplay(resolved, '');
     if (safeResolved) return safeResolved;
   }
   const draft = authDraftAvatarLocal.value;
   if (draft) {
-    const safeDraft = selfAvatarImgSrcForDisplay(draft, '');
+    const safeDraft = mpAvatarImgSrcForDisplay(draft, '');
     if (safeDraft) return safeDraft;
   }
-  return selfAvatarImgSrcForDisplay(userStore.profile.avatar, DEFAULT_AVATAR_URL);
+  return mpAvatarImgSrcForDisplay(userStore.profile.avatar, DEFAULT_AVATAR_URL);
 });
 
 async function refreshSelfAvatarDisplay(): Promise<boolean> {
@@ -90,10 +89,7 @@ async function refreshSelfAvatarDisplay(): Promise<boolean> {
 
 async function hydrateIndexMatchAvatars(list: unknown[]) {
   if (!Array.isArray(list) || list.length === 0) return;
-  await hydrateMatchListRostersFromUserProfiles(list);
-  await hydratePlayerAvatarsInMatchList(list);
-  await resolveCloudAvatarsInMatchList(list);
-  stripCloudAvatarsInMatchList(list);
+  await hydrateMatchListAvatarsForDisplay(list);
   await rebuildMatchAvatarDisplayMap(list);
 }
 
@@ -130,9 +126,9 @@ function rosterPlayerAvatarSrc(p: unknown, match: unknown): string {
       ? String((match as Record<string, unknown>).match_id ?? (match as Record<string, unknown>).id ?? '').trim()
       : '';
   const cached = mid && pid ? matchAvatarDisplayMap.value[`${mid}:${pid}`] : '';
-  if (cached) return safeMpAvatarImgSrc(cached, DEFAULT_AVATAR_URL);
+  if (cached) return mpAvatarImgSrcForDisplay(cached, DEFAULT_AVATAR_URL);
   const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
-  return safeMpAvatarImgSrc(o.avatar ?? o.avatarUrl, DEFAULT_AVATAR_URL);
+  return mpAvatarImgSrcForDisplay(o.avatar ?? o.avatarUrl, DEFAULT_AVATAR_URL);
 }
 
 async function rebuildMatchAvatarDisplayMap(list: unknown[]) {
@@ -417,7 +413,7 @@ async function openProfileSyncSheet() {
     }
     // #endif
     authDraftNickname.value = userStore.profile.nickname || '';
-    authDraftAvatarLocal.value = safeMpAvatarImgSrc(userStore.profile.avatar, DEFAULT_AVATAR_URL);
+    authDraftAvatarLocal.value = mpAvatarImgSrcForDisplay(userStore.profile.avatar, DEFAULT_AVATAR_URL);
     authDraftAvatarCloud.value = '';
     const av = String(userStore.profile.avatar || '').trim();
     if (av.startsWith('cloud://')) {
@@ -1637,7 +1633,7 @@ const executeDeleteOrQuit = async () => {
                 @chooseavatar="onChooseAvatar"
               >
                 <image
-                  :src="safeMpAvatarImgSrc(authDraftAvatarCloud || authDraftAvatarLocal, DEFAULT_AVATAR_URL)"
+                  :src="mpAvatarImgSrcForDisplay(authDraftAvatarCloud || authDraftAvatarLocal, DEFAULT_AVATAR_URL)"
                   mode="aspectFill"
                   class="mp-choose-avatar-img profile-sync-avatar-img bg-slate-100"
                 />

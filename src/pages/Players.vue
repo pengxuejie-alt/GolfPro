@@ -4,6 +4,11 @@ import { MatchManager } from '@/utils/match_manager';
 import { useUserStore } from '@/store/userStore';
 import { openRoute } from '@/utils/uniNav';
 import { matchListSortTimeMs } from '@/utils/matchKickoff';
+import { mpStaticAbsolute } from '@/utils/mpAssetPath';
+import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
+import { buildRosterAvatarDisplayMap, hydrateMatchListAvatarsForDisplay } from '@/utils/rosterAvatarDisplay';
+
+const DEFAULT_AVATAR_URL = mpStaticAbsolute('tab/me.png');
 const userStore = useUserStore();
 
 interface Friend {
@@ -17,6 +22,7 @@ interface Friend {
 }
 
 const friends = ref<Friend[]>([]);
+const friendAvatarDisplayMap = ref<Record<string, string>>({});
 const searchQuery = ref('');
 const sortBy = ref<'count' | 'handicap' | 'name'>('count');
 
@@ -27,10 +33,11 @@ onMounted(async () => {
 });
 
 const loadFriends = async () => {
-  const matches = await MatchManager.getMatchList();
+  const rawMatches = await MatchManager.getMatchList();
+  await hydrateMatchListAvatarsForDisplay(rawMatches);
   const friendMap = new Map<string, Friend>();
 
-  matches.forEach(match => {
+  rawMatches.forEach(match => {
     const matchTs = matchListSortTimeMs(match) || Date.now();
     match.user_list.forEach((player: any) => {
       const selfId = userStore.openId || '';
@@ -57,7 +64,15 @@ const loadFriends = async () => {
   });
 
   friends.value = Array.from(friendMap.values());
+  friendAvatarDisplayMap.value = await buildRosterAvatarDisplayMap(
+    friends.value.map((f) => ({ id: f.id, avatar: f.avatar })),
+  );
 };
+
+function friendAvatarSrc(friend: Friend): string {
+  const cached = friendAvatarDisplayMap.value[friend.id];
+  return mpAvatarImgSrcForDisplay(cached || friend.avatar, DEFAULT_AVATAR_URL);
+}
 
 const filteredFriends = computed(() => {
   let list = friends.value;
@@ -144,10 +159,7 @@ const formatRecentMatch = (ts: number) => {
             class="players-card bg-white p-4 border border-slate-100 flex items-center gap-4 group active:bg-slate-50 transition-colors cursor-pointer"
           >
             <div class="w-12 h-12 rounded-xl bg-slate-100 overflow-hidden shrink-0 border border-slate-200">
-              <image v-if="friend.avatar" :src="friend.avatar" mode="aspectFill" class="w-full h-full" />
-              <div v-else class="w-full h-full flex items-center justify-center">
-                <uni-icons type="personadd" :size="24" color="#94a3b8" />
-              </div>
+              <image :src="friendAvatarSrc(friend)" mode="aspectFill" class="w-full h-full" />
             </div>
             
             <div class="flex-1 min-w-0">

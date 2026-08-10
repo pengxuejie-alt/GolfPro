@@ -5,6 +5,11 @@ import { Tab } from '@/types';
 import { MatchManager } from '@/utils/match_manager';
 import { useUserStore } from '@/store/userStore';
 import { formatMatchKickoffCn } from '@/utils/matchKickoff';
+import { mpStaticAbsolute } from '@/utils/mpAssetPath';
+import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
+import { hydrateMatchListAvatarsForDisplay } from '@/utils/rosterAvatarDisplay';
+
+const DEFAULT_AVATAR_URL = mpStaticAbsolute('tab/me.png');
 
 const userStore = useUserStore();
 const matches = ref<any[]>([]);
@@ -12,12 +17,20 @@ const activeSquareTab = ref<'all' | 'friends'>('all');
 
 onMounted(async () => {
   try {
-    matches.value = (await MatchManager.getMatchList()) || [];
+    const list = (await MatchManager.getMatchList()) || [];
+    await hydrateMatchListAvatarsForDisplay(list);
+    matches.value = list;
   } catch (e) {
     console.warn('[MatchSquare] getMatchList', e);
     matches.value = [];
   }
 });
+
+function rosterPlayerAvatarSrc(p: unknown): string {
+  if (!p || typeof p !== 'object') return DEFAULT_AVATAR_URL;
+  const o = p as Record<string, unknown>;
+  return mpAvatarImgSrcForDisplay(o.avatar ?? o.avatarUrl, DEFAULT_AVATAR_URL);
+}
 
 const filteredMatches = computed(() => {
   if (activeSquareTab.value === 'all') return matches.value;
@@ -70,7 +83,9 @@ const executeDelete = async () => {
     }
   } finally {
     try {
-      matches.value = (await MatchManager.getMatchList()) || [];
+      const list = (await MatchManager.getMatchList()) || [];
+      await hydrateMatchListAvatarsForDisplay(list);
+      matches.value = list;
     } catch (e) {
       console.warn('[MatchSquare] getMatchList after delete', e);
     }
@@ -154,7 +169,7 @@ const executeDelete = async () => {
                 class="w-9 h-9 rounded-full border-2 border-white overflow-hidden relative shadow-sm"
                 :style="{ zIndex: 4 - i }"
               >
-                <image :src="p.avatar || 'https://picsum.photos/100/100'" mode="aspectFill" class="w-full h-full" />
+                <image :src="rosterPlayerAvatarSrc(p)" mode="aspectFill" class="w-full h-full" />
               </div>
               <div v-if="!(match.user_list && match.user_list.length)" class="w-9 h-9 rounded-full bg-slate-100 border-2 border-white flex items-center justify-center text-xs text-slate-600 font-bold shadow-sm">
                 +0

@@ -9,7 +9,7 @@ import { useUserStore } from '@/store/userStore';
 import { openRoute } from '@/utils/uniNav';
 import { requirePrivacyAuthorizeAsync } from '@/utils/mpPrivacyBridge';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
-import { safeMpAvatarImgSrc } from '@/utils/mpAvatarSrc';
+import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
 import { getMpMatchListNavShellStyle } from '@/utils/mpCapsuleSafeInset';
 import { MP_BATCH_CHECK_OFF, MP_BATCH_CHECK_ON, MP_BATCH_CHECK_ICON_COLOR } from '@/utils/mpBatchCheckStyle';
 const userStore = useUserStore();
@@ -636,7 +636,7 @@ function getMatchTotalStrokes(m: any): number {
           <div class="flex items-center gap-4">
             <div class="relative">
               <button plain hover-class="none" class="mp-choose-avatar-btn w-20 h-20 rounded-3xl border-2 border-white p-0" open-type="chooseAvatar" @chooseavatar="onProfileChooseAvatar">
-                <image :src="safeMpAvatarImgSrc(profile.avatar, DEFAULT_AVATAR_URL)" mode="aspectFill" class="mp-choose-avatar-img w-20 h-20 rounded-3xl shadow-lg" />
+                <image :src="mpAvatarImgSrcForDisplay(profile.avatar, DEFAULT_AVATAR_URL)" mode="aspectFill" class="mp-choose-avatar-img w-20 h-20 rounded-3xl shadow-lg" />
               </button>
               <view @click="showEditProfile = true" class="absolute -bottom-1 -right-1 w-7 h-7 bg-slate-900 text-white rounded-full flex items-center justify-center border-2 border-white">
                 <uni-icons type="gear" :size="14" color="#ffffff" />
@@ -655,7 +655,7 @@ function getMatchTotalStrokes(m: any): number {
         <div class="flex items-center justify-between mb-8 pr-[90px]">
           <div class="flex items-center gap-4">
             <div class="relative">
-              <image :src="safeMpAvatarImgSrc(profile.avatar, DEFAULT_AVATAR_URL)" mode="aspectFill" class="w-20 h-20 rounded-3xl border-4 border-white shadow-lg" />
+              <image :src="mpAvatarImgSrcForDisplay(profile.avatar, DEFAULT_AVATAR_URL)" mode="aspectFill" class="w-20 h-20 rounded-3xl border-4 border-white shadow-lg" />
               <view @click="showEditProfile = true" class="absolute -bottom-1 -right-1 w-7 h-7 bg-slate-900 text-white rounded-full flex items-center justify-center border-2 border-white">
                 <uni-icons type="gear" :size="14" color="#ffffff" />
               </view>
@@ -1046,7 +1046,7 @@ function getMatchTotalStrokes(m: any): number {
         <div class="space-y-6">
           <div class="flex flex-col items-center mb-4">
             <div class="relative group">
-              <image :src="safeMpAvatarImgSrc(profile.avatar, DEFAULT_AVATAR_URL)" mode="aspectFill" class="w-24 h-24 rounded-[32px] shadow-xl" />
+              <image :src="mpAvatarImgSrcForDisplay(profile.avatar, DEFAULT_AVATAR_URL)" mode="aspectFill" class="w-24 h-24 rounded-[32px] shadow-xl" />
               <div class="absolute inset-0 bg-black/20 rounded-[32px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                 <uni-icons type="camera" :size="24" color="#ffffff" />
               </div>

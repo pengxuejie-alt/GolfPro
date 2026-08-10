@@ -13,7 +13,7 @@ import { openRoute, goBack, markScorecardReopenPkRulesModal, consumeScorecardReo
 import { savePackagedImageToAlbum, saveImageToPhotosAlbumSafe } from '@/utils/savePosterToAlbum';
 import { signInWithWeChat } from '@/utils/auth';
 import { requestPrivacyAgreementViaPopup, requirePrivacyAuthorizeAsync } from '@/utils/mpPrivacyBridge';
-import { safeMpAvatarImgSrc, looksLikeExpiredProneTencentTempHttps } from '@/utils/mpAvatarSrc';
+import { mpAvatarImgSrcForDisplay, looksLikeExpiredProneTencentTempHttps } from '@/utils/mpAvatarSrc';
 import { buildRosterAvatarDisplayMap, isLikelyWeChatOpenId } from '@/utils/rosterAvatarDisplay';
 import { golfScoreCellMarkClasses, golfHoleMarkKind } from '@/utils/golfScoreShapes';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
@@ -177,9 +177,7 @@ async function refreshRosterAvatarDisplay(): Promise<void> {
   const profileHttps = new Map<string, string>();
   for (const [oid, prof] of profileMap) {
     const av = prof.avatarUrl?.trim();
-    if (av && av.startsWith('https://') && !looksLikeExpiredProneTencentTempHttps(av)) {
-      profileHttps.set(oid, av);
-    }
+    if (av) profileHttps.set(oid, av);
   }
   rosterAvatarDisplay.value = await buildRosterAvatarDisplayMap(players, profileHttps);
 }
@@ -2201,7 +2199,7 @@ function avatarOrDefault(p: { id?: string; avatar?: string } | null | undefined)
   const id = p?.id != null ? String(p.id).trim() : '';
   const resolved = id ? rosterAvatarDisplay.value[id] : '';
   const a = resolved || (p?.avatar != null ? String(p.avatar).trim() : '');
-  return safeMpAvatarImgSrc(a, DEFAULT_RULE_SLOT_AVATAR);
+  return mpAvatarImgSrcForDisplay(a, DEFAULT_RULE_SLOT_AVATAR);
 }
 
 function playerForRuleSlot(slotIndex: number) {
@@ -4023,7 +4021,7 @@ const posterPreviewSrc = ref('');
             @chooseavatar="onGateChooseAvatar"
           >
             <image
-              :src="safeMpAvatarImgSrc(gateAvatarLocal || gateAvatarCloud || profile.avatar, DEFAULT_RULE_SLOT_AVATAR)"
+              :src="mpAvatarImgSrcForDisplay(gateAvatarLocal || gateAvatarCloud || profile.avatar, DEFAULT_RULE_SLOT_AVATAR)"
               mode="aspectFill"
               class="w-full h-full"
             />
@@ -4031,7 +4029,7 @@ const posterPreviewSrc = ref('');
           <!-- #endif -->
           <!-- #ifndef MP-WEIXIN -->
           <image
-            :src="safeMpAvatarImgSrc(gateAvatarLocal || profile.avatar, DEFAULT_RULE_SLOT_AVATAR)"
+            :src="mpAvatarImgSrcForDisplay(gateAvatarLocal || profile.avatar, DEFAULT_RULE_SLOT_AVATAR)"
             class="w-[72px] h-[72px] rounded-2xl border border-slate-200 shrink-0"
             mode="aspectFill"
           />

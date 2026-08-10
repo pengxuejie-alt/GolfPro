@@ -5,6 +5,11 @@ import { onLoad } from '@dcloudio/uni-app';
 import { db } from '@/utils/db';
 import { MatchManager } from '@/utils/match_manager';
 import { openRoute, goBack } from '@/utils/uniNav';
+import { mpStaticAbsolute } from '@/utils/mpAssetPath';
+import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
+import { buildRosterAvatarDisplayMap } from '@/utils/rosterAvatarDisplay';
+
+const DEFAULT_AVATAR_URL = mpStaticAbsolute('tab/me.png');
 
 type GetProfilesResult = {
   success?: boolean;
@@ -67,6 +72,7 @@ const T = {
 };
 
 const players = ref<any[]>([]);
+const playerAvatarDisplayMap = ref<Record<string, string>>({});
 const quickAddName = ref('');
 const selectedCount = computed(() => players.value.filter(p => p.selected).length);
 const showDialog = ref(false);
@@ -79,7 +85,20 @@ const tempPlayer = ref({
 onMounted(async () => {
   await loadCommonPlayers();
   await enrichFromMatchRosterIfNeeded();
+  await refreshPlayerAvatarDisplayMap();
 });
+
+async function refreshPlayerAvatarDisplayMap() {
+  playerAvatarDisplayMap.value = await buildRosterAvatarDisplayMap(
+    players.value.map((p) => ({ id: String(p.id ?? ''), avatar: String(p.avatar ?? '') })),
+  );
+}
+
+function playerAvatarSrc(player: { id?: string; avatar?: string }): string {
+  const id = player?.id != null ? String(player.id).trim() : '';
+  const cached = id ? playerAvatarDisplayMap.value[id] : '';
+  return mpAvatarImgSrcForDisplay(cached || player?.avatar, DEFAULT_AVATAR_URL);
+}
 
 async function enrichFromMatchRosterIfNeeded() {
   if (!matchId.value) return;
@@ -354,7 +373,7 @@ const onShare = () => {
            @click="toggleSelect(idx)"
            class="flex items-center gap-4 px-4 h-[60px] border-b border-slate-50 active:bg-slate-50 transition-colors">
         <div class="relative w-10 h-10">
-          <image :src="player.avatar" mode="aspectFill" class="w-full h-full rounded-full bg-slate-100" />
+          <image :src="playerAvatarSrc(player)" mode="aspectFill" class="w-full h-full rounded-full bg-slate-100" />
           <div v-if="player.selected" class="absolute -top-1 -right-1 w-4 h-4 bg-blue-500 rounded-full border-2 border-white flex items-center justify-center">
             <uni-icons type="checkmarkempty" :size="10" color="#ffffff" />
           </div>
