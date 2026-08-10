@@ -950,20 +950,10 @@ onLoad((options?: Record<string, string | undefined>) => {
     // #ifdef MP-WEIXIN
     await db.waitForInit();
 
-    /** 分享卡片落地：不弹首页隐私协议，登录后直达计分加入/围观 */
+    /** 分享卡片落地：跳过首页隐私 gate，直达计分页（登录/隐私在加入/围观时再处理） */
     if (shareMatchLanding) {
       const mid = String(options?.match_id || '').trim();
       if (!mid) return;
-      let myOpenId = userStore.openId || '';
-      if (!myOpenId) {
-        try {
-          const auth = await signInWithWeChat();
-          userStore.applyAuthResult(auth);
-          myOpenId = auth?.openId || '';
-        } catch (e) {
-          console.warn('[index] share landing signIn', e);
-        }
-      }
       replaceRoute(Tab.SCORECARD, { match_id: mid, from: 'share' });
       return;
     }
@@ -1329,6 +1319,7 @@ const executeDeleteOrQuit = async () => {
         </view>
       </view>
     </view>
+    <PrivacyPopup />
     <!-- #endif -->
     <!-- Header（自定义导航安全区由 index-page-safe-top 处理） -->
     <view class="flex flex-col mb-5 pt-1">
@@ -2082,7 +2073,7 @@ const executeDeleteOrQuit = async () => {
   right: 0;
   top: 0;
   bottom: 0;
-  z-index: 120;
+  z-index: 100000;
   background: rgba(15, 23, 42, 0.52);
   display: flex;
   align-items: center;

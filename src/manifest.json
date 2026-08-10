@@ -56,7 +56,7 @@
             "minified" : true
         },
         "usingComponents" : true,
-        "__usePrivacyCheck__" : false,
+        "__usePrivacyCheck__" : true,
         "requiredPrivateInfos" : [
             "getLocation"
         ],
