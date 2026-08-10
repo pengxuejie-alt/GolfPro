@@ -8,7 +8,7 @@
  *
  * 可选：
  *   --list-only        只拉各省列表，不请求 club_get（快）
- *   --province=广东省  只拉单个省
+ *   --province=广东  只拉单个省（不要加「省」字，与 API 一致）
  *   --delay=300        每个 club_get 间隔毫秒（默认 350）
  *   --out=路径         输出 JSON（默认 scripts/output/golflive-courses.json）
  */
@@ -20,11 +20,11 @@ import { fileURLToPath } from 'url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const BASE = 'https://app1.golflive.cn/index.php?s=/Home/ApiGolflive/'
 
-/** 与 GolfLive SelectCourse 页 provice 数组一致 */
+/** 与 GolfLive SelectCourse 页 provice 数组一致；API req_str 需去掉「省」后缀 */
 const PROVINCES = [
-  '江苏省', '浙江省', '福建省', '河北省', '山西省', '辽宁省', '吉林省', '黑龙江',
-  '安徽省', '江西省', '山东省', '河南省', '湖北省', '湖南省', '广东省', '海南省',
-  '四川省', '贵州省', '云南省', '陕西省', '甘肃省', '青海省', '内蒙古', '广西',
+  '江苏', '浙江', '福建', '河北', '山西', '辽宁', '吉林', '黑龙江',
+  '安徽', '江西', '山东', '河南', '湖北', '湖南', '广东', '海南',
+  '四川', '贵州', '云南', '陕西', '甘肃', '青海', '内蒙古', '广西',
   '宁夏', '新疆', '西藏',
 ]
 
@@ -39,7 +39,7 @@ function parseArgs(argv) {
   for (const arg of argv) {
     if (arg === '--list-only') opts.listOnly = true
     else if (arg.startsWith('--openid=')) opts.openid = arg.slice(9).trim()
-    else if (arg.startsWith('--province=')) opts.province = arg.slice(11).trim()
+    else if (arg.startsWith('--province=')) opts.province = arg.slice(11).trim().replace(/省$/, '')
     else if (arg.startsWith('--delay=')) opts.delay = Math.max(100, Number(arg.slice(8)) || 350)
     else if (arg.startsWith('--out=')) opts.out = path.resolve(arg.slice(6))
   }
