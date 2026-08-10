@@ -99,6 +99,9 @@ export async function resolveCloudAvatarsInMatchList(matches: unknown): Promise<
         if (https) {
           o.avatar = https;
           o.avatarUrl = https;
+        } else {
+          o.avatar = '';
+          o.avatarUrl = '';
         }
       }
     }

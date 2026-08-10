@@ -16,12 +16,39 @@ import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { hydratePlayerAvatarsInMatchList, mergeRosterAvatarFieldsIntoUserList, safeMpAvatarImgSrc } from '@/utils/mpAvatarSrc';
 import { hydrateMatchListRostersFromUserProfiles } from '@/utils/mpMatchListRosterHydrate';
 import { resolveCloudAvatarsInMatchList } from '@/utils/rosterAvatarDisplay';
+import { resolveCloudFileIdToHttps, isWxCloudFileId } from '@/utils/mpCloudFileUrl';
 import { formatMatchKickoffCn } from '@/utils/matchKickoff';
 import { golfHoleMarkKind, type GolfHoleMarkKind } from '@/utils/golfScoreShapes';
 const DEFAULT_AVATAR_URL = mpStaticAbsolute('tab/me.png');
 const SHARE_CARD_POSTER_BG = mpStaticAbsolute('share-card.png');
 
 const userStore = useUserStore();
+
+/** 本机头像 cloud:// → 临时 https（勿直接绑 <image>） */
+const selfAvatarDisplay = ref('');
+const selfAvatarSrc = computed(() =>
+  safeMpAvatarImgSrc(selfAvatarDisplay.value || userStore.profile.avatar, DEFAULT_AVATAR_URL),
+);
+
+async function refreshSelfAvatarDisplay() {
+  const raw = String(userStore.profile.avatar || '').trim();
+  if (!raw) {
+    selfAvatarDisplay.value = '';
+    return;
+  }
+  if (isWxCloudFileId(raw)) {
+    selfAvatarDisplay.value = (await resolveCloudFileIdToHttps(raw)) || '';
+  } else {
+    selfAvatarDisplay.value = raw;
+  }
+}
+
+async function hydrateIndexMatchAvatars(list: unknown[]) {
+  if (!Array.isArray(list) || list.length === 0) return;
+  await hydrateMatchListRostersFromUserProfiles(list);
+  await hydratePlayerAvatarsInMatchList(list);
+  await resolveCloudAvatarsInMatchList(list);
+}
 
 /** 自定义导航页：内容从胶囊按钮下方开始，避免刘海/挖孔挡住问候语 */
 const indexTopPad = ref('');
@@ -434,6 +461,7 @@ async function onChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
     if (fileId) {
       authDraftAvatarCloud.value = fileId;
       userStore.updateProfile({ avatar: fileId });
+      void refreshSelfAvatarDisplay();
       // #ifdef MP-WEIXIN
       try {
         await syncUsersProfileToCloudDb({ avatarUrl: fileId });
@@ -473,6 +501,7 @@ async function onProfileChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
     const fileId = await uploadAvatarToCloud(tempPath);
     const finalAvatar = fileId || tempPath;
     userStore.updateProfile({ avatar: finalAvatar });
+    void refreshSelfAvatarDisplay();
     if (!fileId) {
       uni.showToast({ title: '云上传失败，头像可能无法在真机长期保存', icon: 'none', duration: 2500 });
       return;
@@ -548,6 +577,7 @@ async function confirmProfileAuth() {
   uni.showLoading({ title: '同步资料…', mask: true });
   try {
     userStore.updateProfile({ nickname: nickName, avatar: avatarUrl });
+    void refreshSelfAvatarDisplay();
     // #ifdef MP-WEIXIN
     await syncUsersProfileToCloudDb({ nickName, avatarUrl: avatarUrl || undefined });
     // #endif
@@ -667,10 +697,8 @@ const loadMatches = async (opts?: { showLoading?: boolean }) => {
   try {
     const list = await MatchManager.getMatchList();
     const deduped = Array.isArray(list) ? list : [];
-    await hydrateMatchListRostersFromUserProfiles(deduped);
-    await hydratePlayerAvatarsInMatchList(deduped);
-    await resolveCloudAvatarsInMatchList(deduped);
-    matches.value = deduped;
+    await hydrateIndexMatchAvatars(deduped);
+    matches.value = [...deduped];
     console.info('[index] loadMatches 完成，共', matches.value.length, '条');
     if (matches.value.length === 0) {
       offlineBannerText.value = '暂无比赛 · 可创建新局';
@@ -678,9 +706,8 @@ const loadMatches = async (opts?: { showLoading?: boolean }) => {
   } catch (e) {
     console.warn('[index] loadMatches 异常', e);
     matches.value = readMatchesFromStorage();
-    await hydrateMatchListRostersFromUserProfiles(matches.value);
-    await hydratePlayerAvatarsInMatchList(matches.value);
-    await resolveCloudAvatarsInMatchList(matches.value);
+    await hydrateIndexMatchAvatars(matches.value);
+    matches.value = [...matches.value];
     offlineBannerText.value = '加载异常 · 已显示本机缓存';
   } finally {
     matchListLoading.value = false;
@@ -696,6 +723,9 @@ onLoad((options?: Record<string, string | undefined>) => {
   /** ① 同步播种基础 UI（首行逻辑）：列表占位 + 默认天气，严禁 await 云数据库 */
   try {
     matches.value = readMatchesFromStorage();
+    void hydrateIndexMatchAvatars(matches.value).then(() => {
+      matches.value = [...matches.value];
+    });
   } catch {
     matches.value = [];
   }
@@ -779,6 +809,7 @@ onLoad((options?: Record<string, string | undefined>) => {
           if (av != null && String(av).trim() !== '') {
             userStore.updateProfile({ avatar: String(av).trim() });
           }
+          void refreshSelfAvatarDisplay();
           console.log('[诊断] users OK, nickName:', row.nickName || '(未设置)');
         }
       } catch (e: any) {
@@ -1118,7 +1149,7 @@ const executeDeleteOrQuit = async () => {
               @chooseavatar="onProfileChooseAvatar"
             >
               <image
-                :src="safeMpAvatarImgSrc(userStore.profile.avatar, DEFAULT_AVATAR_URL)"
+                :src="selfAvatarSrc"
                 mode="aspectFill"
                 class="mp-choose-avatar-img w-full h-full rounded-full"
                 style="width: 96rpx; height: 96rpx; display: block"
@@ -1136,7 +1167,7 @@ const executeDeleteOrQuit = async () => {
           <!-- #endif -->
           <!-- #ifndef MP-WEIXIN -->
           <image
-            :src="safeMpAvatarImgSrc(userStore.profile.avatar, DEFAULT_AVATAR_URL)"
+            :src="selfAvatarSrc"
             mode="aspectFill"
             class="w-12 h-12 rounded-full border-2 border-green-500 shrink-0"
           />

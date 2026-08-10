@@ -66,14 +66,12 @@ export function looksLikeExpiredProneTencentTempHttps(src: string): boolean {
   return /\.tcb\.qcloud\.la\b/i.test(s) || /\.myqcloud\.com\b/i.test(s);
 }
 
-/** <image :src> 用：剔除易过期临时链；微信小程序下 cloud:// 为云存储 fileID，可直接绑定，勿回退为占位图否则头像「空白」 */
+/** <image :src> 用：剔除 cloud://（开发者工具会拼成 /pages/.../cloud:// 导致 500）与易过期临时链 */
 export function safeMpAvatarImgSrc(raw: unknown, fallback: string): string {
   const s = raw != null ? String(raw).trim() : '';
   if (!s) return fallback;
   if (looksLikeExpiredProneTencentTempHttps(s)) return fallback;
-  // #ifdef MP-WEIXIN
-  if (isWxCloudFileId(s)) return s;
-  // #endif
+  if (isWxCloudFileId(s)) return fallback;
   return s;
 }
 
