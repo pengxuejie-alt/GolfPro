@@ -17,17 +17,9 @@ export type CatalogCourse = NationalCourse & {
 const COURSE_CATALOG_OVERRIDES: Record<string, Partial<CatalogCourse>> = {
   '12500-BA0C-0331': {
     name: '广州华美麓湖高尔夫',
-    sections: [
-      { name: '前9', holes_par: [5, 4, 4, 4, 3, 4, 4, 3, 5] },
-      { name: '后9', holes_par: [4, 4, 3, 5, 4, 4, 3, 5, 4] },
-    ],
   },
   '12400-363F-474D': {
     name: '广州仙村国际高尔夫',
-    sections: [
-      { name: '前9', holes_par: [4, 4, 3, 4, 4, 5, 4, 3, 5] },
-      { name: '后9', holes_par: [4, 4, 3, 4, 5, 3, 4, 5, 4] },
-    ],
   },
 };
 

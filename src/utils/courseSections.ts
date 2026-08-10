@@ -10,6 +10,29 @@ export function nineHoleSectionsFrom18(holes_par: number[]): CourseNineSection[]
   ];
 }
 
+/** GolfLive 等数据源常把两半场都标成「半场」；选场 UI 用 name 作 key，须去重 */
+function disambiguateSectionNames(sections: CourseNineSection[]): CourseNineSection[] {
+  if (sections.length < 2) return sections;
+  const names = sections.map((s) => s.name);
+  if (new Set(names).size === names.length) return sections;
+
+  if (sections.length === 2) {
+    return sections.map((s, i) => ({
+      ...s,
+      name: i === 0 ? '前9' : '后9',
+    }));
+  }
+
+  const seen = new Map<string, number>();
+  return sections.map((s) => {
+    const dupCount = names.filter((n) => n === s.name).length;
+    if (dupCount <= 1) return s;
+    const ord = (seen.get(s.name) ?? 0) + 1;
+    seen.set(s.name, ord);
+    return { ...s, name: `${s.name}${ord}` };
+  });
+}
+
 function parsFromHolesProp(holes: Array<{ par?: number } | undefined> | undefined): number[] | null {
   if (!Array.isArray(holes) || holes.length !== 18) return null;
   return holes.map((h) => Number(h?.par ?? 4));
@@ -38,7 +61,7 @@ export function sectionsForCoursePicker(course: {
 } | null | undefined): CourseNineSection[] {
   if (!course) return [];
   if (Array.isArray(course.sections) && course.sections.length > 0) {
-    return course.sections;
+    return disambiguateSectionNames(course.sections);
   }
   const fromPar = nineHoleSectionsFrom18(course.holes_par ?? []);
   if (fromPar) return fromPar;
