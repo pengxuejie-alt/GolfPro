@@ -13,7 +13,7 @@ import {
   emitPrivacyContractAgreed,
 } from '@/utils/mpPrivacyBridge';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
-import { hydratePlayerAvatarsInMatchList, safeMpAvatarImgSrc, stripCloudAvatarsInMatchList } from '@/utils/mpAvatarSrc';
+import { hydratePlayerAvatarsInMatchList, safeMpAvatarImgSrc, selfAvatarImgSrcForDisplay, stripCloudAvatarsInMatchList } from '@/utils/mpAvatarSrc';
 import { hydrateMatchListRostersFromUserProfiles } from '@/utils/mpMatchListRosterHydrate';
 import { resolveCloudAvatarsInMatchList } from '@/utils/rosterAvatarDisplay';
 import { resolveCloudFileIdToHttps, isWxCloudFileId } from '@/utils/mpCloudFileUrl';
@@ -48,42 +48,44 @@ function isLocalTempAvatarPath(s: unknown): boolean {
 const selfAvatarSrc = computed(() => {
   const pending = selfAvatarPendingTemp.value;
   if (pending) {
-    const safePending = safeMpAvatarImgSrc(pending, '');
+    const safePending = selfAvatarImgSrcForDisplay(pending, '');
     if (safePending) return safePending;
   }
   const resolved = selfAvatarDisplay.value;
   if (resolved) {
-    const safeResolved = safeMpAvatarImgSrc(resolved, '');
+    const safeResolved = selfAvatarImgSrcForDisplay(resolved, '');
     if (safeResolved) return safeResolved;
   }
   const draft = authDraftAvatarLocal.value;
   if (draft) {
-    const safeDraft = safeMpAvatarImgSrc(draft, '');
+    const safeDraft = selfAvatarImgSrcForDisplay(draft, '');
     if (safeDraft) return safeDraft;
   }
-  return safeMpAvatarImgSrc(userStore.profile.avatar, DEFAULT_AVATAR_URL);
+  return selfAvatarImgSrcForDisplay(userStore.profile.avatar, DEFAULT_AVATAR_URL);
 });
 
-async function refreshSelfAvatarDisplay() {
+async function refreshSelfAvatarDisplay(): Promise<boolean> {
   const raw = String(userStore.profile.avatar || '').trim();
   if (!raw) {
     if (!selfAvatarPendingTemp.value) selfAvatarDisplay.value = '';
-    return;
+    return false;
   }
   if (isWxCloudFileId(raw)) {
     const https = await resolveCloudFileIdToHttps(raw);
     if (https) {
       selfAvatarDisplay.value = https;
       selfAvatarPendingTemp.value = '';
+      return true;
     }
-    return;
+    return false;
   }
   if (isLocalTempAvatarPath(raw)) {
     if (!selfAvatarPendingTemp.value) selfAvatarPendingTemp.value = raw;
-    return;
+    return true;
   }
   selfAvatarDisplay.value = raw;
   selfAvatarPendingTemp.value = '';
+  return true;
 }
 
 async function hydrateIndexMatchAvatars(list: unknown[]) {
@@ -550,8 +552,17 @@ async function onChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
     const fileId = await uploadAvatarToCloud(tempPath);
     if (fileId) {
       authDraftAvatarCloud.value = fileId;
+      const https = await resolveCloudFileIdToHttps(fileId);
+      if (https) {
+        selfAvatarDisplay.value = https;
+        selfAvatarPendingTemp.value = '';
+      }
       userStore.updateProfile({ avatar: fileId });
-      await refreshSelfAvatarDisplay();
+      if (!https) await refreshSelfAvatarDisplay();
+      if (loadingShown) {
+        try { uni.hideLoading(); } catch { /* ignore */ }
+        loadingShown = false;
+      }
       // #ifdef MP-WEIXIN
       try {
         await syncUsersProfileToCloudDb({ avatarUrl: fileId });
@@ -563,6 +574,10 @@ async function onChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
       // #endif
       uni.showToast({ title: '头像已保存', icon: 'success', duration: 1600 });
     } else {
+      if (loadingShown) {
+        try { uni.hideLoading(); } catch { /* ignore */ }
+        loadingShown = false;
+      }
       uni.showToast({ title: '云上传失败，请检查云开发配置', icon: 'none', duration: 2500 });
     }
   } finally {
@@ -605,8 +620,17 @@ async function onProfileChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
     loadingShown = true;
     const fileId = await uploadAvatarToCloud(tempPath);
     if (fileId) {
+      const https = await resolveCloudFileIdToHttps(fileId);
+      if (https) {
+        selfAvatarDisplay.value = https;
+        selfAvatarPendingTemp.value = '';
+      }
       userStore.updateProfile({ avatar: fileId });
-      await refreshSelfAvatarDisplay();
+      if (!https) await refreshSelfAvatarDisplay();
+      if (loadingShown) {
+        try { uni.hideLoading(); } catch { /* ignore */ }
+        loadingShown = false;
+      }
       uni.showToast({ title: '头像已保存', icon: 'success', duration: 1400 });
       // #ifdef MP-WEIXIN
       try {
@@ -618,6 +642,10 @@ async function onProfileChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
       // #endif
     } else {
       userStore.updateProfile({ avatar: tempPath });
+      if (loadingShown) {
+        try { uni.hideLoading(); } catch { /* ignore */ }
+        loadingShown = false;
+      }
       uni.showToast({ title: '云上传失败，头像可能无法在真机长期保存', icon: 'none', duration: 2500 });
     }
   } finally {

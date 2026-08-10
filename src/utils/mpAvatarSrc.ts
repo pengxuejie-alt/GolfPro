@@ -75,6 +75,17 @@ export function safeMpAvatarImgSrc(raw: unknown, fallback: string): string {
   return s;
 }
 
+/**
+ * 本机头像 `<image>`：允许 getTempFileURL 刚换出的临时 https（内存展示用），仍拦截 cloud://。
+ * 勿用于写库/缓存 — 那里继续用 safeMpAvatarImgSrc 过滤易过期链。
+ */
+export function selfAvatarImgSrcForDisplay(raw: unknown, fallback: string): string {
+  const s = raw != null ? String(raw).trim() : '';
+  if (!s) return fallback;
+  if (s.startsWith('cloud://')) return fallback;
+  return s;
+}
+
 /** 写入列表/缓存前：去掉不可直接展示的 cloud://（保留 fileID 请用 avatarCloudId 等字段，此处仅清展示字段） */
 export function stripCloudAvatarFieldsInRoster(roster: unknown): void {
   if (!Array.isArray(roster)) return;
