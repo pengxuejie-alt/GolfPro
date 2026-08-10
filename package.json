@@ -14,7 +14,8 @@
     "lint": "tsc --noEmit",
     "audit:mp-wxss": "node scripts/audit-mp-wxss.mjs",
     "compress:share-cover": "node scripts/compress-share-cover.mjs",
-    "gen:share-cover": "node scripts/gen-share-default-cover.mjs"
+    "gen:share-cover": "node scripts/gen-share-default-cover.mjs",
+    "fetch:golflive-courses": "node scripts/fetch-golflive-courses.mjs"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-4080420251103001",
