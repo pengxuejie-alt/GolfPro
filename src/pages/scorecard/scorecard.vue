@@ -29,7 +29,9 @@ import {
   getCachedAvatarDisplay,
   mergeAvatarDisplayMaps,
   seedAvatarDisplayMapFromCache,
+  setCachedAvatarDisplay,
 } from '@/utils/avatarDisplayCache';
+import { resolveCloudFileIdToHttps } from '@/utils/mpCloudFileUrl';
 import { golfScoreCellMarkClasses, golfHoleMarkKind } from '@/utils/golfScoreShapes';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { formatMatchKickoffCn, shouldAutoEndByKickoffTtl } from '@/utils/matchKickoff';
@@ -61,6 +63,8 @@ const showJoinChoiceModal = ref(false);
 const joiningUser = ref<any>(null);
 /** 资料门控完成后直接 joinMatch（而非回到加入/围观弹层） */
 const pendingJoinAfterProfile = ref(false);
+/** join=受邀加入前；edit=已在局内/围观后补资料 */
+const profileGateMode = ref<'join' | 'edit'>('join');
 
 const matchStore = useMatchStore();
 const userStore = useUserStore();
@@ -639,6 +643,10 @@ async function onGateChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
 
 async function dismissProfileGateModal() {
   showProfileGateModal.value = false;
+  if (profileGateMode.value === 'edit') {
+    profileGateMode.value = 'join';
+    return;
+  }
   if (!pendingJoinAfterProfile.value) return;
   pendingJoinAfterProfile.value = false;
   const nick = userStore.profile.nickname && String(userStore.profile.nickname).trim();
@@ -647,6 +655,62 @@ async function dismissProfileGateModal() {
   }
   joiningUser.value = buildJoiningUserFromProfile();
   await executeJoinMatch();
+}
+
+function needsSelfProfileCompletion(): boolean {
+  const nick = userStore.profile.nickname && String(userStore.profile.nickname).trim();
+  const av = userStore.profile.avatar && String(userStore.profile.avatar).trim();
+  return isGuestOrPlaceholderNickname(nick, userStore.openId) || !av;
+}
+
+function syncSelfProfileToMatchRoster(nick: string, avatar: string) {
+  const oid = userStore.openId;
+  if (!oid) return;
+  const next = matchStore.user_list.map((pl) => {
+    if (pl.id !== oid) return pl;
+    return { ...pl, nickname: nick, avatar: avatar || pl.avatar };
+  });
+  matchStore.user_list = next;
+  if (currentMatch.value) {
+    currentMatch.value.user_list = next as unknown[];
+    currentMatch.value.players = next as unknown[];
+  }
+}
+
+async function applySelfProfileAfterEdit(nick: string, avatarRaw: string) {
+  const oid = userStore.openId || '';
+  let avatar = avatarRaw;
+  if (avatar.startsWith('cloud://') && oid) {
+    const https = await resolveCloudFileIdToHttps(avatar);
+    if (https) {
+      setCachedAvatarDisplay(oid, https, avatar);
+      rosterAvatarDisplay.value = mergeAvatarDisplayMaps(rosterAvatarDisplay.value, { [oid]: https });
+    }
+  } else if (avatar.startsWith('https://') && oid) {
+    setCachedAvatarDisplay(oid, avatar);
+    rosterAvatarDisplay.value = mergeAvatarDisplayMaps(rosterAvatarDisplay.value, { [oid]: avatar });
+  }
+  syncSelfProfileToMatchRoster(nick, avatar);
+  await saveMatch();
+  await hydrateRosterAvatarDisplay(true);
+}
+
+/** 游客 / 缺资料：点自己的头像或昵称，与首页一致拉起资料浮层 */
+async function openSelfProfileEditGate() {
+  const privacyOk = await ensurePrivacyForJoin();
+  if (!privacyOk) return;
+  profileGateMode.value = 'edit';
+  pendingJoinAfterProfile.value = false;
+  const nick = userStore.profile.nickname && String(userStore.profile.nickname).trim();
+  gateNickname.value =
+    nick && !isGuestOrPlaceholderNickname(nick, userStore.openId) ? nick : '';
+  gateAvatarLocal.value = '';
+  gateAvatarCloud.value = '';
+  const av = String(userStore.profile.avatar || '').trim();
+  if (av.startsWith('cloud://')) {
+    gateAvatarCloud.value = av;
+  }
+  showProfileGateModal.value = true;
 }
 
 async function confirmProfileGateAndContinue() {
@@ -682,6 +746,12 @@ async function confirmProfileGateAndContinue() {
     }
     // #endif
     showProfileGateModal.value = false;
+    if (profileGateMode.value === 'edit') {
+      await applySelfProfileAfterEdit(nick, avatarUrl || userStore.profile.avatar || '');
+      profileGateMode.value = 'join';
+      uni.showToast({ title: '资料已更新', icon: 'success' });
+      return;
+    }
     if (pendingJoinAfterProfile.value) {
       pendingJoinAfterProfile.value = false;
       joiningUser.value = {
@@ -982,6 +1052,11 @@ const openPlayerActionModal = (player: any) => {
     showAddPlayerModal.value = true;
     return;
   }
+  const pid = String(player?.id ?? player?.uid ?? '').trim();
+  if (pid && pid === myId.value && needsSelfProfileCompletion()) {
+    void openSelfProfileEditGate();
+    return;
+  }
   selectedPlayer.value = player;
   showPlayerActionModal.value = true;
 };
@@ -1074,6 +1149,7 @@ const handleJoinAsPlayer = async () => {
   const hasNick = !!(userStore.profile.nickname && String(userStore.profile.nickname).trim());
   if (!hasNick) {
     pendingJoinAfterProfile.value = true;
+    profileGateMode.value = 'join';
     gateNickname.value = '';
     gateAvatarLocal.value = '';
     gateAvatarCloud.value = '';
@@ -3074,7 +3150,20 @@ const posterPreviewSrc = ref('');
         <h1 class="text-base font-bold tracking-tight truncate max-w-[180px] text-slate-900">{{ scorecardCourseName }}</h1>
         <div class="text-xs text-slate-500">{{ formatMatchKickoffCn(currentMatch) }}</div>
       </div>
-      <div class="w-20"></div>
+      <div class="w-20 flex justify-end items-center">
+        <view
+          v-if="isSpectatorMode && needsSelfProfileCompletion()"
+          class="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-100 max-w-[5rem]"
+          @click="openSelfProfileEditGate"
+        >
+          <image
+            :src="mpAvatarImgSrcForDisplay(profile.avatar, DEFAULT_RULE_SLOT_AVATAR)"
+            class="w-6 h-6 rounded-full shrink-0"
+            mode="aspectFill"
+          />
+          <text class="text-[10px] text-slate-600 truncate">{{ profile.nickname || GUEST_NICKNAME }}</text>
+        </view>
+      </div>
     </header>
 
     <!-- Quick Navigation Toggle -->
@@ -4216,8 +4305,12 @@ const posterPreviewSrc = ref('');
     <!-- Profile gate：受邀且需完善资料 -->
     <div v-if="showProfileGateModal" class="fixed inset-0 z-[205] flex items-center justify-center bg-black/70 backdrop-blur-md p-5">
       <div class="w-full max-w-sm max-h-[85vh] overflow-y-auto bg-white rounded-3xl p-6 shadow-xl box-border">
-        <h3 class="text-base font-bold text-slate-900 mb-1 text-center">完善资料后加入</h3>
-        <p class="text-xs text-slate-500 mb-5 text-center leading-relaxed px-1">填写昵称并选择头像，便于同组识别</p>
+        <h3 class="text-base font-bold text-slate-900 mb-1 text-center">
+          {{ profileGateMode === 'edit' ? '完善资料' : '完善资料后加入' }}
+        </h3>
+        <p class="text-xs text-slate-500 mb-5 text-center leading-relaxed px-1">
+          {{ profileGateMode === 'edit' ? '选择头像与昵称，便于同组识别' : '填写昵称并选择头像，便于同组识别' }}
+        </p>
         <div class="flex gap-4 mb-5 items-start">
           <!-- #ifdef MP-WEIXIN -->
           <button
@@ -4262,14 +4355,23 @@ const posterPreviewSrc = ref('');
           class="w-full min-h-12 rounded-2xl bg-[#07C160] text-white text-[15px] font-bold disabled:opacity-60 px-4 box-border flex flex-row items-center justify-center text-center leading-normal"
           @click="confirmProfileGateAndContinue"
         >
-          {{ gateProfileSaving ? '提交中…' : '下一步' }}
+          {{ gateProfileSaving ? '提交中…' : profileGateMode === 'edit' ? '保存' : '下一步' }}
         </button>
         <button
+          v-if="profileGateMode === 'join'"
           type="button"
           class="w-full min-h-11 mt-3 rounded-xl text-slate-400 text-sm flex flex-row items-center justify-center text-center"
           @click="dismissProfileGateModal"
         >
           稍后再说
+        </button>
+        <button
+          v-else
+          type="button"
+          class="w-full min-h-11 mt-3 rounded-xl text-slate-400 text-sm flex flex-row items-center justify-center text-center"
+          @click="dismissProfileGateModal"
+        >
+          取消
         </button>
       </div>
     </div>
