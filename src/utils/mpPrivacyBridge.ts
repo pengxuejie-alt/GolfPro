@@ -1,6 +1,6 @@
 /**
- * 微信小程序隐私：统一注册 wx.onNeedPrivacyAuthorization，由 PrivacyPopup 挂载 UI。
- * 避免 App 与组件重复注册；未挂载 UI 前对 resolve disagree，防止 errno 112 卡死。
+ * 微信小程序隐私：统一注册 wx.onNeedPrivacyAuthorization，由页面级 PrivacyPopup 挂载 UI。
+ * 注意：uni-app 编译到 mp-weixin 时 App.vue 的 template 不生效，PrivacyPopup 须挂在具体页面。
  */
 
 function getWxGlobal(): Record<string, unknown> | null {
@@ -15,18 +15,55 @@ function getWxGlobal(): Record<string, unknown> | null {
 type PrivacyResolve = (opts: Record<string, string>) => void;
 
 let showPrivacyAuthorization: ((resolve: PrivacyResolve) => void) | null = null;
+/** UI 未就绪时暂存 resolve，禁止立即 disagree（否则会弹出系统 toast 且无按钮） */
+let pendingPrivacyResolves: PrivacyResolve[] = [];
+let privacyUiFlushInFlight = false;
+
+function tryFlushPrivacyQueue(): void {
+  if (!showPrivacyAuthorization || pendingPrivacyResolves.length === 0 || privacyUiFlushInFlight) return;
+  privacyUiFlushInFlight = true;
+  const batch = pendingPrivacyResolves.splice(0);
+  try {
+    showPrivacyAuthorization((opts) => {
+      privacyUiFlushInFlight = false;
+      for (const r of batch) {
+        try {
+          r(opts);
+        } catch (e) {
+          console.warn('[privacy] resolve callback', e);
+        }
+      }
+      tryFlushPrivacyQueue();
+    });
+  } catch (e) {
+    privacyUiFlushInFlight = false;
+    pendingPrivacyResolves.unshift(...batch);
+    console.warn('[privacy] tryFlushPrivacyQueue', e);
+  }
+}
+
+function enqueuePrivacyAuthorization(resolve: PrivacyResolve): void {
+  pendingPrivacyResolves.push(resolve);
+  tryFlushPrivacyQueue();
+  if (!showPrivacyAuthorization) {
+    void waitForPrivacyUiReady(15000).then((ready) => {
+      if (ready) tryFlushPrivacyQueue();
+    });
+  }
+}
 
 /** PrivacyPopup onMounted 时注册 */
 export function registerPrivacyAuthorizationUi(handler: (resolve: PrivacyResolve) => void): void {
   showPrivacyAuthorization = handler;
+  tryFlushPrivacyQueue();
 }
 
-/** PrivacyPopup 是否已挂载（避免分享直进子页时 UI 未就绪就 fallback 导致 toast 闪一下） */
+/** PrivacyPopup 是否已挂载 */
 export function isPrivacyAuthorizationUiReady(): boolean {
   return showPrivacyAuthorization != null;
 }
 
-/** 等待 App 级 PrivacyPopup 注册，最多 maxMs 毫秒 */
+/** 等待页面级 PrivacyPopup 注册，最多 maxMs 毫秒 */
 export async function waitForPrivacyUiReady(maxMs = 4000): Promise<boolean> {
   if (showPrivacyAuthorization) return true;
   const deadline = Date.now() + maxMs;
@@ -39,25 +76,18 @@ export async function waitForPrivacyUiReady(maxMs = 4000): Promise<boolean> {
 
 /**
  * 主动向用户展示与 onNeedPrivacyAuthorization 相同的自定义隐私弹窗（含官方 agreePrivacyAuthorization 按钮）。
- * wx.requirePrivacyAuthorize 单独调用在多数机型上不弹窗，需走此路径完成闭环。
- * @returns 用户点击「同意」为 true，不同意或组件未挂载为 false（未挂载时再尝试 requirePrivacyAuthorize）
  */
 export async function requestPrivacyAgreementViaPopup(): Promise<boolean> {
   try {
-    const ready = await waitForPrivacyUiReady();
+    const ready = await waitForPrivacyUiReady(10000);
     if (!ready || !showPrivacyAuthorization) {
-      console.warn('[privacy] PrivacyPopup 未挂载，跳过 requirePrivacyAuthorize fallback（避免无 UI toast 闪现）');
+      console.warn('[privacy] PrivacyPopup 未挂载，无法展示隐私弹窗');
       return false;
     }
     return await new Promise<boolean>((resolve) => {
-      try {
-        showPrivacyAuthorization!((opts: Record<string, string>) => {
-          resolve(opts?.event === 'agree');
-        });
-      } catch (e) {
-        console.warn('[privacy] requestPrivacyAgreementViaPopup', e);
-        resolve(false);
-      }
+      enqueuePrivacyAuthorization((opts) => {
+        resolve(opts?.event === 'agree');
+      });
     });
   } catch (e) {
     console.warn('[privacy] requestPrivacyAgreementViaPopup', e);
@@ -90,18 +120,9 @@ export function setupWxOnNeedPrivacyAuthorization(): void {
     if (!w || typeof w.onNeedPrivacyAuthorization !== 'function') return;
     (w.onNeedPrivacyAuthorization as (cb: (r: PrivacyResolve) => void) => void)((resolve: PrivacyResolve) => {
       try {
-        if (showPrivacyAuthorization) {
-          showPrivacyAuthorization(resolve);
-        } else {
-          resolve({ event: 'disagree', buttonId: 'privacy-no-ui' });
-        }
+        enqueuePrivacyAuthorization(resolve);
       } catch (e) {
         console.warn('[privacy] onNeedPrivacyAuthorization', e);
-        try {
-          resolve({ event: 'disagree', buttonId: 'privacy-error' });
-        } catch {
-          /* ignore */
-        }
       }
     });
   } catch (e) {
@@ -115,6 +136,27 @@ export function isShareInviteLaunchQuery(q: Record<string, unknown> | undefined 
   const fromShare = q.from === 'share' || q.from === 'timeline';
   const hasScene = q.scene != null && String(q.scene).trim() !== '';
   return fromShare || hasScene;
+}
+
+/** App.onLaunch options 在真机上 query 可能不全，对齐 wx.getEnterOptionsSync */
+export function getLaunchContextFromOptions(options: unknown): {
+  path: string;
+  query: Record<string, unknown>;
+} {
+  let path = String((options as { path?: string })?.path || '');
+  let query = ((options as { query?: Record<string, unknown> })?.query || {}) as Record<string, unknown>;
+  try {
+    const wxApi = typeof wx !== 'undefined' ? (wx as Record<string, unknown>) : null;
+    const ent = wxApi?.getEnterOptionsSync as (() => { path?: string; query?: Record<string, unknown> }) | undefined;
+    const snap = ent?.();
+    if (snap?.path) path = String(snap.path);
+    if (snap?.query && typeof snap.query === 'object') {
+      query = { ...snap.query, ...query };
+    }
+  } catch {
+    /* ignore */
+  }
+  return { path, query };
 }
 
 /** 是否仍需用户同意隐私协议（未同意则勿调 getLocation 等） */
@@ -143,7 +185,6 @@ export function getPrivacyNeedAuthorizationAsync(): Promise<boolean> {
 
 /**
  * 主动触发隐私授权（基础库 2.32.3+）。
- * 头像 chooseAvatar、昵称 nickname 输入前建议先调用，否则可能只表现为普通 input、不弹官方隐私窗。
  * @returns 用户完成授权为 true，拒绝/失败为 false
  */
 export function requirePrivacyAuthorizeAsync(): Promise<boolean> {

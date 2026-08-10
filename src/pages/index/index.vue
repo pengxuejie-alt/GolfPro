@@ -12,6 +12,7 @@ import {
   getPrivacyNeedAuthorizationAsync,
   emitPrivacyContractAgreed,
 } from '@/utils/mpPrivacyBridge';
+import PrivacyPopup from '@/components/PrivacyPopup.vue';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
 import { hydrateMatchListAvatarsForDisplay } from '@/utils/rosterAvatarDisplay';
@@ -1290,6 +1291,7 @@ const executeDeleteOrQuit = async () => {
         </view>
       </view>
     </view>
+    <PrivacyPopup />
     <!-- #endif -->
     <!-- Header（自定义导航安全区由 index-page-safe-top 处理） -->
     <view class="flex flex-col mb-5 pt-1">

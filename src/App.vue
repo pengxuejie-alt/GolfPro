@@ -2,8 +2,7 @@
 import { onLaunch, onShow, onHide } from '@dcloudio/uni-app';
 import { useUserStore } from '@/store/userStore';
 import { signInWithWeChat } from '@/utils/auth';
-import PrivacyPopup from '@/components/PrivacyPopup.vue';
-import { setupWxOnNeedPrivacyAuthorization, isShareInviteLaunchQuery } from '@/utils/mpPrivacyBridge';
+import { setupWxOnNeedPrivacyAuthorization, isShareInviteLaunchQuery, getLaunchContextFromOptions } from '@/utils/mpPrivacyBridge';
 import { db } from '@/utils/db';
 import AppUniIcon from '@/components/AppUniIcon.vue';
 import LucideIconByName from '@/components/LucideIconByName.vue';
@@ -25,10 +24,12 @@ onLaunch((options) => {
   const userStore = useUserStore();
   userStore.hydrateAuthFromStorage();
   /** 分享直进计分页：勿在 PrivacyPopup 就绪前调 login 云函数，否则会弹出「需同意隐私指引后继续使用」且无按钮 */
-  const launchPath = String((options as { path?: string })?.path || '');
-  const launchQuery = ((options as { query?: Record<string, unknown> })?.query || {}) as Record<string, unknown>;
+  const { path: launchPath, query: launchQuery } = getLaunchContextFromOptions(options);
+  const hasScorecardMatch =
+    launchQuery.match_id != null && String(launchQuery.match_id).trim() !== '';
   const deferSignInForInvite =
-    launchPath.includes('scorecard') && isShareInviteLaunchQuery(launchQuery);
+    launchPath.includes('scorecard') &&
+    (isShareInviteLaunchQuery(launchQuery) || hasScorecardMatch);
   if (!deferSignInForInvite) {
     void signInWithWeChat()
       .then((session) => {
@@ -52,8 +53,11 @@ onHide(() => {});
 </script>
 
 <template>
+  <!-- App.vue 的 template 编译到 mp-weixin 时不生效；PrivacyPopup 须挂在 index/scorecard 等页面 -->
+  <!-- #ifndef MP-WEIXIN -->
+  <view style="display: none;" />
+  <!-- #endif -->
   <!-- #ifdef MP-WEIXIN -->
-  <PrivacyPopup />
   <!-- 兜底：强制产出历史组件文件，避免微信工具缓存旧依赖时报 ENOENT -->
   <view style="display: none;">
     <AppUniIcon name="Plus" :size="12" color="#ffffff" />

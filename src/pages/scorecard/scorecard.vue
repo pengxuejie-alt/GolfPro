@@ -42,6 +42,7 @@ import {
   loadMpCanvas2dImage,
   paintPersonalScorePoster2d,
 } from '@/utils/scorePosterMpCanvas2d';
+import PrivacyPopup from '@/components/PrivacyPopup.vue';
 
 /** 必须用 mpStaticAbsolute，勿手写 `'/static/...'`（构建器会改成 pages/scorecard/static/...） */
 const SCORECARD_POSTER_BG_SRC = mpStaticAbsolute('share-card.png');
@@ -5192,6 +5193,9 @@ const posterPreviewSrc = ref('');
       id="scorePosterCanvasLegacy"
       style="position: fixed; left: -9999px; top: -9999px; width: 750px; height: 1334px;"
     />
+    <!-- #endif -->
+    <!-- #ifdef MP-WEIXIN -->
+    <PrivacyPopup />
     <!-- #endif -->
   </div>
 </template>
