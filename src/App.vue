@@ -2,15 +2,13 @@
 import { onLaunch, onShow, onHide } from '@dcloudio/uni-app';
 import { useUserStore } from '@/store/userStore';
 import { signInWithWeChat } from '@/utils/auth';
-import PrivacyPopup from '@/components/PrivacyPopup.vue';
-import { setupWxOnNeedPrivacyAuthorization } from '@/utils/mpPrivacyBridge';
+import { setupWxOnNeedPrivacyAuthorization, getLaunchContextFromOptions } from '@/utils/mpPrivacyBridge';
 import { db } from '@/utils/db';
 import AppUniIcon from '@/components/AppUniIcon.vue';
 import LucideIconByName from '@/components/LucideIconByName.vue';
 
-onLaunch(() => {
+onLaunch((options) => {
   // #ifdef MP-WEIXIN
-  /** 云开发 init 须在 onLaunch 尽早执行，勿在 main.ts 模块顶；可减轻开发者工具内 wx.cloud.init 内部 timeout 日志 */
   try {
     db.init();
   } catch (e) {
@@ -24,20 +22,27 @@ onLaunch(() => {
   // #endif
   const userStore = useUserStore();
   userStore.hydrateAuthFromStorage();
-  /** 不 await 登录：先让首屏与 TabBar 出来，数据后填 */
-  void signInWithWeChat()
-    .then((session) => {
-      userStore.applyAuthResult(session);
-    })
-    .catch((e) => {
-      console.warn('[App] signInWithWeChat', e);
-      userStore.applyAuthResult({
-        mode: 'mock',
-        openId: 'mock_golfpro_user',
-        nickname: userStore.profile.nickname,
-        avatar: userStore.profile.avatar,
+  /** 分享直进计分页：延迟 login，避免 PrivacyPopup 未挂载时 cloud 触发系统 toast */
+  const { path: launchPath, query: launchQuery } = getLaunchContextFromOptions(options);
+  const deferSignIn =
+    launchPath.includes('scorecard') &&
+    launchQuery.match_id != null &&
+    String(launchQuery.match_id).trim() !== '';
+  if (!deferSignIn) {
+    void signInWithWeChat()
+      .then((session) => {
+        userStore.applyAuthResult(session);
+      })
+      .catch((e) => {
+        console.warn('[App] signInWithWeChat', e);
+        userStore.applyAuthResult({
+          mode: 'mock',
+          openId: 'mock_golfpro_user',
+          nickname: userStore.profile.nickname,
+          avatar: userStore.profile.avatar,
+        });
       });
-    });
+  }
 });
 
 onShow(() => {});
@@ -46,9 +51,8 @@ onHide(() => {});
 </script>
 
 <template>
+  <!-- mp-weixin 下 App.vue template 不渲染；PrivacyPopup 在 scorecard/index 页面挂载 -->
   <!-- #ifdef MP-WEIXIN -->
-  <PrivacyPopup />
-  <!-- 兜底：强制产出历史组件文件，避免微信工具缓存旧依赖时报 ENOENT -->
   <view style="display: none;">
     <AppUniIcon name="Plus" :size="12" color="#ffffff" />
     <LucideIconByName name="Users" />

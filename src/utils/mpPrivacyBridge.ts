@@ -15,10 +15,46 @@ function getWxGlobal(): Record<string, unknown> | null {
 type PrivacyResolve = (opts: Record<string, string>) => void;
 
 let showPrivacyAuthorization: ((resolve: PrivacyResolve) => void) | null = null;
+let pendingPrivacyResolves: PrivacyResolve[] = [];
+let privacyUiFlushInFlight = false;
 
-/** PrivacyPopup onMounted 时注册 */
+function tryFlushPrivacyQueue(): void {
+  if (!showPrivacyAuthorization || pendingPrivacyResolves.length === 0 || privacyUiFlushInFlight) return;
+  privacyUiFlushInFlight = true;
+  const batch = pendingPrivacyResolves.splice(0);
+  try {
+    showPrivacyAuthorization((opts) => {
+      privacyUiFlushInFlight = false;
+      for (const r of batch) {
+        try {
+          r(opts);
+        } catch (e) {
+          console.warn('[privacy] resolve callback', e);
+        }
+      }
+      tryFlushPrivacyQueue();
+    });
+  } catch (e) {
+    privacyUiFlushInFlight = false;
+    pendingPrivacyResolves.unshift(...batch);
+    console.warn('[privacy] tryFlushPrivacyQueue', e);
+  }
+}
+
+function enqueuePrivacyAuthorization(resolve: PrivacyResolve): void {
+  pendingPrivacyResolves.push(resolve);
+  tryFlushPrivacyQueue();
+  if (!showPrivacyAuthorization) {
+    void waitForPrivacyUiReady(15000).then((ready) => {
+      if (ready) tryFlushPrivacyQueue();
+    });
+  }
+}
+
+/** PrivacyPopup onMounted 时注册（须挂在具体页面；App.vue template 在 mp-weixin 不生效） */
 export function registerPrivacyAuthorizationUi(handler: (resolve: PrivacyResolve) => void): void {
   showPrivacyAuthorization = handler;
+  tryFlushPrivacyQueue();
 }
 
 /** PrivacyPopup 是否已挂载（避免分享直进子页时 UI 未就绪就 fallback 导致 toast 闪一下） */
@@ -50,14 +86,9 @@ export async function requestPrivacyAgreementViaPopup(): Promise<boolean> {
       return false;
     }
     return await new Promise<boolean>((resolve) => {
-      try {
-        showPrivacyAuthorization!((opts: Record<string, string>) => {
-          resolve(opts?.event === 'agree');
-        });
-      } catch (e) {
-        console.warn('[privacy] requestPrivacyAgreementViaPopup', e);
-        resolve(false);
-      }
+      enqueuePrivacyAuthorization((opts) => {
+        resolve(opts?.event === 'agree');
+      });
     });
   } catch (e) {
     console.warn('[privacy] requestPrivacyAgreementViaPopup', e);
@@ -90,23 +121,60 @@ export function setupWxOnNeedPrivacyAuthorization(): void {
     if (!w || typeof w.onNeedPrivacyAuthorization !== 'function') return;
     (w.onNeedPrivacyAuthorization as (cb: (r: PrivacyResolve) => void) => void)((resolve: PrivacyResolve) => {
       try {
-        if (showPrivacyAuthorization) {
-          showPrivacyAuthorization(resolve);
-        } else {
-          resolve({ event: 'disagree', buttonId: 'privacy-no-ui' });
-        }
+        enqueuePrivacyAuthorization(resolve);
       } catch (e) {
         console.warn('[privacy] onNeedPrivacyAuthorization', e);
-        try {
-          resolve({ event: 'disagree', buttonId: 'privacy-error' });
-        } catch {
-          /* ignore */
-        }
       }
     });
   } catch (e) {
     console.warn('[privacy] setupWxOnNeedPrivacyAuthorization', e);
   }
+}
+
+/** 分享/扫码进入计分页 */
+export function isShareInviteLaunchQuery(q: Record<string, unknown> | undefined | null): boolean {
+  if (!q || typeof q !== 'object') return false;
+  const fromShare = q.from === 'share' || q.from === 'timeline';
+  const hasScene = q.scene != null && String(q.scene).trim() !== '';
+  return fromShare || hasScene;
+}
+
+export function isWxShareOrScanEntryScene(scene: unknown): boolean {
+  const n = Number(scene);
+  if (!Number.isFinite(n)) return false;
+  return new Set([1007, 1008, 1011, 1012, 1013, 1036, 1044, 1047, 1048, 1049, 1154, 1155]).has(n);
+}
+
+/** 真机有时丢失 from=share，用 scene + match_id 补判 */
+export function detectScorecardInviteEntry(q: Record<string, unknown>, hasMatchId: boolean): boolean {
+  if (!hasMatchId) return false;
+  if (isShareInviteLaunchQuery(q)) return true;
+  try {
+    const ent = (wx as Record<string, unknown>).getEnterOptionsSync as
+      | (() => { scene?: number }) | undefined;
+    if (ent?.() && isWxShareOrScanEntryScene(ent().scene)) return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+export function getLaunchContextFromOptions(options: unknown): {
+  path: string;
+  query: Record<string, unknown>;
+} {
+  let path = String((options as { path?: string })?.path || '');
+  let query = ((options as { query?: Record<string, unknown> })?.query || {}) as Record<string, unknown>;
+  try {
+    const ent = (wx as Record<string, unknown>).getEnterOptionsSync as
+      | (() => { path?: string; query?: Record<string, unknown> }) | undefined;
+    const snap = ent?.();
+    if (snap?.path) path = String(snap.path);
+    if (snap?.query && typeof snap.query === 'object') query = { ...snap.query, ...query };
+  } catch {
+    /* ignore */
+  }
+  return { path, query };
 }
 
 /** 是否仍需用户同意隐私协议（未同意则勿调 getLocation 等） */

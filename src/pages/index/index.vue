@@ -12,6 +12,7 @@ import {
   getPrivacyNeedAuthorizationAsync,
   emitPrivacyContractAgreed,
 } from '@/utils/mpPrivacyBridge';
+import PrivacyPopup from '@/components/PrivacyPopup.vue';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
 import { hydrateMatchListAvatarsForDisplay } from '@/utils/rosterAvatarDisplay';
