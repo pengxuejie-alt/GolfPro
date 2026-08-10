@@ -7,8 +7,8 @@ import { isLikelyWeChatOpenId } from './rosterAvatarDisplay';
 
 function rosterAvatarForMerge(raw: unknown): string {
   const s = raw != null && String(raw).trim() !== '' ? String(raw).trim() : '';
-  if (!s) return '';
-  if (looksLikeExpiredProneTencentTempHttps(s) && !s.startsWith('cloud://')) return '';
+  if (!s || s.startsWith('cloud://')) return '';
+  if (looksLikeExpiredProneTencentTempHttps(s)) return '';
   return s;
 }
 
@@ -127,8 +127,12 @@ function applyProfilesToRoster(roster: unknown, profiles: Map<string, { nickName
     const useIncoming = !!(incoming && (needAvatar || !curBest));
 
     if (useIncoming) {
-      o.avatarUrl = incoming;
-      o.avatar = incoming;
+      const incomingSafe =
+        incoming.startsWith('https://') && !looksLikeExpiredProneTencentTempHttps(incoming) ? incoming : '';
+      if (incomingSafe) {
+        o.avatarUrl = incomingSafe;
+        o.avatar = incomingSafe;
+      }
     }
     if (prof.nickName) {
       const nick = String(prof.nickName).trim();

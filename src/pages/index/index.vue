@@ -13,7 +13,7 @@ import {
   emitPrivacyContractAgreed,
 } from '@/utils/mpPrivacyBridge';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
-import { hydratePlayerAvatarsInMatchList, mergeRosterAvatarFieldsIntoUserList, safeMpAvatarImgSrc, stripCloudAvatarsInMatchList } from '@/utils/mpAvatarSrc';
+import { hydratePlayerAvatarsInMatchList, mergeRosterAvatarFieldsIntoUserList, safeMpAvatarImgSrc, stripCloudAvatarsInMatchList, stripCloudAvatarFieldsInRoster } from '@/utils/mpAvatarSrc';
 import { hydrateMatchListRostersFromUserProfiles } from '@/utils/mpMatchListRosterHydrate';
 import { resolveCloudAvatarsInMatchList } from '@/utils/rosterAvatarDisplay';
 import { resolveCloudFileIdToHttps, isWxCloudFileId } from '@/utils/mpCloudFileUrl';
@@ -49,7 +49,7 @@ async function hydrateIndexMatchAvatars(list: unknown[]) {
   await hydratePlayerAvatarsInMatchList(list);
   await resolveCloudAvatarsInMatchList(list);
   stripCloudAvatarsInMatchList(list);
-  rebuildMatchAvatarDisplayMap(list);
+  await rebuildMatchAvatarDisplayMap(list);
 }
 
 /** 自定义导航页：内容从胶囊按钮下方开始，避免刘海/挖孔挡住问候语 */
@@ -85,13 +85,12 @@ function rosterPlayerAvatarSrc(p: unknown, match: unknown): string {
       ? String((match as Record<string, unknown>).match_id ?? (match as Record<string, unknown>).id ?? '').trim()
       : '';
   const cached = mid && pid ? matchAvatarDisplayMap.value[`${mid}:${pid}`] : '';
-  if (cached) return safeMpAvatarImgSrc(cached, DEFAULT_AVATAR_URL);
-  const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
-  return safeMpAvatarImgSrc(o.avatar ?? o.avatarUrl, DEFAULT_AVATAR_URL);
+  if (cached && cached.startsWith('https://')) return cached;
+  return DEFAULT_AVATAR_URL;
 }
 
-function rebuildMatchAvatarDisplayMap(list: unknown[]) {
-  const next: Record<string, string> = {};
+async function rebuildMatchAvatarDisplayMap(list: unknown[]) {
+  const next: Record<string, string> = { ...matchAvatarDisplayMap.value };
   for (const m of list) {
     if (!m || typeof m !== 'object') continue;
     const row = m as Record<string, unknown>;
@@ -103,7 +102,9 @@ function rebuildMatchAvatarDisplayMap(list: unknown[]) {
       if (!pid) continue;
       const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
       const av = String(o.avatar ?? o.avatarUrl ?? '').trim();
-      if (av.startsWith('https://')) next[`${mid}:${pid}`] = av;
+      if (av.startsWith('https://') && !av.includes('cloud://')) {
+        next[`${mid}:${pid}`] = av;
+      }
     }
   }
   matchAvatarDisplayMap.value = next;
@@ -678,8 +679,9 @@ function matchAvatarStripRoster(m: any): any[] {
   mergeRosterAvatarFieldsIntoUserList(m as Record<string, unknown>);
   const ul = Array.isArray(m.user_list) ? m.user_list : [];
   const pl = Array.isArray(m.players) ? m.players : [];
-  if (ul.length > 0) return ul;
-  return pl.length > 0 ? pl : [];
+  const roster = ul.length > 0 ? ul : pl.length > 0 ? pl : [];
+  stripCloudAvatarFieldsInRoster(roster);
+  return roster;
 }
 
 /** 开赛/设定开球时间（非最后编辑） */
@@ -1346,6 +1348,7 @@ const executeDeleteOrQuit = async () => {
               :style="{ zIndex: 4 - i }"
             >
               <image
+                :key="'av-' + (p.uid ?? p.id ?? p.openId ?? p.openid ?? i) + '-' + rosterPlayerAvatarSrc(p, match)"
                 :src="rosterPlayerAvatarSrc(p, match)"
                 mode="aspectFill"
                 class="w-full h-full"
