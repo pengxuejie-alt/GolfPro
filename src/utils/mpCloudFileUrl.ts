@@ -1,12 +1,20 @@
 /**
- * 微信云存储 fileID（cloud://...）须先 getTempFileURL 再绑 <image src>；
- * 直接写 cloud:// 在开发者工具会变成 /pages/xxx/cloud://... 并 500。
+ * 微信云存储 fileID（cloud://...）须先 getTempFileURL 再绑 <image src>。
  */
-
-import { db } from './db.js';
 
 export function isWxCloudFileId(s: string | undefined | null): boolean {
   return typeof s === 'string' && s.trim().startsWith('cloud://');
+}
+
+async function ensureCloudInited(): Promise<void> {
+  // #ifdef MP-WEIXIN
+  try {
+    const mod = await import('./db.js');
+    await mod.db.waitForInit();
+  } catch {
+    /* ignore */
+  }
+  // #endif
 }
 
 /** 单个 cloud fileID → 临时 https（失败返回空串） */
@@ -31,7 +39,7 @@ export async function batchResolveCloudFileIds(fileIds: string[]): Promise<Map<s
     return map;
   }
   try {
-    await db.waitForInit();
+    await ensureCloudInited();
   } catch {
     /* ignore */
   }

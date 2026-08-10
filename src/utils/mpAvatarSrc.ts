@@ -70,9 +70,32 @@ export function looksLikeExpiredProneTencentTempHttps(src: string): boolean {
 export function safeMpAvatarImgSrc(raw: unknown, fallback: string): string {
   const s = raw != null ? String(raw).trim() : '';
   if (!s) return fallback;
+  if (s.startsWith('cloud://')) return fallback;
   if (looksLikeExpiredProneTencentTempHttps(s)) return fallback;
-  if (isWxCloudFileId(s)) return fallback;
   return s;
+}
+
+/** 写入列表/缓存前：去掉不可直接展示的 cloud://（保留 fileID 请用 avatarCloudId 等字段，此处仅清展示字段） */
+export function stripCloudAvatarFieldsInRoster(roster: unknown): void {
+  if (!Array.isArray(roster)) return;
+  for (const raw of roster) {
+    if (!raw || typeof raw !== 'object') continue;
+    const o = raw as Record<string, unknown>;
+    for (const key of ['avatar', 'avatarUrl']) {
+      const v = o[key] != null ? String(o[key]).trim() : '';
+      if (v.startsWith('cloud://')) o[key] = '';
+    }
+  }
+}
+
+export function stripCloudAvatarsInMatchList(matches: unknown): void {
+  const list = Array.isArray(matches) ? matches : [];
+  for (const m of list) {
+    if (!m || typeof m !== 'object') continue;
+    const row = m as Record<string, unknown>;
+    stripCloudAvatarFieldsInRoster(row.user_list);
+    stripCloudAvatarFieldsInRoster(row.players);
+  }
 }
 
 /**

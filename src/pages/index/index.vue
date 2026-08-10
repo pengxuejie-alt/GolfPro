@@ -13,7 +13,7 @@ import {
   emitPrivacyContractAgreed,
 } from '@/utils/mpPrivacyBridge';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
-import { hydratePlayerAvatarsInMatchList, mergeRosterAvatarFieldsIntoUserList, safeMpAvatarImgSrc } from '@/utils/mpAvatarSrc';
+import { hydratePlayerAvatarsInMatchList, mergeRosterAvatarFieldsIntoUserList, safeMpAvatarImgSrc, stripCloudAvatarsInMatchList } from '@/utils/mpAvatarSrc';
 import { hydrateMatchListRostersFromUserProfiles } from '@/utils/mpMatchListRosterHydrate';
 import { resolveCloudAvatarsInMatchList } from '@/utils/rosterAvatarDisplay';
 import { resolveCloudFileIdToHttps, isWxCloudFileId } from '@/utils/mpCloudFileUrl';
@@ -48,6 +48,8 @@ async function hydrateIndexMatchAvatars(list: unknown[]) {
   await hydrateMatchListRostersFromUserProfiles(list);
   await hydratePlayerAvatarsInMatchList(list);
   await resolveCloudAvatarsInMatchList(list);
+  stripCloudAvatarsInMatchList(list);
+  rebuildMatchAvatarDisplayMap(list);
 }
 
 /** 自定义导航页：内容从胶囊按钮下方开始，避免刘海/挖孔挡住问候语 */
@@ -67,6 +69,45 @@ function syncIndexTopPadForMenu() {
   indexTopPad.value = '';
 }
 const matches = ref<any[]>([]);
+/** 比赛列表 roster 头像 https 缓存（key: match_id:playerId） */
+const matchAvatarDisplayMap = ref<Record<string, string>>({});
+
+function rosterPlayerKey(p: unknown): string {
+  if (!p || typeof p !== 'object') return '';
+  const o = p as Record<string, unknown>;
+  return String(o.uid ?? o.id ?? o.openId ?? o.openid ?? '').trim();
+}
+
+function rosterPlayerAvatarSrc(p: unknown, match: unknown): string {
+  const pid = rosterPlayerKey(p);
+  const mid =
+    match && typeof match === 'object'
+      ? String((match as Record<string, unknown>).match_id ?? (match as Record<string, unknown>).id ?? '').trim()
+      : '';
+  const cached = mid && pid ? matchAvatarDisplayMap.value[`${mid}:${pid}`] : '';
+  if (cached) return safeMpAvatarImgSrc(cached, DEFAULT_AVATAR_URL);
+  const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
+  return safeMpAvatarImgSrc(o.avatar ?? o.avatarUrl, DEFAULT_AVATAR_URL);
+}
+
+function rebuildMatchAvatarDisplayMap(list: unknown[]) {
+  const next: Record<string, string> = {};
+  for (const m of list) {
+    if (!m || typeof m !== 'object') continue;
+    const row = m as Record<string, unknown>;
+    const mid = String(row.match_id ?? row.id ?? '').trim();
+    if (!mid) continue;
+    const roster = matchAvatarStripRoster(m);
+    for (const p of roster) {
+      const pid = rosterPlayerKey(p);
+      if (!pid) continue;
+      const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
+      const av = String(o.avatar ?? o.avatarUrl ?? '').trim();
+      if (av.startsWith('https://')) next[`${mid}:${pid}`] = av;
+    }
+  }
+  matchAvatarDisplayMap.value = next;
+}
 
 function buildHomeShareTitle(): string {
   const n = (userStore.profile.nickname && String(userStore.profile.nickname).trim()) || '球友';
@@ -722,7 +763,9 @@ onLoad((options?: Record<string, string | undefined>) => {
   syncIndexTopPadForMenu();
   /** ① 同步播种基础 UI（首行逻辑）：列表占位 + 默认天气，严禁 await 云数据库 */
   try {
-    matches.value = readMatchesFromStorage();
+    const cached = readMatchesFromStorage();
+    stripCloudAvatarsInMatchList(cached);
+    matches.value = cached;
     void hydrateIndexMatchAvatars(matches.value).then(() => {
       matches.value = [...matches.value];
     });
@@ -1303,7 +1346,7 @@ const executeDeleteOrQuit = async () => {
               :style="{ zIndex: 4 - i }"
             >
               <image
-                :src="safeMpAvatarImgSrc(p.avatar || p.avatarUrl, DEFAULT_AVATAR_URL)"
+                :src="rosterPlayerAvatarSrc(p, match)"
                 mode="aspectFill"
                 class="w-full h-full"
               />
