@@ -2,12 +2,13 @@
 import { onLaunch, onShow, onHide } from '@dcloudio/uni-app';
 import { useUserStore } from '@/store/userStore';
 import { signInWithWeChat } from '@/utils/auth';
-import { setupWxOnNeedPrivacyAuthorization, isShareInviteLaunchQuery, getLaunchContextFromOptions, isWxShareOrScanEntryScene } from '@/utils/mpPrivacyBridge';
+import PrivacyPopup from '@/components/PrivacyPopup.vue';
+import { setupWxOnNeedPrivacyAuthorization } from '@/utils/mpPrivacyBridge';
 import { db } from '@/utils/db';
 import AppUniIcon from '@/components/AppUniIcon.vue';
 import LucideIconByName from '@/components/LucideIconByName.vue';
 
-onLaunch((options) => {
+onLaunch(() => {
   // #ifdef MP-WEIXIN
   /** 云开发 init 须在 onLaunch 尽早执行，勿在 main.ts 模块顶；可减轻开发者工具内 wx.cloud.init 内部 timeout 日志 */
   try {
@@ -23,38 +24,20 @@ onLaunch((options) => {
   // #endif
   const userStore = useUserStore();
   userStore.hydrateAuthFromStorage();
-  /** 分享直进计分页：勿在 PrivacyPopup 就绪前调 login 云函数，否则会弹出「需同意隐私指引后继续使用」且无按钮 */
-  const { path: launchPath, query: launchQuery } = getLaunchContextFromOptions(options);
-  const hasScorecardMatch =
-    launchQuery.match_id != null && String(launchQuery.match_id).trim() !== '';
-  let launchScene: number | undefined;
-  try {
-    const ent = (wx as Record<string, unknown>).getEnterOptionsSync as
-      | (() => { scene?: number }) | undefined;
-    launchScene = ent?.()?.scene;
-  } catch {
-    /* ignore */
-  }
-  const deferSignInForInvite =
-    launchPath.includes('scorecard') &&
-    (isShareInviteLaunchQuery(launchQuery) ||
-      hasScorecardMatch ||
-      (hasScorecardMatch && isWxShareOrScanEntryScene(launchScene)));
-  if (!deferSignInForInvite) {
-    void signInWithWeChat()
-      .then((session) => {
-        userStore.applyAuthResult(session);
-      })
-      .catch((e) => {
-        console.warn('[App] signInWithWeChat', e);
-        userStore.applyAuthResult({
-          mode: 'mock',
-          openId: 'mock_golfpro_user',
-          nickname: userStore.profile.nickname,
-          avatar: userStore.profile.avatar,
-        });
+  /** 不 await 登录：先让首屏与 TabBar 出来，数据后填 */
+  void signInWithWeChat()
+    .then((session) => {
+      userStore.applyAuthResult(session);
+    })
+    .catch((e) => {
+      console.warn('[App] signInWithWeChat', e);
+      userStore.applyAuthResult({
+        mode: 'mock',
+        openId: 'mock_golfpro_user',
+        nickname: userStore.profile.nickname,
+        avatar: userStore.profile.avatar,
       });
-  }
+    });
 });
 
 onShow(() => {});
@@ -63,11 +46,8 @@ onHide(() => {});
 </script>
 
 <template>
-  <!-- App.vue 的 template 编译到 mp-weixin 时不生效；PrivacyPopup 须挂在 index/scorecard 等页面 -->
-  <!-- #ifndef MP-WEIXIN -->
-  <view style="display: none;" />
-  <!-- #endif -->
   <!-- #ifdef MP-WEIXIN -->
+  <PrivacyPopup />
   <!-- 兜底：强制产出历史组件文件，避免微信工具缓存旧依赖时报 ENOENT -->
   <view style="display: none;">
     <AppUniIcon name="Plus" :size="12" color="#ffffff" />
