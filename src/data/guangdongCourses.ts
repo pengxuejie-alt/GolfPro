@@ -22,7 +22,7 @@ export const gdCourseData: Record<string, {
       { name: "哈沃斯C", holes_par: [4,4,3,5,4,4,3,4,5] },
       { name: "哈沃斯D", holes_par: [4,4,3,4,5,4,3,5,4] }
     ]},
-    { name: "广州麓湖高尔夫", total_par: 72, holes_par: [5,4,4,4,3,4,4,3,5, 4,4,3,5,4,4,3,5,4] },
+    { name: "广州华美麓湖高尔夫", total_par: 72, holes_par: [5,4,4,4,3,4,4,3,5, 4,4,3,5,4,4,3,5,4] },
     { name: "广州仙村国际高尔夫", total_par: 72, holes_par: [4,4,3,4,4,5,4,3,5, 4,4,3,4,5,3,4,5,4] }
   ],
   "深圳": [

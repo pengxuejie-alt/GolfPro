@@ -13,7 +13,7 @@ import {
   emitPrivacyContractAgreed,
 } from '@/utils/mpPrivacyBridge';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
-import { hydratePlayerAvatarsInMatchList, mergeRosterAvatarFieldsIntoUserList, safeMpAvatarImgSrc, stripCloudAvatarsInMatchList, stripCloudAvatarFieldsInRoster } from '@/utils/mpAvatarSrc';
+import { hydratePlayerAvatarsInMatchList, safeMpAvatarImgSrc, stripCloudAvatarsInMatchList } from '@/utils/mpAvatarSrc';
 import { hydrateMatchListRostersFromUserProfiles } from '@/utils/mpMatchListRosterHydrate';
 import { resolveCloudAvatarsInMatchList } from '@/utils/rosterAvatarDisplay';
 import { resolveCloudFileIdToHttps, isWxCloudFileId } from '@/utils/mpCloudFileUrl';
@@ -24,10 +24,17 @@ const SHARE_CARD_POSTER_BG = mpStaticAbsolute('share-card.png');
 
 const userStore = useUserStore();
 
+const authDraftNickname = ref('');
+const authDraftAvatarLocal = ref('');
+const authDraftAvatarCloud = ref('');
+
 /** 本机头像 cloud:// → 临时 https（勿直接绑 <image>） */
 const selfAvatarDisplay = ref('');
 const selfAvatarSrc = computed(() =>
-  safeMpAvatarImgSrc(selfAvatarDisplay.value || userStore.profile.avatar, DEFAULT_AVATAR_URL),
+  safeMpAvatarImgSrc(
+    selfAvatarDisplay.value || authDraftAvatarLocal.value || userStore.profile.avatar,
+    DEFAULT_AVATAR_URL,
+  ),
 );
 
 async function refreshSelfAvatarDisplay() {
@@ -85,8 +92,9 @@ function rosterPlayerAvatarSrc(p: unknown, match: unknown): string {
       ? String((match as Record<string, unknown>).match_id ?? (match as Record<string, unknown>).id ?? '').trim()
       : '';
   const cached = mid && pid ? matchAvatarDisplayMap.value[`${mid}:${pid}`] : '';
-  if (cached && cached.startsWith('https://')) return cached;
-  return DEFAULT_AVATAR_URL;
+  if (cached) return safeMpAvatarImgSrc(cached, DEFAULT_AVATAR_URL);
+  const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
+  return safeMpAvatarImgSrc(o.avatar ?? o.avatarUrl, DEFAULT_AVATAR_URL);
 }
 
 async function rebuildMatchAvatarDisplayMap(list: unknown[]) {
@@ -96,7 +104,7 @@ async function rebuildMatchAvatarDisplayMap(list: unknown[]) {
     const row = m as Record<string, unknown>;
     const mid = String(row.match_id ?? row.id ?? '').trim();
     if (!mid) continue;
-    const roster = matchAvatarStripRoster(m);
+    const roster = matchRosterForDisplay(m);
     for (const p of roster) {
       const pid = rosterPlayerKey(p);
       if (!pid) continue;
@@ -308,9 +316,6 @@ function onIndexPrivacyModalDisagree() {
   privacyModalResolve?.(false);
 }
 
-const authDraftNickname = ref('');
-const authDraftAvatarLocal = ref('');
-const authDraftAvatarCloud = ref('');
 const authSaving = ref(false);
 /** 半屏「同步资料」浮层（仅点「登录/同步资料」时显示） */
 const profileSyncSheetOpen = ref(false);
@@ -498,11 +503,12 @@ async function onChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
   uni.showLoading({ title: '上传头像中…', mask: true });
   try {
     authDraftAvatarLocal.value = tempPath;
+    selfAvatarDisplay.value = tempPath;
     const fileId = await uploadAvatarToCloud(tempPath);
     if (fileId) {
       authDraftAvatarCloud.value = fileId;
       userStore.updateProfile({ avatar: fileId });
-      void refreshSelfAvatarDisplay();
+      await refreshSelfAvatarDisplay();
       // #ifdef MP-WEIXIN
       try {
         await syncUsersProfileToCloudDb({ avatarUrl: fileId });
@@ -539,10 +545,11 @@ async function onProfileChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
   // #endif
   uni.showLoading({ title: '上传头像中…', mask: true });
   try {
+    selfAvatarDisplay.value = tempPath;
     const fileId = await uploadAvatarToCloud(tempPath);
     const finalAvatar = fileId || tempPath;
     userStore.updateProfile({ avatar: finalAvatar });
-    void refreshSelfAvatarDisplay();
+    await refreshSelfAvatarDisplay();
     if (!fileId) {
       uni.showToast({ title: '云上传失败，头像可能无法在真机长期保存', icon: 'none', duration: 2500 });
       return;
@@ -717,14 +724,11 @@ function readMatchesFromStorage(): any[] {
   return [];
 }
 
-function matchAvatarStripRoster(m: any): any[] {
+function matchRosterForDisplay(m: any): any[] {
   if (!m || typeof m !== 'object') return [];
-  mergeRosterAvatarFieldsIntoUserList(m as Record<string, unknown>);
   const ul = Array.isArray(m.user_list) ? m.user_list : [];
   const pl = Array.isArray(m.players) ? m.players : [];
-  const roster = ul.length > 0 ? ul : pl.length > 0 ? pl : [];
-  stripCloudAvatarFieldsInRoster(roster);
-  return roster;
+  return ul.length > 0 ? ul : pl.length > 0 ? pl : [];
 }
 
 /** 开赛/设定开球时间（非最后编辑） */
@@ -806,11 +810,10 @@ const loadMatches = async (opts?: { showLoading?: boolean }) => {
 
 onLoad((options?: Record<string, string | undefined>) => {
   syncIndexTopPadForMenu();
-  /** ① 同步播种基础 UI：先清 cloud://，异步 hydrate 后再写入列表（避免渲染层误拼 /pages/index/cloud://） */
+  /** ① 同步播种基础 UI：先 hydrate 解析 cloud://，再写入列表（避免渲染层误拼 /pages/index/cloud://） */
   void (async () => {
     try {
       const cached = readMatchesFromStorage();
-      stripCloudAvatarsInMatchList(cached);
       await hydrateIndexMatchAvatars(cached);
       matches.value = [...cached];
     } catch {
@@ -1385,7 +1388,7 @@ const executeDeleteOrQuit = async () => {
         <div class="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
           <div class="flex -space-x-2">
             <div
-              v-for="(p, i) in matchAvatarStripRoster(match)"
+              v-for="(p, i) in matchRosterForDisplay(match)"
               :key="'ar-' + matchRowKey(match, mi) + '-' + i + '-' + (p.uid ?? p.id ?? p.openId ?? p.openid ?? '')"
               class="w-8 h-8 rounded-full border-2 border-white overflow-hidden relative shadow-sm"
               :style="{ zIndex: 4 - i }"
@@ -1397,7 +1400,7 @@ const executeDeleteOrQuit = async () => {
                 class="w-full h-full"
               />
             </div>
-            <div v-if="!matchAvatarStripRoster(match).length" class="w-8 h-8 rounded-full bg-slate-100 border-2 border-white flex items-center justify-center text-xs text-slate-600 font-bold shadow-sm">
+            <div v-if="!matchRosterForDisplay(match).length" class="w-8 h-8 rounded-full bg-slate-100 border-2 border-white flex items-center justify-center text-xs text-slate-600 font-bold shadow-sm">
               +0
             </div>
           </div>

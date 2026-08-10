@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { onLoad } from '@dcloudio/uni-app';
 import { Tab } from '@/types';
 import { useMatchStore } from '@/store/matchStore';
@@ -9,6 +9,7 @@ import { gdMockCourses } from '@/utils/mockData';
 import { courseCatalogData, courseCatalogStats } from '@/data/courseCatalog';
 import { goBack, replaceRoute } from '@/utils/uniNav';
 import { courseNeedsSectionCombo, sectionsForCoursePicker } from '@/utils/courseSections';
+import { sortCoursesForPicker } from '@/utils/coursePickerSort';
 
 const matchStore = useMatchStore();
 const userStore = useUserStore();
@@ -58,7 +59,9 @@ const allCourses = computed(() => {
         city: c.city || province,
         tee_areas: c.sections ? `${c.sections.length}场` : '18洞',
         logo_url: `https://picsum.photos/seed/${encodeURIComponent(c.name)}/100/100`,
-        holes: c.holes_par ? c.holes_par.map((par: number, i: number) => ({ no: i + 1, par })) : []
+        latitude: c.latitude,
+        longitude: c.longitude,
+        holes: c.holes_par ? c.holes_par.map((par: number, i: number) => ({ no: i + 1, par })) : [],
       });
     });
   });
@@ -67,14 +70,58 @@ const allCourses = computed(() => {
 
 const catalogStats = courseCatalogStats();
 
+const pickerLocation = ref<{ lat: number; lng: number } | null>(null);
+const coursePlayCounts = ref<Record<string, number>>({});
+
+function requestPickerLocation() {
+  uni.getLocation({
+    type: 'gcj02',
+    success: (res) => {
+      pickerLocation.value = { lat: res.latitude, lng: res.longitude };
+    },
+    fail: () => {
+      pickerLocation.value = { lat: 23.1291, lng: 113.3239 };
+    },
+  });
+}
+
+async function loadCoursePlayCounts() {
+  try {
+    const list = await MatchManager.getMatchList();
+    const counts: Record<string, number> = {};
+    for (const m of Array.isArray(list) ? list : []) {
+      const id = String(m?.course_id || '').trim();
+      if (id) counts[id] = (counts[id] || 0) + 1;
+    }
+    coursePlayCounts.value = counts;
+  } catch {
+    coursePlayCounts.value = {};
+  }
+}
+
+watch(showCoursePicker, (open) => {
+  if (!open) return;
+  requestPickerLocation();
+  void loadCoursePlayCounts();
+});
+
 const filteredCourses = computed(() => {
   const key = searchKey.value.trim().toLowerCase();
-  if (!key) return allCourses.value.slice(0, 100);
-  return allCourses.value.filter(c => 
-    c.name.toLowerCase().includes(key) || 
-    c.city.toLowerCase().includes(key) ||
-    (c.province && c.province.toLowerCase().includes(key))
-  );
+  const base = key
+    ? allCourses.value.filter(
+        (c) =>
+          c.name.toLowerCase().includes(key) ||
+          c.city.toLowerCase().includes(key) ||
+          (c.province && c.province.toLowerCase().includes(key)),
+      )
+    : allCourses.value;
+  const sorted = sortCoursesForPicker(base, {
+    lat: pickerLocation.value?.lat,
+    lng: pickerLocation.value?.lng,
+    playCountById: coursePlayCounts.value,
+  });
+  if (!key) return sorted.slice(0, 100);
+  return sorted;
 });
 
 const courseListHint = computed(() => {

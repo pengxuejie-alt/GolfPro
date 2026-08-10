@@ -53,10 +53,8 @@ export function mergeRosterAvatarFieldsIntoUserList(row: Record<string, unknown>
       po.avatar != null && String(po.avatar).trim() !== '' ? String(po.avatar).trim() : '';
     const pUrl =
       po.avatarUrl != null && String(po.avatarUrl).trim() !== '' ? String(po.avatarUrl).trim() : '';
-    const safeAv = pAv.startsWith('cloud://') ? '' : pAv;
-    const safeUrl = pUrl.startsWith('cloud://') ? '' : pUrl;
-    if (safeAv) uo.avatar = safeAv;
-    if (safeUrl || safeAv) uo.avatarUrl = (safeUrl || safeAv || '') as string;
+    if (pAv) uo.avatar = pAv;
+    if (pUrl || pAv) uo.avatarUrl = (pUrl || pAv || '') as string;
   }
 }
 
@@ -103,8 +101,7 @@ export function stripCloudAvatarsInMatchList(matches: unknown): void {
 /**
  * 列表数据就位后：合并 user_list/players 头像字段；去掉易过期 COS 签名链。
  *
- * **勿**再把 cloud fileID 换成 getTempFileURL 写回列表缓存：下一轮刷新会按过期链清空且无 cloud id 可追溯 → 默认头像。
- * 微信小程序 `<image>` 可直接用 cloud://；展示层 `safeMpAvatarImgSrc` 已放行。
+ * cloud:// 由 `resolveCloudAvatarsInMatchList` 在展示前换临时 https；勿把临时链写回云库/持久缓存。
  */
 export async function hydratePlayerAvatarsInMatchList(matches: unknown): Promise<void> {
   const list = Array.isArray(matches) ? matches : [];
