@@ -2,7 +2,7 @@
 import { onLaunch, onShow, onHide } from '@dcloudio/uni-app';
 import { useUserStore } from '@/store/userStore';
 import { signInWithWeChat } from '@/utils/auth';
-import { setupWxOnNeedPrivacyAuthorization, getLaunchContextFromOptions } from '@/utils/mpPrivacyBridge';
+import { setupWxOnNeedPrivacyAuthorization } from '@/utils/mpPrivacyBridge';
 import { db } from '@/utils/db';
 import AppUniIcon from '@/components/AppUniIcon.vue';
 import LucideIconByName from '@/components/LucideIconByName.vue';
@@ -22,27 +22,24 @@ onLaunch((options) => {
   // #endif
   const userStore = useUserStore();
   userStore.hydrateAuthFromStorage();
-  /** 分享直进计分页：延迟 login，避免 PrivacyPopup 未挂载时 cloud 触发系统 toast */
-  const { path: launchPath, query: launchQuery } = getLaunchContextFromOptions(options);
-  const deferSignIn =
-    launchPath.includes('scorecard') &&
-    launchQuery.match_id != null &&
-    String(launchQuery.match_id).trim() !== '';
-  if (!deferSignIn) {
-    void signInWithWeChat()
-      .then((session) => {
-        userStore.applyAuthResult(session);
-      })
-      .catch((e) => {
-        console.warn('[App] signInWithWeChat', e);
-        userStore.applyAuthResult({
-          mode: 'mock',
-          openId: 'mock_golfpro_user',
-          nickname: userStore.profile.nickname,
-          avatar: userStore.profile.avatar,
-        });
+  // #ifdef MP-WEIXIN
+  /** 小程序端由首页 gateIndexPrivacyBeforeLogin / 计分加入流程负责登录，避免 onLaunch 抢先 callFunction 触发隐私 toast */
+  // #endif
+  // #ifndef MP-WEIXIN
+  void signInWithWeChat()
+    .then((session) => {
+      userStore.applyAuthResult(session);
+    })
+    .catch((e) => {
+      console.warn('[App] signInWithWeChat', e);
+      userStore.applyAuthResult({
+        mode: 'mock',
+        openId: 'mock_golfpro_user',
+        nickname: userStore.profile.nickname,
+        avatar: userStore.profile.avatar,
       });
-  }
+    });
+  // #endif
 });
 
 onShow(() => {});

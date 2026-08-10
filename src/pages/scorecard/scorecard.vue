@@ -141,8 +141,8 @@ const scorecardSharePath = computed(() => {
     '';
   const id = String(mid || '').trim();
   return id
-    ? `pages/scorecard/scorecard?match_id=${encodeURIComponent(id)}&from=share`
-    : 'pages/scorecard/scorecard?from=share';
+    ? `pages/index/index?match_id=${encodeURIComponent(id)}&from=share`
+    : 'pages/index/index?from=share';
 });
 
 const scorecardShareTimelineQuery = computed(() => {
