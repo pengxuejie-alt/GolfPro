@@ -2,7 +2,7 @@ const cloud = require('wx-server-sdk');
 /** 与 joinMatch / listMyMatches / 小程序 wx.cloud.init 当前环境一致，勿写死 env，否则会「写入 A 库、列表读 B 库」 */
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
-const { findMatchDocsByMid } = require('../common/matchCanonical');
+const { findMatchDocsByMid } = require('./matchCanonical');
 
 const EMPTY_18 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
