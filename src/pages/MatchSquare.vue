@@ -8,6 +8,7 @@ import { formatMatchKickoffCn } from '@/utils/matchKickoff';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
 import { hydrateMatchListAvatarsForDisplay } from '@/utils/rosterAvatarDisplay';
+import { openRoute, goBack } from '@/utils/uniNav';
 
 const DEFAULT_AVATAR_URL = mpStaticAbsolute('tab/me.png');
 
