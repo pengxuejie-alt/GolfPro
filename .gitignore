@@ -19,6 +19,7 @@ match_history_*.json
 
 # GolfLive 批量拉取产物（含 openid 会话相关字段，勿提交）
 scripts/output/
+scripts/data/golflive-search-keywords.json
 
 node_modules
 .env
