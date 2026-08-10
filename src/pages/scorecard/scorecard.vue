@@ -3147,7 +3147,7 @@ const posterPreviewSrc = ref('');
                         </view>
                       </template>
                     </view>
-                    <text v-if="getScore(player.id, h.index)" class="sc-profit-text" :class="getHoleProfit(player.id, h.index) >= 0 ? 'text-red-400' : 'text-green-400'">
+                    <text v-if="getScore(player.id, h.index) && matchStore.activeRules.length > 0" class="sc-profit-text" :class="getHoleProfit(player.id, h.index) >= 0 ? 'text-red-400' : 'text-green-400'">
                       {{ getHoleProfit(player.id, h.index) > 0 ? '+' : '' }}{{ getHoleProfit(player.id, h.index) }}
                     </text>
                   </view>
