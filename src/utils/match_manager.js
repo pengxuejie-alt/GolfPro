@@ -164,21 +164,23 @@ export const MatchManager = {
   },
 
   /**
-   * 房主：云函数删除 matches 及关联 scores，再清本机列表（并取消「隐藏」记录）
+   * 房主删除：尽力删云；无论云结果如何，一律从本机 Storage 移除（换云环境/旧缓存场景）。
+   * @param {string} matchId
+   * @param {string} [_openId] 保留参数供调用方传入，便于后续扩展
    */
-  deleteHostedMatch: async function (matchId) {
+  deleteHostedMatch: async function (matchId, _openId) {
     const want = normalizeMid(matchId);
     if (!want) return { ok: false, error: 'bad_id' };
+
+    let cloudDeleted = false;
     const res = await callDeleteMyMatchCloud(want);
-    if (res == null) return { ok: false, error: 'no_cloud' };
-    if (res.success === true) {
-      db.revealMatchForMyList(want);
-      let matchList = await db.getItem(MATCH_LIST_KEY) || [];
-      matchList = matchList.filter((m) => normalizeMid(m?.match_id ?? m?.id) !== want);
-      await persistMatchList(matchList);
-      return { ok: true };
+    if (res?.success === true && res.deleted !== false) {
+      cloudDeleted = true;
     }
-    return { ok: false, error: res.error || 'cloud_failed' };
+
+    await this.removeMatchFromLocalList(want);
+
+    return { ok: true, cloudDeleted, localOnly: !cloudDeleted };
   },
 
   /**
@@ -189,16 +191,12 @@ export const MatchManager = {
     if (!want) return { ok: false, error: 'bad_id' };
     const res = await callLeaveMatchCloud(want);
     const err = res?.error || '';
-    const cloudOk = res?.success === true || err === 'not_in_roster' || err === 'not_found';
-    if (!cloudOk) {
-      if (res == null) {
-        await this.removeMatchFromLocalList(want);
-        return { ok: true, localOnly: true };
-      }
-      return { ok: false, error: err || 'leave_failed' };
-    }
+    const cloudLeft =
+      res?.success === true || err === 'not_in_roster' || err === 'not_found';
+
     await this.removeMatchFromLocalList(want);
-    return { ok: true };
+
+    return { ok: true, localOnly: !cloudLeft };
   },
 
   /**
@@ -207,10 +205,7 @@ export const MatchManager = {
   removeMatchFromLocalList: async function (matchId) {
     const want = normalizeMid(matchId);
     if (!want) return;
-    db.concealMatchFromMyList(want);
-    let matchList = await db.getItem(MATCH_LIST_KEY) || [];
-    matchList = matchList.filter((m) => normalizeMid(m?.match_id ?? m?.id) !== want);
-    await persistMatchList(matchList);
+    db.purgeMatchFromLocalStorage(want);
   },
 
   /**

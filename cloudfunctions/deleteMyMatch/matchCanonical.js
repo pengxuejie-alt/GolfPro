@@ -99,9 +99,29 @@ async function findMatchDocsByMid(db, matchId, opts = {}) {
   return { doc, duplicates };
 }
 
+function rosterHostUid(doc) {
+  if (!doc || typeof doc !== 'object') return '';
+  const roster = doc.user_list || doc.players;
+  if (!Array.isArray(roster) || roster.length === 0) return '';
+  const first = roster[0];
+  if (!first || typeof first !== 'object') return '';
+  return String(first.uid ?? first.id ?? first.openId ?? first.openid ?? '').trim();
+}
+
+/** 与客户端 MatchManager.isUserHostOfMatch 一致：文档 _openid 或名单首位 */
+function isOwnerOfMatchDoc(doc, openId) {
+  const oid = openId != null ? String(openId).trim() : '';
+  if (!oid || !doc || typeof doc !== 'object') return false;
+  const docOpen = doc._openid;
+  if (docOpen != null && String(docOpen).trim() === oid) return true;
+  return rosterHostUid(doc) === oid;
+}
+
 module.exports = {
   findMatchDocsByMid,
   compareMatchDocPriority,
   rosterLen,
   docTimeMs,
+  rosterHostUid,
+  isOwnerOfMatchDoc,
 };

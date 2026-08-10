@@ -628,6 +628,42 @@ export const db = {
     persistHiddenMatchMidsSet(s);
   },
 
+  /**
+   * 从本机所有比赛相关 Storage 移除并标记隐藏，防止换云环境后缓存/云合并再次展示。
+   * 覆盖 golf_match_list、matches、last_match_cache、match_list_hidden_mids。
+   */
+  purgeMatchFromLocalStorage(matchId) {
+    const mid = String(matchId ?? '').trim();
+    if (!mid) return;
+    this.concealMatchFromMyList(mid);
+    const withoutMid = (rows) =>
+      (Array.isArray(rows) ? rows : []).filter((r) => normalizeMidList(r) !== mid);
+    try {
+      const quick = uni.getStorageSync(MATCHES_QUICK_CACHE_KEY);
+      if (Array.isArray(quick)) {
+        uni.setStorageSync(MATCHES_QUICK_CACHE_KEY, withoutMid(quick));
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      const raw = uni.getStorageSync(MATCH_LIST_KEY);
+      if (Array.isArray(raw)) {
+        uni.setStorageSync(MATCH_LIST_KEY, withoutMid(raw));
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      const last = uni.getStorageSync('last_match_cache');
+      if (last && typeof last === 'object' && normalizeMidList(last) === mid) {
+        uni.removeStorageSync('last_match_cache');
+      }
+    } catch {
+      /* ignore */
+    }
+  },
+
   async getItem(key) {
     try {
       const v = uni.getStorageSync(key);

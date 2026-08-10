@@ -82,22 +82,23 @@ const executeDelete = async () => {
       return;
     }
     if (pendingDeleteIsHost.value) {
-      const r = await MatchManager.deleteHostedMatch(mid);
+      const r = await MatchManager.deleteHostedMatch(mid, userStore.openId);
       if (!r.ok) {
-        if (r.error === 'no_cloud') uni.showToast({ title: '请使用真机云开发能力后重试', icon: 'none' });
-        else if (r.error === 'not_owner') uni.showToast({ title: '仅房主可从云端删除', icon: 'none' });
-        else uni.showToast({ title: '删除失败，请稍后重试', icon: 'none' });
-        return;
-      }
-      uni.showToast({ title: '已删除', icon: 'success' });
-    } else {
-      const r = await MatchManager.leaveParticipantMatch(mid);
-      if (!r.ok) {
-        uni.showToast({ title: '退赛失败，请稍后重试', icon: 'none' });
+        uni.showToast({ title: '操作失败', icon: 'none' });
         return;
       }
       uni.showToast({
-        title: r.localOnly ? '已退出本机列表' : '已退赛',
+        title: r.cloudDeleted ? '已删除' : '已从列表移除',
+        icon: 'success',
+      });
+    } else {
+      const r = await MatchManager.leaveParticipantMatch(mid);
+      if (!r.ok) {
+        uni.showToast({ title: '操作失败', icon: 'none' });
+        return;
+      }
+      uni.showToast({
+        title: r.localOnly ? '已从列表移除' : '已退赛',
         icon: 'success',
       });
     }
@@ -171,7 +172,7 @@ async function executeBatchDelete() {
       const victim = matches.value.find((x) => normalizeMatchMid(x) === mid);
       const isHost = victim ? MatchManager.isUserHostOfMatch(victim, userStore.openId) : false;
       if (isHost) {
-        const r = await MatchManager.deleteHostedMatch(mid);
+        const r = await MatchManager.deleteHostedMatch(mid, userStore.openId);
         if (r.ok) okCount++;
         else failCount++;
       } else {
