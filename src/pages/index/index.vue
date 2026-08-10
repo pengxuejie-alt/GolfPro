@@ -670,32 +670,6 @@ function requestDeviceLocation(): Promise<{ latitude: number; longitude: number 
   });
 }
 
-async function fetchReverseGeocodeLabel(lat: number, lng: number): Promise<string> {
-  return new Promise((resolve) => {
-    try {
-      uni.request({
-        url: `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${lat}&longitude=${lng}&language=zh&count=1`,
-        method: 'GET',
-        success: (res) => {
-          const data = res.data as {
-            results?: Array<{ name?: string; admin1?: string }>;
-          } | null;
-          const row = data?.results?.[0];
-          if (!row) {
-            resolve('');
-            return;
-          }
-          const parts = [row.name, row.admin1].filter((x) => x && String(x).trim());
-          resolve(parts.length > 0 ? parts.join(' · ') : '');
-        },
-        fail: () => resolve(''),
-      });
-    } catch {
-      resolve('');
-    }
-  });
-}
-
 async function refreshLocationWeather() {
   try {
     const needAuth = await getPrivacyNeedAuthorizationAsync();
@@ -709,8 +683,7 @@ async function refreshLocationWeather() {
     if (!loc) return;
 
     weatherLocationHint.value = '';
-    const label = await fetchReverseGeocodeLabel(loc.latitude, loc.longitude);
-    weatherAreaLabel.value = label || '当前位置';
+    weatherAreaLabel.value = '当前位置';
 
     const ok = await fetchOpenMeteoWeather(loc.latitude, loc.longitude);
     if (!ok) {
