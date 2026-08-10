@@ -1,4 +1,4 @@
-/** 选场列表：常打优先，其次按与用户距离升序 */
+/** 选场列表：常打置顶（按最近开打），其余按与用户距离升序 */
 
 export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const toRad = (d: number) => (d * Math.PI) / 180;
@@ -18,34 +18,63 @@ type SortableCourse = {
   longitude?: number;
 };
 
+function compareByName(a: SortableCourse, b: SortableCourse): number {
+  return String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN');
+}
+
+function courseIdOf(c: SortableCourse): string {
+  return String(c.id || '').trim();
+}
+
+function isRecentlyPlayed(
+  id: string,
+  playCountById: Record<string, number>,
+  lastPlayedMsById: Record<string, number>,
+): boolean {
+  return (playCountById[id] || 0) > 0 || (lastPlayedMsById[id] || 0) > 0;
+}
+
 export function sortCoursesForPicker<T extends SortableCourse>(
   courses: T[],
   opts: {
     lat?: number;
     lng?: number;
     playCountById?: Record<string, number>;
+    lastPlayedMsById?: Record<string, number>;
   },
 ): T[] {
-  const { lat, lng, playCountById = {} } = opts;
+  const { lat, lng, playCountById = {}, lastPlayedMsById = {} } = opts;
   const hasLoc = Number.isFinite(lat) && Number.isFinite(lng);
 
   return [...courses].sort((a, b) => {
-    const pa = playCountById[String(a.id || '').trim()] || 0;
-    const pb = playCountById[String(b.id || '').trim()] || 0;
-    if (pa !== pb) return pb - pa;
+    const idA = courseIdOf(a);
+    const idB = courseIdOf(b);
+    const aRecent = isRecentlyPlayed(idA, playCountById, lastPlayedMsById);
+    const bRecent = isRecentlyPlayed(idB, playCountById, lastPlayedMsById);
+    if (aRecent !== bRecent) return aRecent ? -1 : 1;
+
+    if (aRecent) {
+      const ra = lastPlayedMsById[idA] || 0;
+      const rb = lastPlayedMsById[idB] || 0;
+      if (ra !== rb) return rb - ra;
+      const pa = playCountById[idA] || 0;
+      const pb = playCountById[idB] || 0;
+      if (pa !== pb) return pb - pa;
+      return compareByName(a, b);
+    }
 
     if (hasLoc) {
       const aHas = Number.isFinite(a.latitude) && Number.isFinite(a.longitude);
       const bHas = Number.isFinite(b.latitude) && Number.isFinite(b.longitude);
       if (aHas && bHas) {
-        return (
-          haversineKm(lat!, lng!, a.latitude!, a.longitude!) -
-          haversineKm(lat!, lng!, b.latitude!, b.longitude!)
-        );
+        const da = haversineKm(lat!, lng!, a.latitude!, a.longitude!);
+        const db = haversineKm(lat!, lng!, b.latitude!, b.longitude!);
+        if (da !== db) return da - db;
+      } else if (aHas !== bHas) {
+        return aHas ? -1 : 1;
       }
-      if (aHas !== bHas) return aHas ? -1 : 1;
     }
 
-    return String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN');
+    return compareByName(a, b);
   });
 }

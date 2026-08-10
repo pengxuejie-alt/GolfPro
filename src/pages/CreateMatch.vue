@@ -10,6 +10,7 @@ import { courseCatalogData, courseCatalogStats } from '@/data/courseCatalog';
 import { goBack, replaceRoute } from '@/utils/uniNav';
 import { courseNeedsSectionCombo, sectionsForCoursePicker } from '@/utils/courseSections';
 import { sortCoursesForPicker } from '@/utils/coursePickerSort';
+import { kickoffTimeMs, matchListSortTimeMs } from '@/utils/matchKickoff';
 
 const matchStore = useMatchStore();
 const userStore = useUserStore();
@@ -71,6 +72,7 @@ const catalogStats = courseCatalogStats();
 
 const pickerLocation = ref<{ lat: number; lng: number } | null>(null);
 const coursePlayCounts = ref<Record<string, number>>({});
+const courseLastPlayedMs = ref<Record<string, number>>({});
 
 function requestPickerLocation() {
   uni.getLocation({
@@ -88,13 +90,19 @@ async function loadCoursePlayCounts() {
   try {
     const list = await MatchManager.getMatchList();
     const counts: Record<string, number> = {};
+    const lastMs: Record<string, number> = {};
     for (const m of Array.isArray(list) ? list : []) {
       const id = String(m?.course_id || '').trim();
-      if (id) counts[id] = (counts[id] || 0) + 1;
+      if (!id) continue;
+      counts[id] = (counts[id] || 0) + 1;
+      const t = kickoffTimeMs(m) ?? matchListSortTimeMs(m);
+      if (t > 0) lastMs[id] = Math.max(lastMs[id] || 0, t);
     }
     coursePlayCounts.value = counts;
+    courseLastPlayedMs.value = lastMs;
   } catch {
     coursePlayCounts.value = {};
+    courseLastPlayedMs.value = {};
   }
 }
 
@@ -118,6 +126,7 @@ const filteredCourses = computed(() => {
     lat: pickerLocation.value?.lat,
     lng: pickerLocation.value?.lng,
     playCountById: coursePlayCounts.value,
+    lastPlayedMsById: courseLastPlayedMs.value,
   });
   if (!key) return sorted.slice(0, 100);
   return sorted;
