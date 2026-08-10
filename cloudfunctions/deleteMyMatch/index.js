@@ -1,7 +1,7 @@
 const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
-const { findMatchDocsByMid } = require('../common/matchCanonical');
+const { findMatchDocsByMid } = require('./matchCanonical');
 
 exports.main = async (event) => {
   const openId = cloud.getWXContext().OPENID;
