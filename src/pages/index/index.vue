@@ -375,7 +375,7 @@ async function openProfileSyncSheet() {
     }
     // #endif
     authDraftNickname.value = userStore.profile.nickname || '';
-    authDraftAvatarLocal.value = userStore.profile.avatar || DEFAULT_AVATAR_URL;
+    authDraftAvatarLocal.value = safeMpAvatarImgSrc(userStore.profile.avatar, DEFAULT_AVATAR_URL);
     authDraftAvatarCloud.value = '';
     const av = String(userStore.profile.avatar || '').trim();
     if (av.startsWith('cloud://')) {
@@ -763,17 +763,17 @@ const loadMatches = async (opts?: { showLoading?: boolean }) => {
 
 onLoad((options?: Record<string, string | undefined>) => {
   syncIndexTopPadForMenu();
-  /** ① 同步播种基础 UI（首行逻辑）：列表占位 + 默认天气，严禁 await 云数据库 */
-  try {
-    const cached = readMatchesFromStorage();
-    stripCloudAvatarsInMatchList(cached);
-    matches.value = cached;
-    void hydrateIndexMatchAvatars(matches.value).then(() => {
-      matches.value = [...matches.value];
-    });
-  } catch {
-    matches.value = [];
-  }
+  /** ① 同步播种基础 UI：先清 cloud://，异步 hydrate 后再写入列表（避免渲染层误拼 /pages/index/cloud://） */
+  void (async () => {
+    try {
+      const cached = readMatchesFromStorage();
+      stripCloudAvatarsInMatchList(cached);
+      await hydrateIndexMatchAvatars(cached);
+      matches.value = [...cached];
+    } catch {
+      matches.value = [];
+    }
+  })();
   applyMockWeatherSilently();
 
   try {

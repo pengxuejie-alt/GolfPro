@@ -53,8 +53,10 @@ export function mergeRosterAvatarFieldsIntoUserList(row: Record<string, unknown>
       po.avatar != null && String(po.avatar).trim() !== '' ? String(po.avatar).trim() : '';
     const pUrl =
       po.avatarUrl != null && String(po.avatarUrl).trim() !== '' ? String(po.avatarUrl).trim() : '';
-    if (pAv) uo.avatar = pAv;
-    if (pUrl || pAv) uo.avatarUrl = (pUrl || pAv || '') as string;
+    const safeAv = pAv.startsWith('cloud://') ? '' : pAv;
+    const safeUrl = pUrl.startsWith('cloud://') ? '' : pUrl;
+    if (safeAv) uo.avatar = safeAv;
+    if (safeUrl || safeAv) uo.avatarUrl = (safeUrl || safeAv || '') as string;
   }
 }
 
