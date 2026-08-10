@@ -18,6 +18,7 @@ history.json
 match_history_*.json
 
 node_modules
+.env
 dist
 dist-ssr
 *.local

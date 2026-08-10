@@ -1,0 +1,315 @@
+/**
+ * 小程序：先引入 Tailwind（构建期编译为具体 WXSS，无 @tailwind 残留），再写安全区与兜底。
+ * 禁止在此使用 * / ::before / ::after 全局重置（微信 WXSS 不支持通配符）；用具体标签替代。
+ * 类名与 rpx 由 weapp-tailwindcss（仅 mp-weixin 构建）处理；业务里直接使用标准 Tailwind 类即可。
+ */
+@import './tailwind-mp.css';
+
+view,
+text,
+scroll-view,
+image,
+button,
+input,
+textarea,
+label,
+swiper,
+swiper-item,
+block,
+page {
+  box-sizing: border-box;
+}
+
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"] {
+  min-height: auto;
+  line-height: normal;
+}
+
+/**
+ * 微信小程序原生 input：全局过小的 min-height 与 Tailwind py/text 叠加时，
+ * 易出现占位符、输入文字只显示半截（纵向裁切）。
+ * 具体高度由内边距 + line-height 决定；勿在此再写死 44rpx 一类过矮值。
+ */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]),
+textarea {
+  line-height: 1.5;
+}
+
+/**
+ * 全宽圆角搜索/表单项：与 pl-12 等左右留白类配合，只统一竖直方向安全区
+ */
+.mp-safe-input-full {
+  display: block;
+  box-sizing: border-box;
+  font-size: 30rpx;
+  line-height: 48rpx;
+  min-height: 112rpx;
+  padding-top: 28rpx !important;
+  padding-bottom: 28rpx !important;
+}
+
+/**
+ * 列表行内、flex 中的文本 input：保证行高与上下内边距（外层建议 min-h-[96rpx] items-center）
+ */
+.mp-safe-input-flex {
+  box-sizing: border-box;
+  font-size: 28rpx;
+  line-height: 48rpx !important;
+  min-height: 48rpx;
+  padding-top: 16rpx !important;
+  padding-bottom: 16rpx !important;
+}
+
+/** 表单行内右对齐短输入（比赛名称等） */
+.mp-safe-input-inline {
+  box-sizing: border-box;
+  line-height: 44rpx !important;
+  min-height: 44rpx;
+  padding-top: 10rpx !important;
+  padding-bottom: 10rpx !important;
+}
+
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+page {
+  background-color: #020617;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Noto Sans SC', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* #ifdef MP-WEIXIN */
+/**
+ * uni-icons：组件 bundle 内字体路径在真机/新版本工具上常加载失败，改为包内 static 兜底。
+ */
+@font-face {
+  font-family: 'uniicons';
+  src: url('./static/fonts/uniicons.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+text.uni-icons,
+.uni-icons {
+  font-family: uniicons !important;
+}
+/* #endif */
+
+.safe-top {
+  padding-top: 44px;
+}
+
+/** 首页自定义导航：刘海安全区 + 少量内容间距 */
+.index-page-safe-top {
+  padding-top: calc(12px + constant(safe-area-inset-top));
+  padding-top: calc(12px + env(safe-area-inset-top));
+}
+
+/** 微信 chooseAvatar 按钮去默认样式 */
+.mp-choose-avatar-btn {
+  padding: 0;
+  margin: 0;
+  line-height: 0;
+  background: transparent;
+  border: none;
+  overflow: hidden;
+  position: relative;
+  /* 保证可点区域（微信真机对过小/透明按钮会不响应 open-type） */
+  min-width: 96rpx;
+  min-height: 96rpx;
+  width: 96rpx;
+  height: 96rpx;
+}
+.mp-choose-avatar-btn::after {
+  border: none;
+}
+/* 子节点勿抢点击，否则 open-type 不生效、只表现为点进周边 input */
+.mp-choose-avatar-btn image,
+.mp-choose-avatar-btn .mp-choose-avatar-img {
+  pointer-events: none;
+  display: block;
+}
+
+.mp-nickname-input {
+  min-width: 120rpx;
+  max-width: 280rpx;
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 48rpx !important;
+  min-height: 96rpx;
+  padding-left: 10rpx;
+  padding-right: 10rpx;
+}
+
+.pb-safe {
+  padding-bottom: constant(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/**
+ * 原生 TabBar 占位 + 底部安全区（与 pb-24 等可叠用）
+ */
+.pb-tab-safe {
+  padding-bottom: constant(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* fixed 全屏蒙层底部避让安全区 */
+.fixed-safe {
+  padding-bottom: constant(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/** 首页主滚动区：原 pb-24 + 底部安全区，避免被原生 TabBar / 横条遮挡 */
+.index-page-shell {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding-bottom: calc(6rem + constant(safe-area-inset-bottom));
+  padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+}
+
+/**
+ * Lucide（SVG）在微信里需固定占位，避免宽高为 0 导致错位
+ */
+.mp-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.mp-icon-12 {
+  width: 12px;
+  height: 12px;
+}
+.mp-icon-14 {
+  width: 14px;
+  height: 14px;
+}
+.mp-icon-16 {
+  width: 16px;
+  height: 16px;
+}
+.mp-icon-20 {
+  width: 20px;
+  height: 20px;
+}
+.mp-icon-32 {
+  width: 32px;
+  height: 32px;
+}
+
+.text-tiny {
+  font-size: 12px;
+}
+.text-small {
+  font-size: 12px;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.glass-dark {
+  background: rgba(30, 41, 59, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.w-rpx-100 {
+  width: calc(100 * (100vw / 750));
+}
+.h-rpx-100 {
+  height: calc(100 * (100vw / 750));
+}
+
+/* 首页等：避免 Tailwind 任意值（含 / 与 []）在 WXSS 里产生反斜杠转义 */
+.border-b-amber-soft {
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+  border-bottom-color: rgba(253, 230, 138, 0.85);
+}
+.pr-wx-capsule {
+  padding-right: 90px;
+}
+.rounded-wx-32 {
+  border-radius: 32px;
+}
+.text-11 {
+  font-size: 12px;
+  line-height: 1.25;
+}
+.shadow-btn-slate {
+  box-shadow:
+    0 10px 15px -3px rgba(15, 23, 43, 0.1),
+    0 4px 6px -4px rgba(15, 23, 43, 0.08);
+}
+.bg-modal-mask {
+  background-color: rgba(15, 23, 43, 0.4);
+}
+
+/** 临时替代 Lucide：等宽 emoji，不依赖 SVG */
+.mp-emoji {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.mp-emoji-12 {
+  width: 12px;
+  height: 12px;
+  font-size: 12px;
+}
+.mp-emoji-14 {
+  width: 14px;
+  height: 14px;
+  font-size: 12px;
+}
+.mp-emoji-16 {
+  width: 16px;
+  height: 16px;
+  font-size: 14px;
+}
+.mp-emoji-20 {
+  width: 20px;
+  height: 20px;
+  font-size: 16px;
+}
+.mp-emoji-32 {
+  width: 32px;
+  height: 32px;
+  font-size: 26px;
+}
+
+/**
+ * WeChat button reset: remove default white background, padding, border
+ */
+button {
+  padding: 0;
+  margin: 0;
+  background-color: transparent;
+  border: none;
+  line-height: inherit;
+  font-size: inherit;
+  color: inherit;
+  text-align: inherit;
+}
+button::after {
+  border: none;
+}

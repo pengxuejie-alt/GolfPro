@@ -1,0 +1,9 @@
+{
+  "name": "createMatch",
+  "version": "1.0.0",
+  "description": "创建新球局，自动带上 _openid 和 updated_at",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

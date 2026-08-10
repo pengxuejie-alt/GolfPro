@@ -1,0 +1,33 @@
+<view class="tab-bar-root">
+  <!-- 三个 Tab 独立 bindtap，避免 wx:for 首项 idx=0 在部分基础上事件/mark 异常导致无法回首页 -->
+  <view class="tab-bar-item" hover-class="none" bindtap="goHome">
+    <view class="tab-bar-icon-slot">
+      <image
+        class="tab-bar-img"
+        src="{{selected == 0 ? list[0].iconActive : list[0].icon}}"
+        mode="aspectFit"
+      />
+    </view>
+    <text class="tab-bar-text {{selected == 0 ? 'tab-bar-text--on' : ''}}">{{list[0].text}}</text>
+  </view>
+  <view class="tab-bar-item" hover-class="none" bindtap="goPlayers">
+    <view class="tab-bar-icon-slot">
+      <image
+        class="tab-bar-img"
+        src="{{selected == 1 ? list[1].iconActive : list[1].icon}}"
+        mode="aspectFit"
+      />
+    </view>
+    <text class="tab-bar-text {{selected == 1 ? 'tab-bar-text--on' : ''}}">{{list[1].text}}</text>
+  </view>
+  <view class="tab-bar-item" hover-class="none" bindtap="goMe">
+    <view class="tab-bar-icon-slot">
+      <image
+        class="tab-bar-img"
+        src="{{selected == 2 ? list[2].iconActive : list[2].icon}}"
+        mode="aspectFit"
+      />
+    </view>
+    <text class="tab-bar-text {{selected == 2 ? 'tab-bar-text--on' : ''}}">{{list[2].text}}</text>
+  </view>
+</view>

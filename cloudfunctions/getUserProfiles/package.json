@@ -1,0 +1,9 @@
+{
+  "name": "getUserProfiles",
+  "version": "1.0.0",
+  "description": "Batch read users nickName/avatar by openId (server-side, for scorecard roster)",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "leaveMatch",
+  "version": "1.0.0",
+  "description": "Remove current user from match roster and scores (matches doc)",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

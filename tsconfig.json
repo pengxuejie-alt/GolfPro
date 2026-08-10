@@ -11,6 +11,7 @@
     ],
     "skipLibCheck": true,
     "types": [
+      "@dcloudio/types",
       "node"
     ],
     "moduleResolution": "bundler",
@@ -20,10 +21,18 @@
     "jsx": "preserve",
     "paths": {
       "@/*": [
-        "./*"
+        "./src/*"
       ]
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "src/**/*.vue",
+    "src/**/*.js",
+    "env.d.ts",
+    "vite.config.ts"
+  ]
 }

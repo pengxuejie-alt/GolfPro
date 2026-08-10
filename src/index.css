@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+:root {
+  /* Simulation of rpx: 1rpx = 1/750 of screen width */
+  --rpx: 100vw / 750;
+  --wechat-capsule-height: 44px; /* Approximate height including padding */
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #020617; /* Slate 950 for dark theme consistency */
+  -webkit-tap-highlight-color: transparent;
+  /* Ensure the app stays centered and mobile-sized on desktop */
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+}
+
+#root {
+  width: 100%;
+  max-width: 448px; /* max-w-md */
+  background-color: #020617;
+  min-height: 100vh;
+  position: relative;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Safe area for WeChat capsule menu */
+.safe-top {
+  padding-top: var(--wechat-capsule-height);
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Ensure minimum readable font size */
+.text-tiny { font-size: 12px; }
+.text-small { font-size: 12px; }
+.text-base { font-size: 14px; }
+
+/* Hide scrollbar for clean horizontal scrolling */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Glassmorphism utility */
+.glass {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.glass-dark {
+  background: rgba(30, 41, 59, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Utility for rpx-like behavior in custom styles if needed */
+.w-rpx-100 { width: calc(100 * var(--rpx)); }
+.h-rpx-100 { height: calc(100 * var(--rpx)); }

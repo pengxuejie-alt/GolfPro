@@ -1,0 +1,140 @@
+/**
+ * 微信小程序隐私：统一注册 wx.onNeedPrivacyAuthorization，由 PrivacyPopup 挂载 UI。
+ * 避免 App 与组件重复注册；未挂载 UI 前对 resolve disagree，防止 errno 112 卡死。
+ */
+
+function getWxGlobal(): Record<string, unknown> | null {
+  try {
+    const g = globalThis as unknown as { wx?: Record<string, unknown> };
+    return g.wx ?? null;
+  } catch {
+    return null;
+  }
+}
+
+type PrivacyResolve = (opts: Record<string, string>) => void;
+
+let showPrivacyAuthorization: ((resolve: PrivacyResolve) => void) | null = null;
+
+/** PrivacyPopup onMounted 时注册 */
+export function registerPrivacyAuthorizationUi(handler: (resolve: PrivacyResolve) => void): void {
+  showPrivacyAuthorization = handler;
+}
+
+/**
+ * 主动向用户展示与 onNeedPrivacyAuthorization 相同的自定义隐私弹窗（含官方 agreePrivacyAuthorization 按钮）。
+ * wx.requirePrivacyAuthorize 单独调用在多数机型上不弹窗，需走此路径完成闭环。
+ * @returns 用户点击「同意」为 true，不同意或组件未挂载为 false（未挂载时再尝试 requirePrivacyAuthorize）
+ */
+export function requestPrivacyAgreementViaPopup(): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      if (!showPrivacyAuthorization) {
+        console.warn('[privacy] PrivacyPopup 未挂载，尝试 requirePrivacyAuthorize');
+        void requirePrivacyAuthorizeAsync().then(resolve);
+        return;
+      }
+      showPrivacyAuthorization((opts: Record<string, string>) => {
+        resolve(opts?.event === 'agree');
+      });
+    } catch (e) {
+      console.warn('[privacy] requestPrivacyAgreementViaPopup', e);
+      resolve(false);
+    }
+  });
+}
+
+const agreedListeners: (() => void)[] = [];
+
+/** 首页等在用户点击「同意」后尝试真实 getLocation */
+export function onPrivacyContractAgreed(cb: () => void): void {
+  agreedListeners.push(cb);
+}
+
+export function emitPrivacyContractAgreed(): void {
+  const list = agreedListeners.slice();
+  for (const fn of list) {
+    try {
+      fn();
+    } catch (e) {
+      console.warn('[privacy] agreed listener', e);
+    }
+  }
+}
+
+/** App onLaunch 尽早调用一次 */
+export function setupWxOnNeedPrivacyAuthorization(): void {
+  try {
+    const w = getWxGlobal();
+    if (!w || typeof w.onNeedPrivacyAuthorization !== 'function') return;
+    (w.onNeedPrivacyAuthorization as (cb: (r: PrivacyResolve) => void) => void)((resolve: PrivacyResolve) => {
+      try {
+        if (showPrivacyAuthorization) {
+          showPrivacyAuthorization(resolve);
+        } else {
+          resolve({ event: 'disagree', buttonId: 'privacy-no-ui' });
+        }
+      } catch (e) {
+        console.warn('[privacy] onNeedPrivacyAuthorization', e);
+        try {
+          resolve({ event: 'disagree', buttonId: 'privacy-error' });
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+  } catch (e) {
+    console.warn('[privacy] setupWxOnNeedPrivacyAuthorization', e);
+  }
+}
+
+/** 是否仍需用户同意隐私协议（未同意则勿调 getLocation 等） */
+export function getPrivacyNeedAuthorizationAsync(): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const w = getWxGlobal() as Record<string, unknown> | null;
+      if (!w || typeof w.getPrivacySetting !== 'function') {
+        resolve(false);
+        return;
+      }
+      (w.getPrivacySetting as (o: {
+        success: (res: { needAuthorization?: boolean }) => void;
+        fail: () => void;
+      }) => void)({
+        success: (res: { needAuthorization?: boolean }) => {
+          resolve(!!res.needAuthorization);
+        },
+        fail: () => resolve(true),
+      });
+    } catch {
+      resolve(true);
+    }
+  });
+}
+
+/**
+ * 主动触发隐私授权（基础库 2.32.3+）。
+ * 头像 chooseAvatar、昵称 nickname 输入前建议先调用，否则可能只表现为普通 input、不弹官方隐私窗。
+ * @returns 用户完成授权为 true，拒绝/失败为 false
+ */
+export function requirePrivacyAuthorizeAsync(): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const w = getWxGlobal() as Record<string, unknown> | null;
+      if (!w || typeof w.requirePrivacyAuthorize !== 'function') {
+        resolve(true);
+        return;
+      }
+      (w.requirePrivacyAuthorize as (o: { success?: () => void; fail?: (e?: unknown) => void }) => void)({
+        success: () => resolve(true),
+        fail: (e?: unknown) => {
+          console.warn('[privacy] requirePrivacyAuthorize fail', e);
+          resolve(false);
+        },
+      });
+    } catch (e) {
+      console.warn('[privacy] requirePrivacyAuthorize', e);
+      resolve(false);
+    }
+  });
+}

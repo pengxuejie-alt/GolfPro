@@ -1,0 +1,9 @@
+{
+  "name": "getMatch",
+  "version": "1.0.0",
+  "description": "Read match by match_id (shared invite)",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}
