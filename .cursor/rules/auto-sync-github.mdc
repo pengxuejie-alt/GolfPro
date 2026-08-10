@@ -1,0 +1,39 @@
+---
+description: 代码改动完成后自动 git commit 并 push 到 GitHub
+alwaysApply: true
+---
+
+# 自动提交并同步 GitHub
+
+用户要求：**每次完成代码相关任务后，自动确认（commit）并同步（push）到 GitHub**，无需再单独询问。
+
+## 何时执行
+
+在**本次对话中修改或新增了项目文件**且任务已基本完成时，在结束回复前执行提交与推送。
+
+**跳过**（不要 commit/push）：
+
+- 纯问答、代码阅读、审查，未改任何文件
+- 用户明确说「不要提交」「先别 push」「只改代码不提交」
+- `git status` 无任何可提交变更
+
+## 安全约束
+
+- **禁止**提交 `.env`、密钥、token、`project.private.config.json` 等敏感文件；若被误改则还原并警告用户
+- **禁止** `git push --force` 到 `main` / `master`
+- **禁止** `git commit --amend`（除非用户明确要求且未 push）
+- **禁止**修改 git config
+- **禁止** `--no-verify` 等跳过 hook 的参数
+
+## 提交流程
+
+1. 并行执行：`git status`、`git diff`（含 staged）、`git log -5 --oneline`（对齐仓库 commit 风格）
+2. 只 `git add` 与本次任务相关的文件
+3. 用 HEREDOC 写 1–2 句 commit message（说明 why，中文或英文均可）
+4. `git commit`，若 pre-commit hook 失败则修复后**新建** commit（不要 amend）
+5. `git push`；当前分支无 upstream 时用 `git push -u origin HEAD`
+6. 回复中简短说明：commit hash、分支名、是否已 push；若 push 失败则说明原因
+
+## 优先级
+
+本规则覆盖「仅在用户明确要求时才 commit」的默认习惯；除非用户当次明确取消，否则改完代码即提交并推送。
