@@ -19,7 +19,6 @@ import {
   getCachedAvatarDisplay,
   mergeAvatarDisplayMaps,
   seedAvatarDisplayMapFromCache,
-  setCachedAvatarDisplay,
 } from '@/utils/avatarDisplayCache';
 import { golfScoreCellMarkClasses, golfHoleMarkKind } from '@/utils/golfScoreShapes';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
