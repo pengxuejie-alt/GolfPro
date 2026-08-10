@@ -60,7 +60,8 @@ function playerKey(p) {
 
 function isPlaceholderNick(nick) {
   const n = String(nick || '').trim();
-  if (!n || n === '球友') return true;
+  if (!n || n === '游客') return true;
+  if (n === '球友') return true;
   if (/^球友[a-zA-Z0-9_-]{1,8}$/.test(n)) return true;
   if (/^o[A-Za-z0-9_-]{10,}$/.test(n)) return true;
   return false;
@@ -69,9 +70,7 @@ function isPlaceholderNick(nick) {
 function defaultJoinNickName(openId, nickName) {
   const nick = String(nickName || '').trim();
   if (nick && !isPlaceholderNick(nick)) return nick;
-  const oid = String(openId || '').trim();
-  const suffix = oid.length >= 4 ? oid.slice(-4) : '';
-  return suffix ? `球友${suffix}` : '球友';
+  return '游客';
 }
 
 exports.main = async (event) => {

@@ -21,6 +21,11 @@ import {
 import { mpAvatarImgSrcForDisplay, looksLikeExpiredProneTencentTempHttps } from '@/utils/mpAvatarSrc';
 import { buildRosterAvatarDisplayMap, isLikelyWeChatOpenId } from '@/utils/rosterAvatarDisplay';
 import {
+  GUEST_NICKNAME,
+  defaultGuestNickname,
+  isGuestOrPlaceholderNickname,
+} from '@/utils/guestNickname';
+import {
   getCachedAvatarDisplay,
   mergeAvatarDisplayMaps,
   seedAvatarDisplayMapFromCache,
@@ -63,7 +68,7 @@ const { profile } = storeToRefs(userStore);
 const currentMatch = ref<any>(null);
 
 const scorecardShareTitle = computed(() => {
-  const n = (profile.value.nickname && String(profile.value.nickname).trim()) || '球友';
+  const n = (profile.value.nickname && String(profile.value.nickname).trim()) || GUEST_NICKNAME;
   return `${n}邀请你参加球局`;
 });
 
@@ -332,12 +337,7 @@ function mergeAvatarForCloudCosmeticSync(cloudRowAv: string | undefined, storeAv
 
 /** 受邀默认昵称 / openId 占位，users 有真实资料时应覆盖 */
 function isPlaceholderJoinNickname(nick: string | undefined, playerId?: string): boolean {
-  const n = String(nick || '').trim();
-  if (!n || n === '球友') return true;
-  if (/^球友[a-zA-Z0-9_-]{1,8}$/.test(n)) return true;
-  if (isLikelyWeChatOpenId(n)) return true;
-  if (playerId && n === playerId) return true;
-  return false;
+  return isGuestOrPlaceholderNickname(nick, playerId);
 }
 
 /** 根据 openId 对齐 matchStore · currentMatch，完成计分卡展示闭环 */
@@ -563,12 +563,9 @@ function isOpenIdInMatchRoster(m: any, openId: string): boolean {
   });
 }
 
-/** 受邀加入时无资料：默认昵称，便于名单区分 */
-function defaultJoinNickname(openId: string): string {
-  const oid = String(openId || '').trim();
-  if (!oid) return '球友';
-  const suffix = oid.slice(-4);
-  return suffix ? `球友${suffix}` : '球友';
+/** 受邀加入 / 跳过资料门控：无昵称时统一为游客 */
+function defaultJoinNickname(_openId: string): string {
+  return defaultGuestNickname();
 }
 
 function buildJoiningUserFromProfile(): {
@@ -644,6 +641,10 @@ async function dismissProfileGateModal() {
   showProfileGateModal.value = false;
   if (!pendingJoinAfterProfile.value) return;
   pendingJoinAfterProfile.value = false;
+  const nick = userStore.profile.nickname && String(userStore.profile.nickname).trim();
+  if (!nick) {
+    userStore.updateProfile({ nickname: GUEST_NICKNAME });
+  }
   joiningUser.value = buildJoiningUserFromProfile();
   await executeJoinMatch();
 }
@@ -1088,6 +1089,10 @@ const handleSpectate = () => {
   isSpectatorMode.value = true;
   showJoinChoiceModal.value = false;
   joiningUser.value = null;
+  const nick = userStore.profile.nickname && String(userStore.profile.nickname).trim();
+  if (!nick) {
+    userStore.updateProfile({ nickname: GUEST_NICKNAME });
+  }
   uni.showToast({ title: '已进入围观（只读）', icon: 'none' });
 };
 
@@ -1893,7 +1898,7 @@ function rosterRowToPlayer(raw: unknown, index: number): Player {
       ? String(rawId)
       : `anon_${index}_${Math.random().toString(36).slice(2, 8)}`;
   const nick = o.nickname ?? o.nickName;
-  const nickname = nick != null && String(nick).trim() !== '' ? String(nick).trim() : '球友';
+  const nickname = nick != null && String(nick).trim() !== '' ? String(nick).trim() : GUEST_NICKNAME;
   const avatar = (o.avatar ?? o.avatarUrl) != null ? String(o.avatar ?? o.avatarUrl) : undefined;
   const rawHcp = o.handicap;
   let handicap: number | null = null;

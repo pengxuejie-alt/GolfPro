@@ -3,7 +3,7 @@
  */
 
 import { looksLikeExpiredProneTencentTempHttps } from './mpAvatarSrc';
-import { isLikelyWeChatOpenId } from './rosterAvatarDisplay';
+import { GUEST_NICKNAME, isGuestOrPlaceholderNickname } from './guestNickname';
 import { setCachedAvatarDisplay } from './avatarDisplayCache';
 
 function rosterAvatarForMerge(raw: unknown): string {
@@ -143,13 +143,13 @@ function applyProfilesToRoster(roster: unknown, profiles: Map<string, { nickName
       const oid = rosterPlayerKey(o);
       const shouldNick =
         nick &&
-        (!curNick || curNick === '球友' || isLikelyWeChatOpenId(curNick) || (oid && curNick === oid));
+        (isGuestOrPlaceholderNickname(curNick, oid) || (oid && curNick === oid));
       if (shouldNick) {
         o.nickname = nick;
       }
       const shouldNick2 =
         nick &&
-        (!curNick2 || curNick2 === '球友' || isLikelyWeChatOpenId(curNick2) || (oid && curNick2 === oid));
+        (isGuestOrPlaceholderNickname(curNick2, oid) || (oid && curNick2 === oid));
       if (shouldNick2) {
         o.nickName = nick;
       }
