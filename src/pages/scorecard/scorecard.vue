@@ -810,8 +810,10 @@ const modalDraftStrokes = ref<number | null>(null);
 
 /** 记分卡横滑：手势交给原生 scroll-view，分段跳转使用 scroll-into-view 锚点 */
 const tableScrollIntoView = ref('');
+const activeNineSection = ref<'front' | 'back'>('front');
 
 const scrollToSection = (section: 'front' | 'back') => {
+  activeNineSection.value = section;
   const targetId = section === 'front' ? 'hole-anchor-1' : 'hole-anchor-10';
   if (tableScrollIntoView.value === targetId) {
     tableScrollIntoView.value = '';
@@ -3000,10 +3002,10 @@ const posterPreviewSrc = ref('');
 
     <!-- Quick Navigation Toggle -->
     <div class="flex shrink-0 items-center justify-center gap-2 p-2 bg-white border-b border-slate-100 flex-wrap">
-      <button type="button" @click="scrollToSection('front')" class="scorecard-seg-btn px-4 py-1.5 bg-[#07C160] text-xs font-bold text-white active:opacity-80">
+      <button type="button" @click="scrollToSection('front')" class="scorecard-seg-btn px-4 py-1.5 text-xs font-bold active:opacity-80" :class="activeNineSection === 'front' ? 'bg-[#07C160] text-white' : 'bg-slate-100 text-slate-600'">
         前九 (1-9)
       </button>
-      <button type="button" @click="scrollToSection('back')" class="scorecard-seg-btn px-4 py-1.5 bg-slate-100 text-xs font-bold text-slate-600 active:opacity-80">
+      <button type="button" @click="scrollToSection('back')" class="scorecard-seg-btn px-4 py-1.5 text-xs font-bold active:opacity-80" :class="activeNineSection === 'back' ? 'bg-[#07C160] text-white' : 'bg-slate-100 text-slate-600'">
         后九 (10-18)
       </button>
       <button
