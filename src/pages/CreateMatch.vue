@@ -57,7 +57,6 @@ const allCourses = computed(() => {
         id: c.id || c.name,
         province,
         city: c.city || province,
-        tee_areas: c.sections ? `${c.sections.length}场` : '18洞',
         logo_url: `https://picsum.photos/seed/${encodeURIComponent(c.name)}/100/100`,
         latitude: c.latitude,
         longitude: c.longitude,
@@ -232,7 +231,6 @@ const pickCourseByMatch = (match: any) => {
     id: match?.course_id || rawName,
     name: rawName,
     city: '自定义',
-    tee_areas: '18洞',
     holes,
   };
 };
@@ -591,7 +589,7 @@ const handleStart = async () => {
             <image :src="course.logo_url" class="w-12 h-12 rounded-xl object-cover shadow-sm" mode="aspectFill" />
             <div class="flex-1 min-w-0">
               <h4 class="font-bold text-slate-900 truncate">{{ course.name }}</h4>
-              <p class="text-xs text-slate-500">{{ course.province }} · {{ course.city }} · {{ course.tee_areas }}</p>
+              <p class="text-xs text-slate-500">{{ course.province }} · {{ course.city }}</p>
             </div>
             <uni-icons type="right" :size="16" color="#cbd5e1" />
           </div>
@@ -603,7 +601,6 @@ const handleStart = async () => {
               id: 'custom-indoor',
               name: searchKey + ' (室内练习场)',
               city: '自定义',
-              tee_areas: '18洞',
               total_par: 72,
               holes: Array.from({length: 18}, (_, i) => ({ no: i + 1, par: 4 }))
             })"
