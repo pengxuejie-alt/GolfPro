@@ -15,7 +15,9 @@
     "audit:mp-wxss": "node scripts/audit-mp-wxss.mjs",
     "compress:share-cover": "node scripts/compress-share-cover.mjs",
     "gen:share-cover": "node scripts/gen-share-default-cover.mjs",
-    "fetch:golflive-courses": "node scripts/fetch-golflive-courses.mjs"
+    "fetch:golflive-courses": "node scripts/fetch-golflive-courses.mjs",
+    "parse:china-golf-seed": "node scripts/parse-china-golf-seed.mjs",
+    "build:national-courses": "node scripts/build-national-courses.mjs"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-4080420251103001",

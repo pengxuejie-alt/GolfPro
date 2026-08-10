@@ -6,7 +6,7 @@ import { useMatchStore } from '@/store/matchStore';
 import { useUserStore } from '@/store/userStore';
 import { MatchManager } from '@/utils/match_manager';
 import { gdMockCourses } from '@/utils/mockData';
-import { gdCourseData } from '@/data/guangdongCourses';
+import { nationalCourseData } from '@/data/nationalCourses';
 import { goBack, replaceRoute } from '@/utils/uniNav';
 import { courseNeedsSectionCombo, sectionsForCoursePicker } from '@/utils/courseSections';
 
@@ -46,17 +46,18 @@ const selectedSections = ref<any[]>([]);
 const editingMatchId = ref('');
 const isEditMode = computed(() => editingMatchId.value !== '');
 
-// Flatten gdCourseData for easier filtering
+// Flatten nationalCourseData for easier filtering
 const allCourses = computed(() => {
   const courses: any[] = [];
-  Object.entries(gdCourseData).forEach(([city, cityCourses]) => {
-    cityCourses.forEach(c => {
+  Object.entries(nationalCourseData).forEach(([province, provinceCourses]) => {
+    provinceCourses.forEach(c => {
       courses.push({
         ...c,
-        id: c.name,
-        city,
-        tee_areas: c.sections ? `${c.sections.length / 2}场` : '18洞',
-        logo_url: `https://picsum.photos/seed/${c.name}/100/100`,
+        id: c.id || c.name,
+        province,
+        city: c.city || province,
+        tee_areas: c.sections ? `${c.sections.length}场` : '18洞',
+        logo_url: `https://picsum.photos/seed/${encodeURIComponent(c.name)}/100/100`,
         holes: c.holes_par ? c.holes_par.map((par: number, i: number) => ({ no: i + 1, par })) : []
       });
     });
@@ -68,7 +69,9 @@ const filteredCourses = computed(() => {
   if (!searchKey.value) return allCourses.value;
   const key = searchKey.value.toLowerCase();
   return allCourses.value.filter(c => 
-    c.name.toLowerCase().includes(key) || c.city.includes(key)
+    c.name.toLowerCase().includes(key) || 
+    c.city.toLowerCase().includes(key) ||
+    (c.province && c.province.toLowerCase().includes(key))
   );
 });
 
@@ -530,7 +533,7 @@ const handleStart = async () => {
             <image :src="course.logo_url" class="w-12 h-12 rounded-xl object-cover shadow-sm" mode="aspectFill" />
             <div class="flex-1 min-w-0">
               <h4 class="font-bold text-slate-900 truncate">{{ course.name }}</h4>
-              <p class="text-xs text-slate-500">{{ course.city }} · {{ course.tee_areas }}场</p>
+              <p class="text-xs text-slate-500">{{ course.province }} · {{ course.city }} · {{ course.tee_areas }}</p>
             </div>
             <uni-icons type="right" :size="16" color="#cbd5e1" />
           </div>

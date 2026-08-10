@@ -7,7 +7,7 @@ import { useMatchStore, PKRule, normalizePkRulePlayerIds } from '@/store/matchSt
 import { useUserStore } from '@/store/userStore';
 import { MatchManager } from '@/utils/match_manager';
 import { db } from '@/utils/db';
-import { gdCourseData } from '@/data/guangdongCourses';
+import { nationalCourseData } from '@/data/nationalCourses';
 import { courseNeedsSectionCombo, sectionsForCoursePicker } from '@/utils/courseSections';
 import { openRoute, goBack, markScorecardReopenPkRulesModal, consumeScorecardReopenPkRulesModal } from '@/utils/uniNav';
 import { savePackagedImageToAlbum, saveImageToPhotosAlbumSafe } from '@/utils/savePosterToAlbum';
@@ -803,18 +803,19 @@ const quickAddName = ref('');
 
 const filteredEditCourses = computed(() => {
   const all: any[] = [];
-  Object.entries(gdCourseData).forEach(([city, cityCourses]) => {
-    cityCourses.forEach(c => {
+  Object.entries(nationalCourseData).forEach(([province, provinceCourses]) => {
+    provinceCourses.forEach(c => {
       all.push({
         ...c,
-        city,
-        id: c.name
+        province,
+        city: c.city || province,
+        id: c.id || c.name
       });
     });
   });
   if (!editSearchKey.value) return all;
   const key = editSearchKey.value.toLowerCase();
-  return all.filter(c => c.name.toLowerCase().includes(key) || c.city.toLowerCase().includes(key));
+  return all.filter(c => c.name.toLowerCase().includes(key) || c.city.toLowerCase().includes(key) || (c.province && c.province.toLowerCase().includes(key)));
 });
 
 const editSectionPickerList = computed(() => sectionsForCoursePicker(editSelectedCourse.value));
