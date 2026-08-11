@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, watch } from 'vue';
 import { onShow, onLoad, onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app';
 import { Tab } from '@/types';
 import { MatchManager } from '@/utils/match_manager';
@@ -27,6 +27,10 @@ import {
   hydrateUserProfileFromCloud,
   isCloudProfileComplete,
 } from '@/utils/hydrateUserProfileFromCloud';
+import {
+  needsSelfAvatarDisplayResolve,
+  resolveAndCacheSelfAvatarDisplay,
+} from '@/utils/selfAvatarResolve';
 import { formatMatchKickoffCn } from '@/utils/matchKickoff';
 import { golfHoleMarkKind, type GolfHoleMarkKind } from '@/utils/golfScoreShapes';
 import {
@@ -91,25 +95,25 @@ async function refreshSelfAvatarDisplay(): Promise<boolean> {
     if (!selfAvatarPendingTemp.value) selfAvatarDisplay.value = '';
     return false;
   }
-  if (isWxCloudFileId(raw)) {
-    const https = await resolveCloudFileIdToHttps(raw);
-    if (https) {
-      selfAvatarDisplay.value = https;
-      selfAvatarPendingTemp.value = '';
-      if (oid) setCachedSelfAvatarDisplay(oid, https, raw);
-      return true;
-    }
-    return false;
+  const https = await resolveAndCacheSelfAvatarDisplay(oid, raw);
+  if (https) {
+    selfAvatarDisplay.value = https;
+    if (!isLocalTempAvatarPath(https)) selfAvatarPendingTemp.value = '';
+    return true;
   }
   if (isLocalTempAvatarPath(raw)) {
     if (!selfAvatarPendingTemp.value) selfAvatarPendingTemp.value = raw;
     return true;
   }
-  selfAvatarDisplay.value = raw;
-  selfAvatarPendingTemp.value = '';
-  if (oid) setCachedSelfAvatarDisplay(oid, raw);
-  return true;
+  return false;
 }
+
+watch(
+  () => userStore.profile.avatar,
+  () => {
+    void refreshSelfAvatarDisplay();
+  },
+);
 
 async function hydrateIndexMatchAvatars(list: unknown[]) {
   if (!Array.isArray(list) || list.length === 0) return;
@@ -435,8 +439,19 @@ async function bootstrapIndexSession(): Promise<void> {
     const result = await hydrateUserProfileFromCloud(myOpenId, {
       skipAvatarOverwrite: profileAvatarUploadBusy || !!selfAvatarPendingTemp.value,
     });
-    void refreshSelfAvatarDisplay();
-    console.log('[诊断] users hydrate', result.found ? 'OK' : 'empty', result.nickname || '(未设置)');
+    if (result.displayHttps) {
+      selfAvatarDisplay.value = result.displayHttps;
+      selfAvatarPendingTemp.value = '';
+    } else {
+      await refreshSelfAvatarDisplay();
+    }
+    console.log(
+      '[诊断] users hydrate',
+      result.found ? 'OK' : 'empty',
+      result.nickname || '(未设置)',
+      result.avatarUrl ? 'avatar=cloud' : 'avatar=(无)',
+      result.displayHttps ? 'display=https' : 'display=pending',
+    );
   }
 }
 
@@ -1069,12 +1084,17 @@ onShow(() => {
   /** 分享卡片直进计分页会跳过首页 login；切回首页时补登录取 openId，并从云库恢复资料 */
   void (async () => {
     try {
-      const nickEmpty = !String(userStore.profile.nickname || '').trim();
-      if (!userStore.openId || nickEmpty) {
-        const gated = await gateIndexPrivacyBeforeLogin();
-        if (!gated) return;
-        await bootstrapIndexSession();
-      }
+      const nick = String(userStore.profile.nickname || '').trim();
+      const av = String(userStore.profile.avatar || '').trim();
+      const needSession =
+        !userStore.openId ||
+        !nick ||
+        !av ||
+        needsSelfAvatarDisplayResolve(userStore.openId, userStore.profile.avatar);
+      if (!needSession) return;
+      const gated = await gateIndexPrivacyBeforeLogin();
+      if (!gated) return;
+      await bootstrapIndexSession();
     } catch (e) {
       console.warn('[index] onShow bootstrap', e);
     }

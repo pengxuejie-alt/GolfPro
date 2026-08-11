@@ -78,10 +78,10 @@ export const useUserStore = defineStore('user', {
         /* ignore */
       }
       if (result.nickname && String(result.nickname).trim()) {
-        this.profile.nickname = String(result.nickname).trim();
+        this.updateProfile({ nickname: String(result.nickname).trim() });
       }
       if (result.avatar && String(result.avatar).trim()) {
-        this.profile.avatar = String(result.avatar).trim();
+        this.updateProfile({ avatar: String(result.avatar).trim() });
       }
     },
 

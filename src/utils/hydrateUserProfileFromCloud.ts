@@ -3,15 +3,19 @@
  */
 
 import { useUserStore } from '@/store/userStore';
-import { setCachedSelfAvatarDisplay } from './avatarDisplayCache';
-import { isWxCloudFileId, resolveCloudFileIdToHttps } from './mpCloudFileUrl';
 import { db } from './db.js';
+import {
+  pickAvatarUrlFromUserRow,
+  resolveAndCacheSelfAvatarDisplay,
+} from './selfAvatarResolve';
 
 export interface HydrateUserProfileResult {
   found: boolean;
   docId?: string;
   nickname?: string;
   avatarUrl?: string;
+  /** 已解析、可展示的头像 https */
+  displayHttps?: string;
   created?: boolean;
 }
 
@@ -78,24 +82,17 @@ export async function hydrateUserProfileFromCloud(
     if (docId) userStore.setCloudUserDocId(docId);
 
     const nn = row.nickName ?? row.nickname;
-    const av = row.avatarUrl ?? row.avatar;
     const nickname = nn != null && String(nn).trim() !== '' ? String(nn).trim() : '';
-    const avatarUrl = av != null && String(av).trim() !== '' ? String(av).trim() : '';
+    const avatarUrl = pickAvatarUrlFromUserRow(row);
 
     if (nickname) userStore.updateProfile({ nickname });
-    if (avatarUrl) {
-      const current = String(userStore.profile.avatar || '').trim();
-      const skipAv = options?.skipAvatarOverwrite === true && !!current;
-      if (!skipAv) userStore.updateProfile({ avatar: avatarUrl });
+    if (avatarUrl && !options?.skipAvatarOverwrite) {
+      userStore.updateProfile({ avatar: avatarUrl });
     }
 
+    let displayHttps = '';
     if (avatarUrl && resolveAvatar) {
-      if (isWxCloudFileId(avatarUrl)) {
-        const https = await resolveCloudFileIdToHttps(avatarUrl);
-        if (https) setCachedSelfAvatarDisplay(oid, https, avatarUrl);
-      } else {
-        setCachedSelfAvatarDisplay(oid, avatarUrl);
-      }
+      displayHttps = await resolveAndCacheSelfAvatarDisplay(oid, avatarUrl);
     }
 
     return {
@@ -103,6 +100,7 @@ export async function hydrateUserProfileFromCloud(
       docId: docId || undefined,
       nickname: nickname || undefined,
       avatarUrl: avatarUrl || undefined,
+      displayHttps: displayHttps || undefined,
     };
   } catch (e) {
     console.warn('[hydrateUserProfileFromCloud]', e);

@@ -2,8 +2,8 @@
     "name" : "Golfdate计分",
     "appid" : "__UNI__G5381A47",
     "description" : "Golfdate计分· 高尔夫专业计分与社交",
-    "versionName" : "1.2.12",
-    "versionCode" : "132",
+    "versionName" : "1.2.13",
+    "versionCode" : "133",
     "transformPx" : false,
     "app-plus" : {
         "usingComponents" : true,

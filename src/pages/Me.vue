@@ -16,6 +16,10 @@ import {
   setCachedSelfAvatarDisplay,
 } from '@/utils/avatarDisplayCache';
 import { hydrateUserProfileFromCloud } from '@/utils/hydrateUserProfileFromCloud';
+import {
+  needsSelfAvatarDisplayResolve,
+  resolveAndCacheSelfAvatarDisplay,
+} from '@/utils/selfAvatarResolve';
 import { getMpMatchListNavShellStyle } from '@/utils/mpCapsuleSafeInset';
 import { MP_BATCH_CHECK_OFF, MP_BATCH_CHECK_ON, MP_BATCH_CHECK_ICON_COLOR } from '@/utils/mpBatchCheckStyle';
 import { APP_VERSION_NAME, APP_VERSION_CODE } from '@/utils/appVersion';
@@ -65,24 +69,17 @@ async function refreshSelfAvatarDisplay(): Promise<boolean> {
     if (!selfAvatarPendingTemp.value) selfAvatarDisplay.value = '';
     return false;
   }
-  if (isWxCloudFileId(raw)) {
-    const https = await resolveCloudFileIdToHttps(raw);
-    if (https) {
-      selfAvatarDisplay.value = https;
-      selfAvatarPendingTemp.value = '';
-      if (oid) setCachedSelfAvatarDisplay(oid, https, raw);
-      return true;
-    }
-    return false;
+  const https = await resolveAndCacheSelfAvatarDisplay(oid, raw);
+  if (https) {
+    selfAvatarDisplay.value = https;
+    if (!isLocalTempAvatarPath(https)) selfAvatarPendingTemp.value = '';
+    return true;
   }
   if (isLocalTempAvatarPath(raw)) {
     if (!selfAvatarPendingTemp.value) selfAvatarPendingTemp.value = raw;
     return true;
   }
-  selfAvatarDisplay.value = raw;
-  selfAvatarPendingTemp.value = '';
-  if (oid) setCachedSelfAvatarDisplay(oid, raw);
-  return true;
+  return false;
 }
 
 const showEditProfile = ref(false);
@@ -292,10 +289,16 @@ onShow(() => {
   historyCapsulePaddingRight.value = r.capsulePaddingRight;
   const cached = getCachedSelfAvatarDisplay(userStore.openId);
   if (cached) selfAvatarDisplay.value = cached;
-  void refreshSelfAvatarDisplay();
-  if (userStore.openId && !String(userStore.profile.nickname || '').trim()) {
-    void hydrateUserProfileFromCloud(userStore.openId).then(() => refreshSelfAvatarDisplay());
-  }
+  void (async () => {
+    const oid = userStore.openId?.trim();
+    if (!oid) return;
+    const nick = String(userStore.profile.nickname || '').trim();
+    const av = String(userStore.profile.avatar || '').trim();
+    if (!nick || !av || needsSelfAvatarDisplayResolve(oid, userStore.profile.avatar)) {
+      await hydrateUserProfileFromCloud(oid);
+    }
+    await refreshSelfAvatarDisplay();
+  })();
 });
 
 const selectedCourseTitle = computed(() => {
