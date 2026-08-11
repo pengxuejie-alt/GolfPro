@@ -20,7 +20,11 @@ import {
 import PrivacyPopup from '@/components/PrivacyPopup.vue';
 import MpPrivacyGateModal from '@/components/MpPrivacyGateModal.vue';
 import { useMpPrivacyGate } from '@/composables/useMpPrivacyGate';
-import { mpAvatarImgSrcForDisplay, looksLikeExpiredProneTencentTempHttps } from '@/utils/mpAvatarSrc';
+import {
+  mpAvatarImgSrcForDisplay,
+  looksLikeExpiredProneTencentTempHttps,
+  pickAvatarSrcForDisplay,
+} from '@/utils/mpAvatarSrc';
 import { buildRosterAvatarDisplayMap, isLikelyWeChatOpenId } from '@/utils/rosterAvatarDisplay';
 import {
   GUEST_NICKNAME,
@@ -708,8 +712,11 @@ async function onGateChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
     gateAvatarLocal.value = tempPath;
     const fid = await uploadGateAvatarToCloud(tempPath);
     gateAvatarCloud.value = fid;
-    if (!fid) {
-      uni.showToast({ title: '头像上传失败，可先填写昵称加入', icon: 'none' });
+    if (fid) {
+      seedOptimisticSelfAvatarDisplay({ cloudFileId: fid, localTempPath: tempPath });
+      uni.showToast({ title: '头像已选择', icon: 'success', duration: 1600 });
+    } else {
+      uni.showToast({ title: '头像上传失败，请重试', icon: 'none' });
     }
   } finally {
     uni.hideLoading();
@@ -752,8 +759,33 @@ function syncSelfProfileToMatchRoster(nick: string, avatar: string) {
   }
 }
 
+/** 资料门控选头像后立刻写入展示层，避免 join 后 cloud:// 在记分卡先显示默认图 */
+function seedOptimisticSelfAvatarDisplay(opts: {
+  cloudFileId?: string;
+  localTempPath?: string;
+  httpsUrl?: string;
+}): void {
+  const oid = userStore.openId?.trim();
+  if (!oid) return;
+  const local = pickAvatarSrcForDisplay(opts.localTempPath);
+  const https = pickAvatarSrcForDisplay(opts.httpsUrl);
+  const display = local || https;
+  if (!display) return;
+  const cloud = opts.cloudFileId?.trim();
+  setCachedAvatarDisplay(
+    oid,
+    display,
+    cloud?.startsWith('cloud://') ? cloud : undefined,
+  );
+  rosterAvatarDisplay.value = mergeAvatarDisplayMaps(rosterAvatarDisplay.value, { [oid]: display });
+}
+
 async function applySelfProfileAfterEdit(nick: string, avatarRaw: string) {
   const oid = userStore.openId || '';
+  seedOptimisticSelfAvatarDisplay({
+    cloudFileId: avatarRaw,
+    localTempPath: gateAvatarLocal.value,
+  });
   let avatar = avatarRaw;
   if (avatar.startsWith('cloud://') && oid) {
     const https = await resolveCloudFileIdToHttps(avatar);
@@ -778,20 +810,16 @@ async function openSelfProfileEditGate() {
   }
   profileGateMode.value = 'edit';
   pendingJoinAfterProfile.value = false;
-  const nick = userStore.profile.nickname && String(userStore.profile.nickname).trim();
-  gateNickname.value =
-    nick && !isGuestOrPlaceholderNickname(nick, userStore.openId) ? nick : '';
-  gateAvatarLocal.value = '';
-  gateAvatarCloud.value = '';
-  const av = String(userStore.profile.avatar || '').trim();
-  if (av.startsWith('cloud://')) {
-    gateAvatarCloud.value = av;
-  }
+  prefillProfileGateFields();
   showProfileGateModal.value = true;
 }
 
 async function confirmProfileGateAndContinue() {
   if (gateProfileSaving.value) return;
+  if (!gateHasAvatar.value) {
+    uni.showToast({ title: '请先点击上方头像选择微信头像', icon: 'none' });
+    return;
+  }
   const nick = gateNickname.value.trim();
   if (!nick) {
     uni.showToast({ title: '请填写昵称', icon: 'none' });
@@ -831,10 +859,15 @@ async function confirmProfileGateAndContinue() {
     }
     if (pendingJoinAfterProfile.value) {
       pendingJoinAfterProfile.value = false;
+      const joinAvatar = avatarUrl || userStore.profile.avatar || '';
+      seedOptimisticSelfAvatarDisplay({
+        cloudFileId: joinAvatar,
+        localTempPath: gateAvatarLocal.value,
+      });
       joiningUser.value = {
         id: userStore.openId,
         nickname: nick,
-        avatar: avatarUrl || userStore.profile.avatar || '',
+        avatar: joinAvatar,
         handicap: userStore.profile.handicap ?? 0,
       };
       await executeJoinMatch();
@@ -1260,11 +1293,20 @@ async function executeJoinMatch(): Promise<boolean> {
       return false;
     }
     const m = await finalizeMatchKickoffAutoEnd(enrichMatchKickoffFromDoc(res.match as Record<string, unknown>) as any);
+    const joined = joiningUser.value;
     currentMatch.value = m;
     matchStore.initMatch(m);
+    if (joined?.id && joined.id === userStore.openId) {
+      syncSelfProfileToMatchRoster(joined.nickname, joined.avatar || '');
+      seedOptimisticSelfAvatarDisplay({
+        cloudFileId: joined.avatar,
+        localTempPath: gateAvatarLocal.value,
+      });
+    }
     refreshSavedRuleAndMetaFingerprints();
     await MatchManager.upsertLocalMatch(m);
     await hydrateTeammatesFromUsersCollection(m as Record<string, unknown>);
+    void hydrateRosterAvatarDisplay(true);
     showJoinChoiceModal.value = false;
     joiningUser.value = null;
     isSpectatorMode.value = false;
@@ -1286,13 +1328,10 @@ const handleJoinAsPlayer = async () => {
   if (!sessionOk) return;
   const loaded = await ensureInviteMatchLoaded();
   if (!loaded) return;
-  const hasNick = !!(userStore.profile.nickname && String(userStore.profile.nickname).trim());
-  if (!hasNick) {
+  if (needsSelfProfileCompletion()) {
     pendingJoinAfterProfile.value = true;
     profileGateMode.value = 'join';
-    gateNickname.value = '';
-    gateAvatarLocal.value = '';
-    gateAvatarCloud.value = '';
+    prefillProfileGateFields();
     showJoinChoiceModal.value = false;
     showProfileGateModal.value = true;
     return;
@@ -4458,56 +4497,66 @@ const posterPreviewSrc = ref('');
       </div>
     </div>
 
-    <!-- Profile gate：受邀且需完善资料 -->
+    <!-- Profile gate：受邀且需完善资料（布局对齐首页 profile-sync） -->
     <div v-if="showProfileGateModal" class="fixed inset-0 z-[205] flex items-center justify-center bg-black/70 backdrop-blur-md p-5">
       <div class="w-full max-w-sm max-h-[85vh] overflow-y-auto bg-white rounded-3xl p-6 shadow-xl box-border">
-        <h3 class="text-base font-bold text-slate-900 mb-1 text-center">
+        <h3 class="text-lg font-extrabold text-slate-900 mb-1 text-center tracking-wide">
           {{ profileGateMode === 'edit' ? '完善资料' : '完善资料后加入' }}
         </h3>
-        <p class="text-xs text-slate-500 mb-5 text-center leading-relaxed px-1">
-          {{ profileGateMode === 'edit' ? '选择头像与昵称，便于同组识别' : '填写昵称并选择头像，便于同组识别' }}
+        <p class="text-xs text-slate-500 mb-4 text-center leading-relaxed px-1">
+          建议使用微信头像与昵称，便于同组球友辨认。
         </p>
-        <div class="flex gap-4 mb-5 items-start">
+        <view class="flex flex-col items-center mb-5">
           <!-- #ifdef MP-WEIXIN -->
-          <button
-            type="button"
-            plain
-            hover-class="none"
-            open-type="chooseAvatar"
-            class="mp-choose-avatar-btn w-[72px] h-[72px] shrink-0 rounded-2xl border-2 border-dashed border-slate-200 p-0 overflow-hidden flex items-center justify-center bg-slate-50"
-            @chooseavatar="onGateChooseAvatar"
-          >
-            <image
-              :src="mpAvatarImgSrcForDisplay(gateAvatarLocal || gateAvatarCloud || profile.avatar, DEFAULT_RULE_SLOT_AVATAR)"
-              mode="aspectFill"
-              class="w-full h-full"
-            />
-          </button>
+          <view class="relative">
+            <button
+              type="button"
+              plain
+              hover-class="gate-profile-avatar-hover"
+              open-type="chooseAvatar"
+              class="mp-choose-avatar-btn gate-profile-avatar-btn border-2 p-0.5 bg-slate-50"
+              :class="gateHasAvatar ? 'border-[#07C160]' : 'border-dashed border-amber-400'"
+              @chooseavatar="onGateChooseAvatar"
+            >
+              <image
+                :src="mpAvatarImgSrcForDisplay(gateAvatarLocal || gateAvatarCloud || profile.avatar, DEFAULT_RULE_SLOT_AVATAR)"
+                mode="aspectFill"
+                class="mp-choose-avatar-img gate-profile-avatar-img bg-slate-100"
+              />
+            </button>
+            <text class="gate-profile-camera mp-emoji" aria-hidden="true">📷</text>
+          </view>
           <!-- #endif -->
           <!-- #ifndef MP-WEIXIN -->
           <image
             :src="mpAvatarImgSrcForDisplay(gateAvatarLocal || profile.avatar, DEFAULT_RULE_SLOT_AVATAR)"
-            class="w-[72px] h-[72px] rounded-2xl border border-slate-200 shrink-0"
+            class="gate-profile-avatar-img rounded-full border border-slate-200"
             mode="aspectFill"
           />
           <!-- #endif -->
-          <view class="flex-1 min-w-0 flex flex-col gap-2">
-            <text class="text-xs text-slate-500 font-medium">昵称</text>
-            <view class="min-h-[48px] flex items-center rounded-xl border border-slate-200 bg-white px-3 box-border">
-              <input
-                v-model="gateNickname"
-                type="nickname"
-                :maxlength="24"
-                placeholder="点击输入或选用微信昵称"
-                placeholder-class="text-slate-400"
-                style="flex: 1; min-height: 44px; padding: 10px 0; line-height: 22px; font-size: 15px; color: #0f172a;"
-              />
-            </view>
-          </view>
-        </div>
+          <text
+            class="mt-3 text-sm font-medium text-center"
+            :class="gateHasAvatar ? 'text-slate-500' : 'text-amber-600'"
+          >
+            {{ gateHasAvatar ? '点击头像可更换' : '点击上方头像选择微信头像' }}
+          </text>
+        </view>
+        <view class="flex flex-col gap-2 mb-4">
+          <text class="text-sm font-bold text-slate-800">昵称</text>
+          <input
+            v-model="gateNickname"
+            type="nickname"
+            :maxlength="24"
+            placeholder="请输入昵称"
+            class="gate-profile-nickname-input"
+          />
+        </view>
+        <view class="gate-profile-tip-box mb-5">
+          <text class="gate-profile-tip-text">头像与昵称将展示在记分卡与同组名单中，便于球友识别。</text>
+        </view>
         <button
           type="button"
-          :disabled="gateProfileSaving"
+          :disabled="gateProfileSaving || !gateHasAvatar"
           class="w-full min-h-12 rounded-2xl bg-[#07C160] text-white text-[15px] font-bold disabled:opacity-60 px-4 box-border flex flex-row items-center justify-center text-center leading-normal"
           @click="confirmProfileGateAndContinue"
         >
@@ -6057,5 +6106,72 @@ const posterPreviewSrc = ref('');
   background: transparent !important;
   flex-shrink: 0;
   box-sizing: border-box;
+}
+
+/* Profile gate modal — aligned with index profile-sync sheet */
+.gate-profile-avatar-hover {
+  opacity: 0.92;
+}
+
+.gate-profile-avatar-btn {
+  border-radius: 50% !important;
+  overflow: hidden;
+  margin: 0 !important;
+  width: 176rpx !important;
+  height: 176rpx !important;
+  min-width: 176rpx !important;
+  min-height: 176rpx !important;
+}
+
+.gate-profile-avatar-img {
+  display: block;
+  width: 176rpx !important;
+  height: 176rpx !important;
+  border-radius: 50% !important;
+}
+
+.gate-profile-camera {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1rpx solid #e2e8f0;
+  box-shadow: 0 4rpx 12rpx rgba(15, 23, 42, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26rpx;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.gate-profile-nickname-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 90rpx;
+  line-height: 48rpx;
+  padding: 20rpx 12rpx;
+  font-size: 30rpx;
+  color: #0f172a;
+  border: none;
+  border-bottom: 2rpx solid #e2e8f0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.gate-profile-tip-box {
+  padding: 20rpx 22rpx;
+  background: #f8fafc;
+  border-radius: 16rpx;
+  border: 1rpx solid #e2e8f0;
+}
+
+.gate-profile-tip-text {
+  font-size: 24rpx;
+  line-height: 1.6;
+  color: #64748b;
 }
 </style>
