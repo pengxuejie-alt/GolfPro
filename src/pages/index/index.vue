@@ -954,7 +954,22 @@ onLoad((options?: Record<string, string | undefined>) => {
     if (shareMatchLanding) {
       const mid = String(options?.match_id || '').trim();
       if (!mid) return;
-      replaceRoute(Tab.SCORECARD, { match_id: mid, from: 'share' });
+      let inviter = options?.inviter ? String(options.inviter).trim() : '';
+      if (!inviter) {
+        try {
+          const stored = uni.getStorageSync('share_invite') as { inviter?: string; match_id?: string } | undefined;
+          const storedInv = stored?.inviter ? String(stored.inviter).trim() : '';
+          const storedMid = stored?.match_id ? String(stored.match_id).trim() : '';
+          if (storedInv && (!storedMid || storedMid === mid)) inviter = storedInv;
+        } catch {
+          /* ignore */
+        }
+      }
+      replaceRoute(Tab.SCORECARD, {
+        match_id: mid,
+        from: 'share',
+        ...(inviter ? { inviter } : {}),
+      });
       return;
     }
 

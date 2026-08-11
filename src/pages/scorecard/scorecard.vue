@@ -66,7 +66,11 @@ const lastLocalScoreCommitAt = ref(0);
 let lastSavedPkRulesJson = '';
 let lastSavedMatchMetaJson = '';
 const showJoinChoiceModal = ref(false);
+/** 加入比赛时写入云端的当前用户资料（受邀者） */
 const joiningUser = ref<any>(null);
+/** 加入/围观弹层展示：分享者 / 房主（邀请人），非当前登录用户 */
+const inviterUser = ref<{ id: string; nickname: string; avatar: string; handicap: number } | null>(null);
+const landingInviterOpenId = ref('');
 /** 分享落地时云端已删局：勿再弹加入/围观 */
 const inviteMatchDeleted = ref(false);
 /** 资料门控完成后直接 joinMatch（而非回到加入/围观弹层） */
@@ -139,6 +143,21 @@ onLoad((query) => {
   }
 
   enteredViaInvite.value = detectScorecardInviteEntry(q, !!mid);
+  const invRaw = q.inviter ?? (q as { inviter_id?: unknown }).inviter_id;
+  if (invRaw != null && String(invRaw).trim() !== '') {
+    landingInviterOpenId.value = String(invRaw).trim();
+  } else {
+    try {
+      const stored = uni.getStorageSync('share_invite') as { inviter?: string; match_id?: string } | undefined;
+      const storedInv = stored?.inviter ? String(stored.inviter).trim() : '';
+      const storedMid = stored?.match_id ? String(stored.match_id).trim() : '';
+      if (storedInv && (!storedMid || !mid || storedMid === mid)) {
+        landingInviterOpenId.value = storedInv;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   /** 隐私 gate 后再 bootstrap；已加入名单的用户由 maybeRunInviteFlow 跳过加入弹层 */
   if (enteredViaInvite.value && mid) {
     // #ifdef MP-WEIXIN
@@ -164,8 +183,9 @@ const scorecardSharePath = computed(() => {
     matchStore.match_id ||
     '';
   const id = String(mid || '').trim();
+  const inviter = userStore.openId ? `&inviter=${encodeURIComponent(userStore.openId)}` : '';
   return id
-    ? `pages/index/index?match_id=${encodeURIComponent(id)}&from=share`
+    ? `pages/index/index?match_id=${encodeURIComponent(id)}&from=share${inviter}`
     : 'pages/index/index?from=share';
 });
 
@@ -177,7 +197,8 @@ const scorecardShareTimelineQuery = computed(() => {
     '';
   const id = String(mid || '').trim();
   if (!id) return 'from=share';
-  return `match_id=${encodeURIComponent(id)}&from=share`;
+  const inviter = userStore.openId ? `&inviter=${encodeURIComponent(userStore.openId)}` : '';
+  return `match_id=${encodeURIComponent(id)}&from=share${inviter}`;
 });
 
 watch(
@@ -537,6 +558,7 @@ async function purgeDeletedInviteMatch(mid: string) {
   await MatchManager.removeMatchFromLocalList(mid);
   showJoinChoiceModal.value = false;
   joiningUser.value = null;
+  inviterUser.value = null;
   uni.showToast({ title: '此比赛已被删除', icon: 'none', duration: 2800 });
 }
 
@@ -648,10 +670,75 @@ function buildJoiningUserFromProfile(): {
   };
 }
 
-function openJoinChoiceModal() {
+function rosterRowToDisplayUser(p: any): {
+  id: string;
+  nickname: string;
+  avatar: string;
+  handicap: number;
+} | null {
+  if (!p || typeof p !== 'object') return null;
+  const id = String(p.uid ?? p.id ?? p.openId ?? p.openid ?? '').trim();
+  if (!id) return null;
+  const nickRaw = p.nickname ?? p.nickName;
+  const nick = nickRaw != null && String(nickRaw).trim() !== '' ? String(nickRaw).trim() : '';
+  const avatar = p.avatar ?? p.avatarUrl;
+  return {
+    id,
+    nickname: nick || defaultJoinNickname(id),
+    avatar: avatar != null ? String(avatar).trim() : '',
+    handicap: p.handicap ?? 0,
+  };
+}
+
+function resolveInviterOpenId(match?: any | null): string {
+  const m = match ?? currentMatch.value;
+  const hostRaw = m?.user_list?.[0] ?? m?.players?.[0];
+  const hostId = hostRaw?.uid ?? hostRaw?.id ?? hostRaw?.openId ?? hostRaw?.openid;
+  if (hostId != null && String(hostId).trim() !== '') return String(hostId).trim();
+  if (landingInviterOpenId.value) return landingInviterOpenId.value;
+  try {
+    const raw = uni.getStorageSync('share_invite') as { inviter?: string; match_id?: string } | undefined;
+    const inv = raw?.inviter ? String(raw.inviter).trim() : '';
+    const storedMid = raw?.match_id ? String(raw.match_id).trim() : '';
+    const curMid = String(matchId.value || '').trim();
+    if (inv && (!storedMid || !curMid || storedMid === curMid)) return inv;
+  } catch {
+    /* ignore */
+  }
+  return '';
+}
+
+async function buildInviterUserForModal(match?: any | null): Promise<{
+  id: string;
+  nickname: string;
+  avatar: string;
+  handicap: number;
+}> {
+  const m = match ?? currentMatch.value;
+  const fromMatch = rosterRowToDisplayUser(m?.user_list?.[0] ?? m?.players?.[0]);
+  if (fromMatch) {
+    const displayAv = rosterAvatarDisplay.value[fromMatch.id] || getCachedAvatarDisplay(fromMatch.id);
+    return { ...fromMatch, avatar: displayAv || fromMatch.avatar };
+  }
+  const inviterId = resolveInviterOpenId(match);
+  if (inviterId) {
+    const profiles = await fetchUsersProfilesByOpenIds([inviterId]);
+    const prof = profiles.get(inviterId);
+    const displayAv = rosterAvatarDisplay.value[inviterId] || getCachedAvatarDisplay(inviterId);
+    return {
+      id: inviterId,
+      nickname: prof?.nickName || defaultJoinNickname(inviterId),
+      avatar: displayAv || prof?.avatarUrl || '',
+      handicap: 0,
+    };
+  }
+  return { id: 'host', nickname: '球友', avatar: '', handicap: 0 };
+}
+
+async function openJoinChoiceModal(match?: any | null) {
   if (invitePromptShown.value) return;
   invitePromptShown.value = true;
-  joiningUser.value = buildJoiningUserFromProfile();
+  inviterUser.value = await buildInviterUserForModal(match);
   showJoinChoiceModal.value = true;
 }
 
@@ -887,10 +974,11 @@ async function maybeRunInviteFlow(match: any) {
   if (match && userStore.openId && isOpenIdInMatchRoster(match, userStore.openId)) {
     showJoinChoiceModal.value = false;
     joiningUser.value = null;
+    inviterUser.value = null;
     return;
   }
   if (!invitePromptShown.value) {
-    openJoinChoiceModal();
+    await openJoinChoiceModal(match);
   }
 }
 
@@ -1309,6 +1397,7 @@ async function executeJoinMatch(): Promise<boolean> {
     void hydrateRosterAvatarDisplay(true);
     showJoinChoiceModal.value = false;
     joiningUser.value = null;
+    inviterUser.value = null;
     isSpectatorMode.value = false;
     uni.showToast({ title: '已加入比赛', icon: 'success' });
     return true;
@@ -1321,7 +1410,7 @@ async function executeJoinMatch(): Promise<boolean> {
 }
 
 const handleJoinAsPlayer = async () => {
-  if (!joiningUser.value || !matchId.value) return;
+  if (!matchId.value) return;
   const privacyOk = await ensurePrivacyForJoin();
   if (!privacyOk) return;
   const sessionOk = await ensureInviteSession();
@@ -1350,6 +1439,7 @@ const handleSpectate = async () => {
   isSpectatorMode.value = true;
   showJoinChoiceModal.value = false;
   joiningUser.value = null;
+  inviterUser.value = null;
   const nick = userStore.profile.nickname && String(userStore.profile.nickname).trim();
   if (!nick) {
     userStore.updateProfile({ nickname: GUEST_NICKNAME });
@@ -4586,12 +4676,12 @@ const posterPreviewSrc = ref('');
       <div class="w-full max-w-sm bg-slate-900 rounded-[40px] p-8 border border-slate-800 shadow-2xl flex flex-col items-center text-center animate-in zoom-in duration-300">
         <div class="w-20 h-20 rounded-full border-4 border-blue-500/30 p-1 mb-6">
           <img
-            :src="joiningUser?.avatar || (joiningUser?.id ? `https://picsum.photos/seed/${joiningUser.id}/200/200` : 'https://picsum.photos/seed/join/200/200')"
+            :src="avatarOrDefault(inviterUser ?? undefined)"
             class="w-full h-full rounded-full object-cover"
           />
         </div>
         
-        <h3 class="text-xl font-black text-white mb-2">{{ joiningUser?.nickname }}</h3>
+        <h3 class="text-xl font-black text-white mb-2">{{ inviterUser?.nickname || '球友' }}</h3>
         <p class="text-slate-400 text-sm mb-8">邀请你参与这场高尔夫球赛</p>
         
         <div class="w-full space-y-3">
