@@ -38,6 +38,7 @@ import {
   setCachedAvatarDisplay,
 } from '@/utils/avatarDisplayCache';
 import { resolveCloudFileIdToHttps } from '@/utils/mpCloudFileUrl';
+import { hydrateUserProfileFromCloud } from '@/utils/hydrateUserProfileFromCloud';
 import { golfScoreCellMarkClasses, golfHoleMarkKind } from '@/utils/golfScoreShapes';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { formatMatchKickoffCn, shouldAutoEndByKickoffTtl } from '@/utils/matchKickoff';
@@ -895,6 +896,7 @@ async function openSelfProfileEditGate() {
     const privacyOk = await ensurePrivacyForJoin();
     if (!privacyOk) return;
   }
+  if (userStore.openId) await tryHydrateSelfProfileFromCloud();
   profileGateMode.value = 'edit';
   pendingJoinAfterProfile.value = false;
   prefillProfileGateFields();
@@ -1409,6 +1411,14 @@ async function executeJoinMatch(): Promise<boolean> {
   }
 }
 
+async function tryHydrateSelfProfileFromCloud(): Promise<void> {
+  const oid = userStore.openId?.trim();
+  if (!oid) return;
+  await hydrateUserProfileFromCloud(oid, {
+    skipAvatarOverwrite: !!gateAvatarLocal.value.trim() || !!gateAvatarCloud.value.trim(),
+  });
+}
+
 const handleJoinAsPlayer = async () => {
   if (!matchId.value) return;
   const privacyOk = await ensurePrivacyForJoin();
@@ -1417,6 +1427,7 @@ const handleJoinAsPlayer = async () => {
   if (!sessionOk) return;
   const loaded = await ensureInviteMatchLoaded();
   if (!loaded) return;
+  if (userStore.openId) await tryHydrateSelfProfileFromCloud();
   if (needsSelfProfileCompletion()) {
     pendingJoinAfterProfile.value = true;
     profileGateMode.value = 'join';

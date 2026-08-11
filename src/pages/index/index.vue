@@ -23,6 +23,10 @@ import {
   setCachedAvatarDisplay,
   setCachedSelfAvatarDisplay,
 } from '@/utils/avatarDisplayCache';
+import {
+  hydrateUserProfileFromCloud,
+  isCloudProfileComplete,
+} from '@/utils/hydrateUserProfileFromCloud';
 import { formatMatchKickoffCn } from '@/utils/matchKickoff';
 import { golfHoleMarkKind, type GolfHoleMarkKind } from '@/utils/golfScoreShapes';
 import {
@@ -413,6 +417,29 @@ function openPrivacyContractForIndex() {
   // #endif
 }
 
+async function bootstrapIndexSession(): Promise<void> {
+  let myOpenId = userStore.openId || '';
+  if (!myOpenId) {
+    console.log('[index] bootstrapIndexSession calling signInWithWeChat');
+    try {
+      const auth = await signInWithWeChat();
+      userStore.applyAuthResult(auth);
+      myOpenId = auth?.openId || '';
+    } catch (e) {
+      console.warn('[index] signInWithWeChat', e);
+    }
+    console.log('[index] bootstrapIndexSession signIn finished openId=', myOpenId || '(empty)');
+  }
+  console.log('[身份诊断] 当前 OpenID:', myOpenId || '(空，降级 mock 模式)');
+  if (myOpenId) {
+    const result = await hydrateUserProfileFromCloud(myOpenId, {
+      skipAvatarOverwrite: profileAvatarUploadBusy || !!selfAvatarPendingTemp.value,
+    });
+    void refreshSelfAvatarDisplay();
+    console.log('[诊断] users hydrate', result.found ? 'OK' : 'empty', result.nickname || '(未设置)');
+  }
+}
+
 async function openProfileSyncSheet() {
   try {
     console.log('[index] openProfileSyncSheet step=enter');
@@ -440,6 +467,12 @@ async function openProfileSyncSheet() {
     }
     if (!userStore.openId) {
       uni.showToast({ title: '请先完成微信登录', icon: 'none' });
+      return;
+    }
+    const cloudProfile = await hydrateUserProfileFromCloud(userStore.openId);
+    void refreshSelfAvatarDisplay();
+    if (isCloudProfileComplete(cloudProfile)) {
+      uni.showToast({ title: '资料已从云端恢复', icon: 'success', duration: 1800 });
       return;
     }
     // #endif
@@ -944,6 +977,13 @@ onLoad((options?: Record<string, string | undefined>) => {
     } catch (e) {
       console.warn('[index] refresh after privacy agree', e);
     }
+    void (async () => {
+      try {
+        await bootstrapIndexSession();
+      } catch (e) {
+        console.warn('[index] bootstrap after privacy agree', e);
+      }
+    })();
   });
 
   void nextTick(async () => {
@@ -992,59 +1032,18 @@ onLoad((options?: Record<string, string | undefined>) => {
       /* ignore */
     }
 
-    // ── Step 1: 调用 login 云函数拿 openId ──
+    // ── Step 1: 登录 + 从 users 云库恢复昵称/头像 ──
+    // #ifdef MP-WEIXIN
+    await bootstrapIndexSession();
+    // #endif
+    // #ifndef MP-WEIXIN
     let myOpenId = userStore.openId || '';
     if (!myOpenId) {
-      console.log('[index] onLoad calling signInWithWeChat');
       try {
         const auth = await signInWithWeChat();
         userStore.applyAuthResult(auth);
-        myOpenId = auth?.openId || '';
       } catch (e) {
         console.warn('[index] signInWithWeChat', e);
-      }
-      console.log('[index] onLoad signIn finished openId=', myOpenId || '(empty)');
-    }
-    console.log('[身份诊断] 当前 OpenID:', myOpenId || '(空，降级 mock 模式)');
-
-    // #ifdef MP-WEIXIN
-    if (myOpenId) {
-      try {
-        const wxdb = wx.cloud.database();
-        const userSnap = await wxdb.collection('users').where({ _openid: myOpenId }).limit(1).get();
-        if (!userSnap.data || userSnap.data.length === 0) {
-          console.log('[拓荒] users 表无此用户，自动写入...');
-          const addRet = (await wxdb.collection('users').add({
-            data: {
-              _openid: myOpenId, openid: myOpenId,
-              nickName: '', avatarUrl: '', handicap: 0,
-              gender: 0, city: '',
-              updated_at: wxdb.serverDate(), created_at: wxdb.serverDate(),
-            },
-          })) as { _id?: string };
-          if (addRet._id) userStore.setCloudUserDocId(String(addRet._id));
-          console.log('[拓荒] ✅ users 写入成功');
-        } else {
-          const row = userSnap.data[0] as Record<string, unknown>;
-          const rid = row._id != null ? String(row._id) : '';
-          if (rid) userStore.setCloudUserDocId(rid);
-          const nn = row.nickName ?? row.nickname;
-          const av = row.avatarUrl ?? row.avatar;
-          if (nn != null && String(nn).trim() !== '') {
-            userStore.updateProfile({ nickname: String(nn).trim() });
-          }
-          if (av != null && String(av).trim() !== '') {
-            const incoming = String(av).trim();
-            const current = String(userStore.profile.avatar || '').trim();
-            if (!current || (!profileAvatarUploadBusy && !selfAvatarPendingTemp.value)) {
-              userStore.updateProfile({ avatar: incoming });
-            }
-          }
-          void refreshSelfAvatarDisplay();
-          console.log('[诊断] users OK, nickName:', row.nickName || '(未设置)');
-        }
-      } catch (e: any) {
-        console.warn('[拓荒] users 操作失败', e?.errMsg || e);
       }
     }
     // #endif
@@ -1067,20 +1066,19 @@ onShow(() => {
   }
 
   // #ifdef MP-WEIXIN
-  /** 分享卡片直进计分页会跳过首页 login；切回首页时补登录取 openId */
-  if (!userStore.openId) {
-    void (async () => {
-      try {
+  /** 分享卡片直进计分页会跳过首页 login；切回首页时补登录取 openId，并从云库恢复资料 */
+  void (async () => {
+    try {
+      const nickEmpty = !String(userStore.profile.nickname || '').trim();
+      if (!userStore.openId || nickEmpty) {
         const gated = await gateIndexPrivacyBeforeLogin();
         if (!gated) return;
-        const auth = await signInWithWeChat();
-        userStore.applyAuthResult(auth);
-        console.log('[index] onShow deferred signIn openId=', userStore.openId || '(empty)');
-      } catch (e) {
-        console.warn('[index] onShow deferred signIn', e);
+        await bootstrapIndexSession();
       }
-    })();
-  }
+    } catch (e) {
+      console.warn('[index] onShow bootstrap', e);
+    }
+  })();
   // #endif
 });
 

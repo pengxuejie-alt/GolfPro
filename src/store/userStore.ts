@@ -17,6 +17,8 @@ export interface AuthResult {
 const STORAGE_OPENID = 'golfpro_openid';
 const STORAGE_AUTH_MODE = 'golfpro_auth_mode';
 const STORAGE_CLOUD_USER_DOC_ID = 'golfpro_cloud_user_doc_id';
+/** 昵称/头像本地缓存：清微信缓存后仍可由云库恢复，此处加速首屏 */
+const STORAGE_PROFILE = 'golfpro_profile_cache_v1';
 
 export const useUserStore = defineStore('user', {
   state: () => ({
@@ -38,6 +40,16 @@ export const useUserStore = defineStore('user', {
   actions: {
     updateProfile(newProfile: Partial<UserProfile>) {
       this.profile = { ...this.profile, ...newProfile };
+      try {
+        uni.setStorageSync(STORAGE_PROFILE, {
+          nickname: this.profile.nickname,
+          avatar: this.profile.avatar,
+          gender: this.profile.gender,
+          handicap: this.profile.handicap,
+        });
+      } catch {
+        /* ignore */
+      }
     },
 
     setCloudUserDocId(docId: string) {
@@ -81,6 +93,21 @@ export const useUserStore = defineStore('user', {
         if (m === 'wx' || m === 'mock') this.authMode = m;
         const did = uni.getStorageSync(STORAGE_CLOUD_USER_DOC_ID);
         if (did != null && String(did).trim() !== '') this.cloudUserDocId = String(did).trim();
+        const cached = uni.getStorageSync(STORAGE_PROFILE) as Partial<UserProfile> | undefined;
+        if (cached && typeof cached === 'object') {
+          if (cached.nickname != null && String(cached.nickname).trim() !== '') {
+            this.profile.nickname = String(cached.nickname).trim();
+          }
+          if (cached.avatar != null && String(cached.avatar).trim() !== '') {
+            this.profile.avatar = String(cached.avatar).trim();
+          }
+          if (cached.gender === 'male' || cached.gender === 'female') {
+            this.profile.gender = cached.gender;
+          }
+          if (typeof cached.handicap === 'number' && Number.isFinite(cached.handicap)) {
+            this.profile.handicap = cached.handicap;
+          }
+        }
       } catch {
         /* ignore */
       }

@@ -15,6 +15,7 @@ import {
   getCachedSelfAvatarDisplay,
   setCachedSelfAvatarDisplay,
 } from '@/utils/avatarDisplayCache';
+import { hydrateUserProfileFromCloud } from '@/utils/hydrateUserProfileFromCloud';
 import { getMpMatchListNavShellStyle } from '@/utils/mpCapsuleSafeInset';
 import { MP_BATCH_CHECK_OFF, MP_BATCH_CHECK_ON, MP_BATCH_CHECK_ICON_COLOR } from '@/utils/mpBatchCheckStyle';
 import { APP_VERSION_NAME, APP_VERSION_CODE } from '@/utils/appVersion';
@@ -292,6 +293,9 @@ onShow(() => {
   const cached = getCachedSelfAvatarDisplay(userStore.openId);
   if (cached) selfAvatarDisplay.value = cached;
   void refreshSelfAvatarDisplay();
+  if (userStore.openId && !String(userStore.profile.nickname || '').trim()) {
+    void hydrateUserProfileFromCloud(userStore.openId).then(() => refreshSelfAvatarDisplay());
+  }
 });
 
 const selectedCourseTitle = computed(() => {
