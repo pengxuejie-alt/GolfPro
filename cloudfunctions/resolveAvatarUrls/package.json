@@ -1,0 +1,9 @@
+{
+  "name": "resolveAvatarUrls",
+  "version": "1.0.0",
+  "description": "Server-side getTempFileURL for avatar cloud:// (required for other users files)",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

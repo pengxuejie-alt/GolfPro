@@ -23,8 +23,12 @@ async function resolveAvatarFileIdsToHttps(profiles) {
         const res = await cloud.getTempFileURL({ fileList: chunk });
         for (const item of res.fileList || []) {
           const fid = item.fileID != null ? String(item.fileID).trim() : '';
+          const status = item.status != null ? Number(item.status) : 0;
           const url = item.tempFileURL != null ? String(item.tempFileURL).trim() : '';
-          if (fid && url) idToUrl.set(fid, url);
+          if (fid && status === 0 && url) idToUrl.set(fid, url);
+          else if (fid && status !== 0) {
+            console.warn('[getUserProfiles] tempURL fail', fid, item.errMsg || status);
+          }
         }
         break;
       } catch (e) {
@@ -52,7 +56,16 @@ exports.main = async (event) => {
 
   const raw = event?.openIds ?? event?.openids ?? [];
   const openIds = Array.isArray(raw)
-    ? raw.map((x) => String(x || '').trim()).filter((x) => x && !x.startsWith('temp_'))
+    ? raw
+        .map((x) => String(x || '').trim())
+        .filter(
+          (x) =>
+            x &&
+            !x.startsWith('temp_') &&
+            !x.startsWith('virtual') &&
+            !x.startsWith('host_') &&
+            !x.startsWith('mock_'),
+        )
     : [];
   const uniq = [...new Set(openIds)].slice(0, 80);
   if (!uniq.length) {
@@ -63,10 +76,15 @@ exports.main = async (event) => {
   const byOpen = new Map();
   const chunkSize = 20;
 
+  function rowOpenId(row) {
+    if (!row || typeof row !== 'object') return '';
+    return String(row._openid || row.openid || row.openId || '').trim();
+  }
+
   function mergeRows(rows) {
     for (const row of rows || []) {
       if (!row || typeof row !== 'object') continue;
-      const oid = row._openid != null ? String(row._openid).trim() : '';
+      const oid = rowOpenId(row);
       if (!oid) continue;
       const nickRaw = row.nickName ?? row.nickname;
       const nickName =
@@ -92,7 +110,9 @@ exports.main = async (event) => {
       const chunk = uniq.slice(i, i + chunkSize);
       const snap = await db
         .collection('users')
-        .where({ _openid: _.in(chunk) })
+        .where(
+          _.or([{ _openid: _.in(chunk) }, { openid: _.in(chunk) }]),
+        )
         .limit(50)
         .get();
       mergeRows(snap.data);
@@ -112,7 +132,13 @@ exports.main = async (event) => {
     }
 
     const profiles = await resolveAvatarFileIdsToHttps([...byOpen.values()]);
-    return { success: true, profiles };
+    const withAvatar = profiles.filter((p) => p && p.avatarUrl && String(p.avatarUrl).startsWith('https://')).length;
+    console.info('[getUserProfiles]', {
+      requested: uniq.length,
+      found: byOpen.size,
+      httpsAvatars: withAvatar,
+    });
+    return { success: true, profiles, meta: { requested: uniq.length, found: byOpen.size, httpsAvatars: withAvatar } };
   } catch (e) {
     console.warn('[getUserProfiles]', e);
     return { success: false, error: e.message || String(e), profiles: [] };

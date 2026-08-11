@@ -81,7 +81,10 @@ async function callGetUserProfilesCloud(
           resolve();
         },
         fail: (err: unknown) => {
-          console.warn('[fetchUserProfiles] getUserProfiles 云函数失败，请确认已部署', err);
+          console.warn(
+            '[fetchUserProfiles] getUserProfiles 云函数失败，请部署 cloudfunctions/getUserProfiles',
+            err,
+          );
           resolve();
         },
       });
