@@ -3,12 +3,16 @@
  */
 
 import { looksLikeExpiredProneTencentTempHttps } from './mpAvatarSrc';
-import { GUEST_NICKNAME, isGuestOrPlaceholderNickname } from './guestNickname';
+import { isGuestOrPlaceholderNickname } from './guestNickname';
 import { setCachedAvatarDisplay } from './avatarDisplayCache';
+import { db } from './db.js';
+import { pickAvatarUrlFromUserRow } from './selfAvatarResolve';
 
+/** 可合并进 roster 的头像：保留 cloud://，丢弃已过期的 COS 临时链 */
 function rosterAvatarForMerge(raw: unknown): string {
   const s = raw != null && String(raw).trim() !== '' ? String(raw).trim() : '';
-  if (!s || s.startsWith('cloud://')) return '';
+  if (!s) return '';
+  if (s.startsWith('cloud://')) return s;
   if (looksLikeExpiredProneTencentTempHttps(s)) return '';
   return s;
 }
@@ -45,7 +49,44 @@ function isShareableHttpsAvatar(url: string): boolean {
   return true;
 }
 
-async function fetchUserProfilesMerged(openIds: string[]): Promise<Map<string, { nickName: string; avatarUrl: string }>> {
+async function fetchUserProfilesFromUsersDb(
+  openIds: string[],
+): Promise<Map<string, { nickName: string; avatarUrl: string }>> {
+  const map = new Map<string, { nickName: string; avatarUrl: string }>();
+  if (!openIds.length) return map;
+
+  // #ifdef MP-WEIXIN
+  if (typeof wx === 'undefined' || !wx.cloud?.database) return map;
+  try {
+    await db.waitForInit();
+    const wxdb = wx.cloud.database();
+    const _ = wxdb.command;
+    const chunkSize = 20;
+    for (let i = 0; i < openIds.length; i += chunkSize) {
+      const chunk = openIds.slice(i, i + chunkSize);
+      const snap = await wxdb.collection('users').where({ _openid: _.in(chunk) }).get();
+      for (const row of snap.data ?? []) {
+        const r = row as Record<string, unknown>;
+        const oid = r._openid != null ? String(r._openid).trim() : '';
+        if (!oid) continue;
+        const nickRaw = r.nickName ?? r.nickname;
+        const nickName =
+          nickRaw != null && String(nickRaw).trim() !== '' ? String(nickRaw).trim() : '球友';
+        const avatarUrl = pickAvatarUrlFromUserRow(r);
+        map.set(oid, { nickName, avatarUrl });
+      }
+    }
+  } catch (e) {
+    console.warn('[mpMatchListRosterHydrate] users db fallback', e);
+  }
+  // #endif
+
+  return map;
+}
+
+async function fetchUserProfilesMerged(
+  openIds: string[],
+): Promise<Map<string, { nickName: string; avatarUrl: string }>> {
   const map = new Map<string, { nickName: string; avatarUrl: string }>();
   if (!openIds.length) return map;
 
@@ -56,6 +97,7 @@ async function fetchUserProfilesMerged(openIds: string[]): Promise<Map<string, {
 
   // #ifdef MP-WEIXIN
   try {
+    await db.waitForInit();
     for (const chunk of chunks) {
       if (!chunk.length) continue;
       await new Promise<void>((resolve) => {
@@ -94,12 +136,31 @@ async function fetchUserProfilesMerged(openIds: string[]): Promise<Map<string, {
   } catch {
     /* ignore */
   }
+
+  const needDb = uniq.filter((id) => {
+    const p = map.get(id);
+    return !p || !String(p.avatarUrl || '').trim();
+  });
+  if (needDb.length) {
+    const dbMap = await fetchUserProfilesFromUsersDb(needDb);
+    for (const [oid, prof] of dbMap) {
+      const cur = map.get(oid);
+      if (!cur) {
+        map.set(oid, prof);
+      } else if (!String(cur.avatarUrl || '').trim() && prof.avatarUrl) {
+        map.set(oid, { nickName: cur.nickName || prof.nickName, avatarUrl: prof.avatarUrl });
+      }
+    }
+  }
   // #endif
 
   return map;
 }
 
-function applyProfilesToRoster(roster: unknown, profiles: Map<string, { nickName: string; avatarUrl: string }>): void {
+function applyProfilesToRoster(
+  roster: unknown,
+  profiles: Map<string, { nickName: string; avatarUrl: string }>,
+): void {
   if (!Array.isArray(roster)) return;
   for (const raw of roster) {
     if (!raw || typeof raw !== 'object') continue;
@@ -112,44 +173,43 @@ function applyProfilesToRoster(roster: unknown, profiles: Map<string, { nickName
     const curA = String(o.avatar ?? '').trim();
     const curU = String(o.avatarUrl ?? '').trim();
     const curBest = curA || curU;
-    /** users 里也常存已过期的 COS 临时链；勿用它盖住 cloud:// */
     const incoming = rosterAvatarForMerge(prof.avatarUrl);
     const curExpiredCos = !!(curBest && looksLikeExpiredProneTencentTempHttps(curBest));
     const curIsCloud = curBest.startsWith('cloud://');
-    const incomingHttps = incoming.startsWith('https://') && !looksLikeExpiredProneTencentTempHttps(incoming);
+    const incomingHttps =
+      incoming.startsWith('https://') && !looksLikeExpiredProneTencentTempHttps(incoming);
+    const incomingCloud = incoming.startsWith('cloud://');
 
     const needAvatar =
       !curBest ||
       curExpiredCos ||
-      (curIsCloud && incomingHttps) ||
-      (!isShareableHttpsAvatar(curBest) &&
-        incoming &&
-        (incoming.startsWith('https://') || incoming.startsWith('cloud://')));
+      curIsCloud ||
+      incomingCloud ||
+      (incomingHttps && (!curBest || curExpiredCos || curIsCloud)) ||
+      (!isShareableHttpsAvatar(curBest) && !!incoming);
     const useIncoming = !!(incoming && (needAvatar || !curBest));
 
     if (useIncoming) {
-      const incomingSafe =
-        incoming.startsWith('https://') && !looksLikeExpiredProneTencentTempHttps(incoming) ? incoming : '';
-      if (incomingSafe) {
-        o.avatarUrl = incomingSafe;
-        o.avatar = incomingSafe;
-        if (oid) setCachedAvatarDisplay(oid, incomingSafe);
+      if (incomingCloud) {
+        o.avatarUrl = incoming;
+        o.avatar = incoming;
+      } else if (incomingHttps) {
+        o.avatarUrl = incoming;
+        o.avatar = incoming;
+        setCachedAvatarDisplay(oid, incoming);
       }
     }
     if (prof.nickName) {
       const nick = String(prof.nickName).trim();
       const curNick = typeof o.nickname === 'string' ? o.nickname.trim() : '';
       const curNick2 = typeof o.nickName === 'string' ? o.nickName.trim() : '';
-      const oid = rosterPlayerKey(o);
       const shouldNick =
-        nick &&
-        (isGuestOrPlaceholderNickname(curNick, oid) || (oid && curNick === oid));
+        nick && (isGuestOrPlaceholderNickname(curNick, oid) || (oid && curNick === oid));
       if (shouldNick) {
         o.nickname = nick;
       }
       const shouldNick2 =
-        nick &&
-        (isGuestOrPlaceholderNickname(curNick2, oid) || (oid && curNick2 === oid));
+        nick && (isGuestOrPlaceholderNickname(curNick2, oid) || (oid && curNick2 === oid));
       if (shouldNick2) {
         o.nickName = nick;
       }

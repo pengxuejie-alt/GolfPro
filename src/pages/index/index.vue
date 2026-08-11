@@ -15,7 +15,7 @@ import {
 import PrivacyPopup from '@/components/PrivacyPopup.vue';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
-import { hydrateMatchListAvatarsForDisplay } from '@/utils/rosterAvatarDisplay';
+import { hydrateMatchListAvatarsForDisplay, buildRosterAvatarDisplayMap } from '@/utils/rosterAvatarDisplay';
 import { resolveCloudFileIdToHttps, isWxCloudFileId } from '@/utils/mpCloudFileUrl';
 import {
   getCachedAvatarDisplay,
@@ -117,8 +117,18 @@ watch(
 
 async function hydrateIndexMatchAvatars(list: unknown[]) {
   if (!Array.isArray(list) || list.length === 0) return;
+  await db.waitForInit();
   await hydrateMatchListAvatarsForDisplay(list);
   await rebuildMatchAvatarDisplayMap(list);
+}
+
+async function refreshIndexMatchListAvatars(): Promise<void> {
+  if (!matches.value.length) return;
+  const copy = matches.value.map((m) =>
+    m && typeof m === 'object' ? JSON.parse(JSON.stringify(m)) : m,
+  );
+  await hydrateIndexMatchAvatars(copy);
+  matches.value = copy;
 }
 
 /** 自定义导航页：内容从胶囊按钮下方开始，避免刘海/挖孔挡住问候语 */
@@ -169,15 +179,20 @@ async function rebuildMatchAvatarDisplayMap(list: unknown[]) {
     const mid = String(row.match_id ?? row.id ?? '').trim();
     if (!mid) continue;
     const roster = matchRosterForDisplay(m);
-    for (const p of roster) {
-      const pid = rosterPlayerKey(p);
-      if (!pid) continue;
-      const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
-      const av = String(o.avatar ?? o.avatarUrl ?? '').trim();
-      if (av.startsWith('https://') && !av.includes('cloud://')) {
-        next[`${mid}:${pid}`] = av;
-        setCachedAvatarDisplay(pid, av);
-      }
+    const players = roster
+      .map((p) => {
+        const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
+        return {
+          id: rosterPlayerKey(p),
+          avatar: String(o.avatar ?? o.avatarUrl ?? '').trim(),
+        };
+      })
+      .filter((p) => p.id);
+    if (!players.length) continue;
+    const built = await buildRosterAvatarDisplayMap(players);
+    for (const pl of players) {
+      const https = built[pl.id];
+      if (https) next[`${mid}:${pl.id}`] = https;
     }
   }
   matchAvatarDisplayMap.value = next;
@@ -995,6 +1010,8 @@ onLoad((options?: Record<string, string | undefined>) => {
     void (async () => {
       try {
         await bootstrapIndexSession();
+        await refreshIndexMatchListAvatars();
+        void loadMatches({ showLoading: false });
       } catch (e) {
         console.warn('[index] bootstrap after privacy agree', e);
       }
@@ -1039,15 +1056,7 @@ onLoad((options?: Record<string, string | undefined>) => {
 
     void refreshLocationWeather();
 
-    try {
-      const cached = readMatchesFromStorage();
-      await hydrateIndexMatchAvatars(cached);
-      matches.value = [...cached];
-    } catch {
-      /* ignore */
-    }
-
-    // ── Step 1: 登录 + 从 users 云库恢复昵称/头像 ──
+    // ── 登录后再拉 users 头像（getUserProfiles / 云库需 openId 就绪）──
     // #ifdef MP-WEIXIN
     await bootstrapIndexSession();
     // #endif
@@ -1062,6 +1071,14 @@ onLoad((options?: Record<string, string | undefined>) => {
       }
     }
     // #endif
+
+    try {
+      const cached = readMatchesFromStorage();
+      await hydrateIndexMatchAvatars(cached);
+      matches.value = [...cached];
+    } catch {
+      /* ignore */
+    }
 
     void loadMatches({ showLoading: false });
   });
@@ -1081,6 +1098,11 @@ onShow(() => {
   }
 
   // #ifdef MP-WEIXIN
+  /** 冷启动/切回首页：列表已有数据时也补拉同组头像（临时 https 过期或 cloud:// 未解析） */
+  if (matches.value.length > 0) {
+    void refreshIndexMatchListAvatars();
+  }
+
   /** 分享卡片直进计分页会跳过首页 login；切回首页时补登录取 openId，并从云库恢复资料 */
   void (async () => {
     try {
