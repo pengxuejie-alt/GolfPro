@@ -13,13 +13,13 @@ import { openRoute, goBack, markScorecardReopenPkRulesModal, consumeScorecardReo
 import { savePackagedImageToAlbum, saveImageToPhotosAlbumSafe } from '@/utils/savePosterToAlbum';
 import { signInWithWeChat } from '@/utils/auth';
 import {
-  requestPrivacyAgreementViaPopup,
   requirePrivacyAuthorizeAsync,
   getPrivacyNeedAuthorizationAsync,
-  waitForPrivacyUiReady,
   detectScorecardInviteEntry,
 } from '@/utils/mpPrivacyBridge';
 import PrivacyPopup from '@/components/PrivacyPopup.vue';
+import MpPrivacyGateModal from '@/components/MpPrivacyGateModal.vue';
+import { useMpPrivacyGate } from '@/composables/useMpPrivacyGate';
 import { mpAvatarImgSrcForDisplay, looksLikeExpiredProneTencentTempHttps } from '@/utils/mpAvatarSrc';
 import { buildRosterAvatarDisplayMap, isLikelyWeChatOpenId } from '@/utils/rosterAvatarDisplay';
 import {
@@ -72,6 +72,15 @@ const matchStore = useMatchStore();
 const userStore = useUserStore();
 const { profile } = storeToRefs(userStore);
 const currentMatch = ref<any>(null);
+
+const {
+  showPrivacyModal: showScorecardPrivacyModal,
+  gatePrivacyBeforeCloud,
+  shouldBlockCloudForPrivacy,
+  onPrivacyModalAgree: onScorecardPrivacyAgree,
+  onPrivacyModalDisagree: onScorecardPrivacyDisagree,
+  openPrivacyContract: openScorecardPrivacyContract,
+} = useMpPrivacyGate('[scorecard][privacy]');
 
 const scorecardShareTitle = computed(() => {
   const n = (profile.value.nickname && String(profile.value.nickname).trim()) || GUEST_NICKNAME;
@@ -129,6 +138,18 @@ onLoad((query) => {
     joiningUser.value = buildJoiningUserFromProfile();
     invitePromptShown.value = true;
     showJoinChoiceModal.value = true;
+    // #ifdef MP-WEIXIN
+    void (async () => {
+      const need = await getPrivacyNeedAuthorizationAsync();
+      if (need) {
+        console.log('[scorecard][privacy] invite landing: show inline modal before cloud');
+        const ok = await gatePrivacyBeforeCloud();
+        if (!ok) return;
+      }
+      matchId.value = mid;
+    })();
+    return;
+    // #endif
   }
   matchId.value = mid;
 });
@@ -510,7 +531,7 @@ async function upsertLocalMatchFromCloudAndRefetch(matchId: string, cloudDoc: an
 
 async function loadMatchForScorecard(mid: string): Promise<any | null> {
   /** 未同意隐私：禁止 cloud，避免系统 toast 盖住加入/围观浮层 */
-  const needPrivacy = await getPrivacyNeedAuthorizationAsync();
+  const needPrivacy = await shouldBlockCloudForPrivacy();
   if (needPrivacy) {
     if (enteredViaInvite.value) return null;
     const cached = await MatchManager.getMatch(mid);
@@ -854,14 +875,7 @@ async function ensureInviteMatchLoaded(): Promise<boolean> {
 }
 
 async function ensurePrivacyForJoin(): Promise<boolean> {
-  const needAuth = await getPrivacyNeedAuthorizationAsync();
-  if (!needAuth) return true;
-  const ready = await waitForPrivacyUiReady();
-  if (!ready) {
-    uni.showToast({ title: '隐私弹窗加载中，请稍候再试', icon: 'none' });
-    return false;
-  }
-  const agreed = await requestPrivacyAgreementViaPopup();
+  const agreed = await gatePrivacyBeforeCloud();
   if (!agreed) {
     uni.showToast({ title: '需同意隐私指引后才能加入比赛', icon: 'none' });
   }
@@ -878,7 +892,7 @@ async function bootstrapScorecardPage() {
   const routeMid = String(matchId.value || '').trim();
   if (!routeMid) return;
 
-  if (enteredViaInvite.value && (await getPrivacyNeedAuthorizationAsync())) {
+  if (enteredViaInvite.value && (await shouldBlockCloudForPrivacy())) {
     matchStore.ensureEighteenHoles();
     await maybeRunInviteFlow(null);
     return;
@@ -942,7 +956,7 @@ async function bootstrapScorecardPage() {
   seedRosterAvatarDisplayFromCache();
   lastLocalScoreCommitAt.value = Date.now();
   refreshSavedRuleAndMetaFingerprints();
-  const inviteNeedPrivacy = enteredViaInvite.value ? await getPrivacyNeedAuthorizationAsync() : false;
+  const inviteNeedPrivacy = enteredViaInvite.value ? await shouldBlockCloudForPrivacy() : false;
   if (!inviteNeedPrivacy) {
     await hydrateTeammatesFromUsersCollection(match as Record<string, unknown>);
     await hydrateRosterAvatarDisplay(true);
@@ -2382,7 +2396,7 @@ function rememberCloudRevision(rev: MatchCloudRevision | null | undefined, cm?: 
 async function syncMatchFromCloud(source: 'show' | 'poll' | 'pull') {
   const mid = matchId.value;
   if (!mid || !currentMatch.value) return;
-  if (enteredViaInvite.value && (await getPrivacyNeedAuthorizationAsync())) return;
+  if (enteredViaInvite.value && (await shouldBlockCloudForPrivacy())) return;
   if (matchSyncInFlight) return;
   matchSyncInFlight = true;
   try {
@@ -3193,6 +3207,15 @@ const posterPreviewSrc = ref('');
 
 <template>
   <div class="scorecard-root fixed inset-0 bg-slate-950 text-slate-100 flex flex-col font-sans select-none safe-top">
+    <!-- #ifdef MP-WEIXIN -->
+    <MpPrivacyGateModal
+      :show="showScorecardPrivacyModal"
+      @agree="onScorecardPrivacyAgree"
+      @disagree="onScorecardPrivacyDisagree"
+      @open-contract="openScorecardPrivacyContract"
+    />
+    <PrivacyPopup />
+    <!-- #endif -->
     <!-- Header -->
     <header class="flex shrink-0 items-center justify-between px-4 py-3 border-b border-slate-100 bg-white sticky top-0 z-50">
       <div class="flex items-center gap-1">
@@ -5191,9 +5214,6 @@ const posterPreviewSrc = ref('');
       id="scorePosterCanvasLegacy"
       style="position: fixed; left: -9999px; top: -9999px; width: 750px; height: 1334px;"
     />
-    <!-- #endif -->
-    <!-- #ifdef MP-WEIXIN -->
-    <PrivacyPopup />
     <!-- #endif -->
   </div>
 </template>
