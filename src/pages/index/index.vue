@@ -1058,11 +1058,30 @@ onShow(() => {
   syncIndexTopPadForMenu();
   greetingI18n.value = getTimeGreeting();
 
+  const skipMatchReload = isFirstShow;
   if (isFirstShow) {
     isFirstShow = false;
-    return;
   }
-  void loadMatches({ showLoading: false });
+  if (!skipMatchReload) {
+    void loadMatches({ showLoading: false });
+  }
+
+  // #ifdef MP-WEIXIN
+  /** 分享卡片直进计分页会跳过首页 login；切回首页时补登录取 openId */
+  if (!userStore.openId) {
+    void (async () => {
+      try {
+        const gated = await gateIndexPrivacyBeforeLogin();
+        if (!gated) return;
+        const auth = await signInWithWeChat();
+        userStore.applyAuthResult(auth);
+        console.log('[index] onShow deferred signIn openId=', userStore.openId || '(empty)');
+      } catch (e) {
+        console.warn('[index] onShow deferred signIn', e);
+      }
+    })();
+  }
+  // #endif
 });
 
 /** 列表项稳定 key：优先 match_id，避免 undefined 重复 */

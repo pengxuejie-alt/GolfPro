@@ -11,6 +11,25 @@ function playerUid(p) {
   return String(p.uid || p.id || p.openId || p.openid || '').trim();
 }
 
+/** 客户端未登录时用 host_/virtual_/mock 占位，云侧应归一为真实 OPENID */
+function isPlaceholderHostUid(uid) {
+  const id = String(uid || '').trim();
+  if (!id) return true;
+  if (id.startsWith('virtual')) return true;
+  if (id.startsWith('host_')) return true;
+  if (id === 'mock_golfpro_user') return true;
+  return false;
+}
+
+function mapPlayersForCloud(playerList) {
+  return playerList.map((p) => ({
+    uid: p.uid || p.id || p.openId || '',
+    nickName: p.nickName || p.nickname || '',
+    avatarUrl: p.avatarUrl || p.avatar || '',
+    handicap: Number(p.handicap) || 0,
+  }));
+}
+
 exports.main = async (event) => {
   const wxContext = cloud.getWXContext();
   const openId = wxContext.OPENID;
@@ -45,18 +64,8 @@ exports.main = async (event) => {
     courseName: courseName || '',
     course_name: courseName || '',
     course_id: course_id || '',
-    players: playerList.map((p) => ({
-      uid: p.uid || p.id || p.openId || '',
-      nickName: p.nickName || p.nickname || '',
-      avatarUrl: p.avatarUrl || p.avatar || '',
-      handicap: Number(p.handicap) || 0,
-    })),
-    user_list: playerList.map((p) => ({
-      uid: p.uid || p.id || p.openId || '',
-      nickName: p.nickName || p.nickname || '',
-      avatarUrl: p.avatarUrl || p.avatar || '',
-      handicap: Number(p.handicap) || 0,
-    })),
+    players: mapPlayersForCloud(playerList),
+    user_list: mapPlayersForCloud(playerList),
     scores: hole_scores || Array.from({ length: 18 }, () => ({ scores: [0], par: 4 })),
     date: date || new Date().toISOString(),
     status: Number.isFinite(matchStatus) ? matchStatus : 1,
@@ -100,9 +109,21 @@ exports.main = async (event) => {
       result.upsert = 'update';
     } else {
       if (playerList.length > 0) {
+        const hostUidRaw = playerUid(playerList[0]);
+        if (isPlaceholderHostUid(hostUidRaw) && openId) {
+          playerList[0] = {
+            ...playerList[0],
+            uid: openId,
+            id: openId,
+            openId,
+            openid: openId,
+          };
+          matchPayload.players = mapPlayersForCloud(playerList);
+          matchPayload.user_list = mapPlayersForCloud(playerList);
+        }
         const hostUid = playerUid(playerList[0]);
         const callerInRoster = playerList.some((p) => playerUid(p) === openId);
-        const hostIsVirtual = !hostUid || hostUid.startsWith('virtual');
+        const hostIsVirtual = isPlaceholderHostUid(hostUid);
         if (!callerInRoster && hostUid !== openId && !hostIsVirtual) {
           return { success: false, step: 'matches', error: 'not_found', match_id: mid };
         }

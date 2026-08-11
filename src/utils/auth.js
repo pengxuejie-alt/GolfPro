@@ -4,6 +4,7 @@
  */
 
 import { db } from './db.js';
+import { getPrivacyNeedAuthorizationAsync, requestPrivacyAgreementViaPopup } from './mpPrivacyBridge';
 
 export const MOCK_USER = {
   openId: 'mock_golfpro_user',
@@ -96,6 +97,45 @@ function pickOpenId(result) {
     result.userInfo?.openid ||
     '';
   return o ? String(o) : '';
+}
+
+/**
+ * 云写入前确保隐私已同意且拿到真实 wx openId（非 mock / 非 host_ 占位）。
+ * @param {{ gatePrivacyBeforeCloud?: () => Promise<boolean> }} [options]
+ * @returns {Promise<{ ok: boolean; step?: string; error?: string; session?: Awaited<ReturnType<typeof signInWithWeChat>> }>}
+ */
+export async function ensureWxSessionForCloud(options = {}) {
+  const { gatePrivacyBeforeCloud } = options;
+  await db.waitForInit();
+
+  if (typeof wx !== 'undefined') {
+    if (typeof gatePrivacyBeforeCloud === 'function') {
+      const privacyOk = await gatePrivacyBeforeCloud();
+      if (!privacyOk) {
+        return { ok: false, step: 'privacy', error: 'privacy_denied' };
+      }
+    } else {
+      const needAuth = await getPrivacyNeedAuthorizationAsync();
+      if (needAuth) {
+        const agreed = await requestPrivacyAgreementViaPopup();
+        if (!agreed) {
+          return { ok: false, step: 'privacy', error: 'privacy_denied' };
+        }
+      }
+    }
+  }
+
+  const session = await signInWithWeChat();
+  const openId = pickOpenId(session);
+  if (!openId || session.mode !== 'wx') {
+    return {
+      ok: false,
+      step: 'login',
+      error: session.mode === 'mock' ? 'login_degraded_mock' : 'no_openId',
+      session,
+    };
+  }
+  return { ok: true, session };
 }
 
 /**

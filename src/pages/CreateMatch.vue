@@ -12,9 +12,22 @@ import { courseNeedsSectionCombo, sectionsForCoursePicker } from '@/utils/course
 import { sortCoursesForPicker } from '@/utils/coursePickerSort';
 import { kickoffTimeMs, matchListSortTimeMs } from '@/utils/matchKickoff';
 import { getPickerLocationSync, resolvePickerLocation } from '@/utils/deviceLocationCache';
+import { ensureWxSessionForCloud } from '@/utils/auth';
+import { db } from '@/utils/db';
+import PrivacyPopup from '@/components/PrivacyPopup.vue';
+import MpPrivacyGateModal from '@/components/MpPrivacyGateModal.vue';
+import { useMpPrivacyGate } from '@/composables/useMpPrivacyGate';
 
 const matchStore = useMatchStore();
 const userStore = useUserStore();
+
+const {
+  showPrivacyModal: showCreateMatchPrivacyModal,
+  gatePrivacyBeforeCloud,
+  onPrivacyModalAgree: onCreateMatchPrivacyAgree,
+  onPrivacyModalDisagree: onCreateMatchPrivacyDisagree,
+  openPrivacyContract: openCreateMatchPrivacyContract,
+} = useMpPrivacyGate('[CreateMatch][privacy]');
 
 const now = new Date();
 const formatDate = (date: Date) => {
@@ -35,6 +48,33 @@ function buildDefaultMatchTitle(): string {
 }
 
 const matchName = ref(buildDefaultMatchTitle());
+/** 用户手动改过标题后，不再被登录昵称覆盖 */
+const matchNameTouched = ref(false);
+const editingMatchId = ref('');
+
+function isDefaultUntitledName(name: string): boolean {
+  return /^球局 \d{4}年/.test(String(name || '').trim());
+}
+
+function refreshDefaultTitleIfNeeded() {
+  if (matchNameTouched.value || editingMatchId.value) return;
+  const nick = String(userStore.profile.nickname || '').trim();
+  if (nick) {
+    matchName.value = `${nick}的球局`;
+    return;
+  }
+  if (isDefaultUntitledName(matchName.value)) {
+    matchName.value = buildDefaultMatchTitle();
+  }
+}
+
+watch(
+  () => userStore.profile.nickname,
+  () => {
+    refreshDefaultTitleIfNeeded();
+  },
+);
+
 const matchType = ref('REGULAR');
 const playerCount = ref(1);
 const kickoffTime = ref(formatDate(now));
@@ -46,7 +86,6 @@ const showSectionPicker = ref(false);
 const searchKey = ref('');
 const selectedCourse = ref<any>(null);
 const selectedSections = ref<any[]>([]);
-const editingMatchId = ref('');
 const isEditMode = computed(() => editingMatchId.value !== '');
 
 // Flatten courseCatalogData for easier filtering
@@ -211,13 +250,31 @@ const confirmDateTime = () => {
   showDateTimePicker.value = false;
 };
 
-const getHostPlayer = () => ({
-  id: userStore.openId || `host_${Date.now()}`,
-  nickname: userStore.profile.nickname || '我',
-  avatar: userStore.profile.avatar || '',
-  handicap: userStore.profile.handicap || 0,
-  role: '房主',
-});
+const getHostPlayer = () => {
+  const openId = String(userStore.openId || '').trim();
+  return {
+    id: openId || `host_${Date.now()}`,
+    nickname: userStore.profile.nickname || '我',
+    avatar: userStore.profile.avatar || '',
+    handicap: userStore.profile.handicap || 0,
+    role: '房主',
+  };
+};
+
+function formatCloudSyncError(res: { step?: string; error?: string } | null): string {
+  const step = String(res?.step || 'cloud').trim();
+  const err = String(res?.error || 'unknown').trim();
+  if (err === 'not_found') {
+    return '登录未完成，请重试（errno:not_found）';
+  }
+  if (err === 'privacy_denied') {
+    return '需同意隐私指引后再发布';
+  }
+  if (err === 'login_degraded_mock' || err === 'no_openId') {
+    return '微信登录失败，请重启小程序（errno:login）';
+  }
+  return `云端同步失败（${step}:${err}）`;
+}
 
 const pickCourseByMatch = (match: any) => {
   const rawName = String(match?.course_name || match?.courseName || '').trim();
@@ -251,6 +308,20 @@ const fillFromMatch = (match: any) => {
 };
 
 onLoad((query) => {
+  userStore.hydrateAuthFromStorage();
+  void (async () => {
+    try {
+      await db.waitForInit();
+      const session = await ensureWxSessionForCloud({ gatePrivacyBeforeCloud });
+      if (session.ok && session.session) {
+        userStore.applyAuthResult(session.session);
+      }
+      refreshDefaultTitleIfNeeded();
+    } catch (e) {
+      console.warn('[CreateMatch] onLoad session', e);
+    }
+  })();
+
   const mid = String(query?.match_id || '').trim();
   const mode = String(query?.mode || '').trim();
   if (!mid || mode !== 'edit') return;
@@ -329,6 +400,23 @@ const handleBack = () => {
 
 const handleStart = async () => {
   try {
+    // #ifdef MP-WEIXIN
+    const session = await ensureWxSessionForCloud({ gatePrivacyBeforeCloud });
+    if (!session.ok) {
+      uni.showToast({
+        title: formatCloudSyncError(session),
+        icon: 'none',
+        duration: 2800,
+      });
+      console.warn('[CreateMatch] ensureWxSessionForCloud', session);
+      return;
+    }
+    if (session.session) {
+      userStore.applyAuthResult(session.session);
+      refreshDefaultTitleIfNeeded();
+    }
+    // #endif
+
     if (isEditMode.value) {
       const oldMatch = await MatchManager.getMatch(editingMatchId.value);
       if (!oldMatch) {
@@ -407,11 +495,11 @@ const handleStart = async () => {
       });
       if (cloudRes && cloudRes.success === false) {
         uni.showToast({
-          title: '云端同步失败，好友可能无法加入',
+          title: formatCloudSyncError(cloudRes),
           icon: 'none',
-          duration: 2600,
+          duration: 3200,
         });
-        console.warn('[CreateMatch] cloud createMatch', cloudRes?.error);
+        console.warn('[CreateMatch] cloud createMatch', cloudRes);
       } else if (cloudRes?.success) {
         console.info('[CreateMatch] cloud createMatch ok', cloudRes);
       }
@@ -437,6 +525,15 @@ const handleStart = async () => {
 
 <template>
   <div class="min-h-screen bg-slate-50 pb-24 safe-top">
+    <!-- #ifdef MP-WEIXIN -->
+    <MpPrivacyGateModal
+      :show="showCreateMatchPrivacyModal"
+      @agree="onCreateMatchPrivacyAgree"
+      @disagree="onCreateMatchPrivacyDisagree"
+      @open-contract="openCreateMatchPrivacyContract"
+    />
+    <PrivacyPopup />
+    <!-- #endif -->
     <!-- Header -->
     <div class="sticky top-0 bg-slate-50/80 backdrop-blur-md z-20 px-4 py-3 flex items-center justify-between">
       <view @click="handleBack" class="w-10 h-10 flex items-center justify-center rounded-full active:bg-slate-200">
@@ -462,6 +559,7 @@ const handleStart = async () => {
               type="text"
               class="mp-safe-input-inline text-sm font-bold text-slate-900 bg-transparent border-none text-right focus:outline-none focus:ring-0 py-1 min-w-0 flex-1"
               placeholder="请输入比赛名称"
+              @input="matchNameTouched = true"
             />
             <uni-icons type="right" :size="16" color="#cbd5e1" />
           </div>
