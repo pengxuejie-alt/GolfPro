@@ -76,16 +76,21 @@ export function safeMpAvatarImgSrc(raw: unknown, fallback: string): string {
 }
 
 /**
- * 展示层：<image> 可绑定的 src（允许 getTempFileURL 刚换出的临时 https，拦截 cloud://）。
+ * 展示层：<image> 可绑定的 src（允许 getTempFileURL 刚换出的临时 https）。
+ * 真机 MP-WEIXIN 可直接绑 cloud://；开发者工具仍可能异常，优先走 resolve 得到的 https。
  * 勿用于写库/持久缓存 — 那里继续用 safeMpAvatarImgSrc 过滤易过期链。
  */
 export function pickAvatarSrcForDisplay(raw: unknown): string {
   const s = raw != null ? String(raw).trim() : '';
-  if (!s || s.startsWith('cloud://')) return '';
+  if (!s) return '';
+  // #ifdef MP-WEIXIN
+  if (isWxCloudFileId(s)) return s;
+  // #endif
+  if (s.startsWith('cloud://')) return '';
   return s;
 }
 
-/** `<image :src>` 统一入口：展示层允许会话内临时 https，拦截 cloud:// */
+/** `<image :src>` 统一入口：展示层允许会话内临时 https；真机 MP-WEIXIN 可回退 cloud:// */
 export function mpAvatarImgSrcForDisplay(raw: unknown, fallback: string): string {
   const s = pickAvatarSrcForDisplay(raw);
   return s || fallback;
