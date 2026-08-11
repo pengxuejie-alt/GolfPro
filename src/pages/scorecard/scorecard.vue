@@ -250,14 +250,35 @@ function seedRosterAvatarDisplayFromCache(): void {
   rosterAvatarDisplay.value = mergeAvatarDisplayMaps(rosterAvatarDisplay.value, seeded);
 }
 
+function seedRosterAvatarDisplayFromStorePlayers(): void {
+  const patch: Record<string, string> = {};
+  for (const p of matchStore.user_list) {
+    const id = resolvePlayerOpenId(p) || p.id;
+    const av = pickAvatarSrcForDisplay(p.avatar);
+    if (id && av) patch[id] = av;
+  }
+  rosterAvatarDisplay.value = mergeAvatarDisplayMaps(rosterAvatarDisplay.value, patch);
+}
+
+function rosterStillNeedsAvatarDisplay(): boolean {
+  return matchStore.user_list.some((p) => {
+    const id = resolvePlayerOpenId(p) || p.id;
+    if (!id || id.startsWith('virtual_') || id.startsWith('temp_') || id.startsWith('anon_')) return false;
+    const resolved = rosterAvatarDisplay.value[id] || getCachedAvatarDisplay(id);
+    if (pickAvatarSrcForDisplay(resolved)) return false;
+    return !pickAvatarSrcForDisplay(p.avatar);
+  });
+}
+
 async function hydrateRosterAvatarDisplay(force = false): Promise<void> {
   const players = matchStore.user_list;
   if (!players.length) return;
 
   seedRosterAvatarDisplayFromCache();
+  seedRosterAvatarDisplayFromStorePlayers();
 
   const mid = String(matchId.value || matchStore.match_id || '').trim();
-  if (!force && mid && avatarHydratedForMatchId === mid) return;
+  if (!force && mid && avatarHydratedForMatchId === mid && !rosterStillNeedsAvatarDisplay()) return;
 
   const ids = players.map((p) => resolvePlayerOpenId(p) || p.id).filter(Boolean);
   const profileMap = await fetchUserProfilesForOpenIds(ids);
@@ -268,7 +289,8 @@ async function hydrateRosterAvatarDisplay(force = false): Promise<void> {
   }));
   const built = await buildRosterAvatarDisplayMap(rosterPlayers, profileHttps);
   rosterAvatarDisplay.value = mergeAvatarDisplayMaps(rosterAvatarDisplay.value, built);
-  if (mid) avatarHydratedForMatchId = mid;
+  seedRosterAvatarDisplayFromStorePlayers();
+  if (mid && !rosterStillNeedsAvatarDisplay()) avatarHydratedForMatchId = mid;
 }
 
 function collectPlayerOpenIdsFromMatch(m: Record<string, unknown>): string[] {

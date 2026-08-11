@@ -2,6 +2,7 @@ const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 const _ = db.command;
+const { enrichMatchRosterAvatars } = require('../common/rosterAvatarEnrich');
 
 const DEFAULT_LIMIT = 100;
 /** 参与者侧 elemMatch + or 无法用 orderBy 稳定索引时尽量多捞，再在内存去重裁剪 */
@@ -171,6 +172,9 @@ exports.main = async (event) => {
     limit,
   );
   const merged = mergedRaw.map((d) => mapDocToClient(d)).filter(Boolean);
+  for (const row of merged) {
+    await enrichMatchRosterAvatars(cloud, db, row);
+  }
 
   return { success: true, matches: merged };
 };

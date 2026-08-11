@@ -2,6 +2,7 @@ const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 const { findMatchDocsByMid, rosterLen } = require('./matchCanonical');
+const { enrichMatchRosterAvatars } = require('../common/rosterAvatarEnrich');
 
 function parseUpdatedAtMs(v) {
   if (v == null) return 0;
@@ -244,6 +245,7 @@ exports.main = async (event) => {
       }
     }
 
+    await enrichMatchRosterAvatars(cloud, db, row);
     const revision = await buildMatchRevision(db, row, matchId);
     return { success: true, match: row, revision };
   } catch (e) {

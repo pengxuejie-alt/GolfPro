@@ -35,8 +35,32 @@ function collectOpenIdsFromMatchList(list: unknown[]): string[] {
   return [...set];
 }
 
+/** 从比赛 roster 已有 avatar（含 getMatch/listMyMatches 服务端回填的 https）种子化展示 map */
+export function seedMatchListAvatarDisplayFromRosters(list: unknown[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!Array.isArray(list)) return out;
+  for (const m of list) {
+    if (!m || typeof m !== 'object') continue;
+    const row = m as Record<string, unknown>;
+    const mid = String(row.match_id ?? row.id ?? '').trim();
+    if (!mid) continue;
+    for (const roster of [row.user_list, row.players]) {
+      if (!Array.isArray(roster)) continue;
+      for (const p of roster) {
+        const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
+        const pid = resolvePlayerOpenId(p);
+        const av = pickAvatarSrcForDisplay(o.avatar ?? o.avatarUrl);
+        if (pid && av) {
+          out[`${mid}:${pid}`] = av;
+          setCachedAvatarDisplay(pid, av);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 /**
- * 首页多场比赛：一次 batch 拉 users 头像，再逐场 buildRosterAvatarDisplayMap。
  * 返回 key=`match_id:openId` → 可展示 https（与计分页 hydrateRosterAvatarDisplay 同链路）。
  */
 export async function buildMatchListAvatarDisplayMap(list: unknown[]): Promise<Record<string, string>> {
@@ -131,6 +155,9 @@ export async function buildRosterAvatarDisplayMap(
     if (https) {
       out[id] = https;
       setCachedAvatarDisplay(id, https, av);
+    } else {
+      // resolve 失败时真机可直绑 cloud://
+      out[id] = av;
     }
   }
 
@@ -146,6 +173,8 @@ export async function buildRosterAvatarDisplayMap(
     if (https) {
       out[id] = https;
       setCachedAvatarDisplay(id, https, profCloud);
+    } else {
+      out[id] = profCloud;
     }
   }
 

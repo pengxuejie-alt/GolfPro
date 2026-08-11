@@ -2,6 +2,7 @@ const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 const { findMatchDocsByMid } = require('./matchCanonical');
+const { enrichMatchRosterAvatars } = require('../common/rosterAvatarEnrich');
 
 function strokeCountInHoleList(arr) {
   if (!Array.isArray(arr)) return 0;
@@ -108,10 +109,12 @@ exports.main = async (event) => {
 
     if (players.some((p) => playerKey(p) === openId)) {
       const updatedSnap = await db.collection('matches').doc(docId).get();
+      const match = mapDocToClient(updatedSnap.data);
+      await enrichMatchRosterAvatars(cloud, db, match);
       return {
         success: true,
         already: true,
-        match: mapDocToClient(updatedSnap.data),
+        match,
       };
     }
 
@@ -193,10 +196,12 @@ exports.main = async (event) => {
     }
 
     const updatedSnap = await db.collection('matches').doc(docId).get();
+    const match = mapDocToClient(updatedSnap.data);
+    await enrichMatchRosterAvatars(cloud, db, match);
     return {
       success: true,
       already: false,
-      match: mapDocToClient(updatedSnap.data),
+      match,
     };
   } catch (e) {
     console.warn('[joinMatch]', e);

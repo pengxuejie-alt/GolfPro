@@ -15,7 +15,7 @@ import {
 import PrivacyPopup from '@/components/PrivacyPopup.vue';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
-import { hydrateMatchListAvatarsForDisplay, buildMatchListAvatarDisplayMap, rosterOpenIdFromPlayer } from '@/utils/rosterAvatarDisplay';
+import { hydrateMatchListAvatarsForDisplay, buildMatchListAvatarDisplayMap, rosterOpenIdFromPlayer, seedMatchListAvatarDisplayFromRosters } from '@/utils/rosterAvatarDisplay';
 import { resolveCloudFileIdToHttps, isWxCloudFileId } from '@/utils/mpCloudFileUrl';
 import {
   getCachedAvatarDisplay,
@@ -123,6 +123,10 @@ async function hydrateIndexMatchAvatars(list: unknown[]) {
     await bootstrapIndexSession();
   }
   // #endif
+  matchAvatarDisplayMap.value = {
+    ...matchAvatarDisplayMap.value,
+    ...seedMatchListAvatarDisplayFromRosters(list),
+  };
   await hydrateMatchListAvatarsForDisplay(list);
   matchAvatarDisplayMap.value = {
     ...matchAvatarDisplayMap.value,

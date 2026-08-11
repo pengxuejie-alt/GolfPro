@@ -64,8 +64,21 @@ async function callGetUserProfilesCloud(
         name: 'getUserProfiles',
         data: { openIds: chunk },
         success: (r: unknown) => {
-          const res = r as { result?: { success?: boolean; profiles?: unknown[] } } | undefined;
-          const profiles = Array.isArray(res?.result?.profiles) ? res?.result?.profiles : [];
+          const res = r as {
+            result?: {
+              success?: boolean;
+              profiles?: unknown[];
+              meta?: { requested?: number; found?: number; httpsAvatars?: number };
+              error?: string;
+            };
+          };
+          const body = res?.result;
+          if (body?.success === false) {
+            console.warn('[fetchUserProfiles] getUserProfiles 返回失败:', body.error || body);
+          } else if (body?.meta) {
+            console.info('[fetchUserProfiles] getUserProfiles meta', body.meta);
+          }
+          const profiles = Array.isArray(body?.profiles) ? body.profiles : [];
           for (const raw of profiles) {
             const row = raw as Record<string, unknown>;
             const oid = row.openId != null ? String(row.openId).trim() : '';
