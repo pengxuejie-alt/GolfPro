@@ -124,7 +124,7 @@ exports.main = async (event) => {
         const chunk = missing.slice(i, i + chunkSize);
         const snap = await db
           .collection('players')
-          .where({ _openid: _.in(chunk) })
+          .where(_.or([{ _openid: _.in(chunk) }, { openid: _.in(chunk) }]))
           .limit(50)
           .get();
         mergeRows(snap.data);
