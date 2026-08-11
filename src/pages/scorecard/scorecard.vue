@@ -657,6 +657,25 @@ const gateAvatarLocal = ref('');
 const gateAvatarCloud = ref('');
 const gateProfileSaving = ref(false);
 
+const gateHasAvatar = computed(() => {
+  if (gateAvatarLocal.value.trim()) return true;
+  if (gateAvatarCloud.value.trim()) return true;
+  const av = String(userStore.profile.avatar || '').trim();
+  return av.length > 0;
+});
+
+function prefillProfileGateFields() {
+  const nick = userStore.profile.nickname && String(userStore.profile.nickname).trim();
+  gateNickname.value =
+    nick && !isGuestOrPlaceholderNickname(nick, userStore.openId) ? nick : '';
+  gateAvatarLocal.value = '';
+  gateAvatarCloud.value = '';
+  const av = String(userStore.profile.avatar || '').trim();
+  if (av.startsWith('cloud://')) {
+    gateAvatarCloud.value = av;
+  }
+}
+
 async function uploadGateAvatarToCloud(tempPath: string): Promise<string> {
   // #ifdef MP-WEIXIN
   if (!tempPath || typeof wx === 'undefined' || !wx.cloud?.uploadFile) return '';
@@ -873,7 +892,11 @@ async function ensureInviteMatchLoaded(): Promise<boolean> {
       match_id: routeMid,
     });
     if (!cloudRes?.success || !cloudRes.match) {
-      uni.showToast({ title: '未找到比赛，请确认链接有效', icon: 'none' });
+      if (isCloudMatchNotFound(cloudRes)) {
+        await purgeDeletedInviteMatch(routeMid);
+      } else {
+        uni.showToast({ title: '未找到比赛，请确认链接有效', icon: 'none' });
+      }
       return false;
     }
     let match = enrichMatchKickoffFromDoc(cloudRes.match as Record<string, unknown>) as any;
@@ -941,7 +964,9 @@ async function bootstrapScorecardPage() {
   if (!match) {
     if (enteredViaInvite.value) {
       matchStore.ensureEighteenHoles();
-      await maybeRunInviteFlow(null);
+      if (!inviteMatchDeleted.value) {
+        await maybeRunInviteFlow(null);
+      }
       return;
     }
     uni.showToast({ title: '未找到比赛，请确认已同步至云端', icon: 'none' });
