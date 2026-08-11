@@ -25,6 +25,10 @@ import {
   looksLikeExpiredProneTencentTempHttps,
   pickAvatarSrcForDisplay,
 } from '@/utils/mpAvatarSrc';
+import {
+  applyScorecardPrefillToDisplay,
+  consumeScorecardPrefill,
+} from '@/utils/scorecardPrefill';
 import { buildRosterAvatarDisplayMap, isLikelyWeChatOpenId } from '@/utils/rosterAvatarDisplay';
 import {
   fetchUserProfilesForOpenIds,
@@ -1086,12 +1090,30 @@ async function ensurePrivacyForJoin(): Promise<boolean> {
  * uni-app 路由复用时 onMounted 只执行一次：match_id 变化必须在 watch / 每次加载时重新拉局。
  */
 let scorecardBootstrapSeq = 0;
+let scorecardBootstrapInFlight = false;
+let scorecardBootstrappedMid = '';
 
 async function bootstrapScorecardPage() {
   const seq = ++scorecardBootstrapSeq;
+  scorecardBootstrapInFlight = true;
   const routeMid = String(matchId.value || '').trim();
-  if (!routeMid) return;
+  if (!routeMid) {
+    scorecardBootstrapInFlight = false;
+    return;
+  }
 
+  const prefill = consumeScorecardPrefill(routeMid);
+  if (prefill) {
+    applyScorecardPrefillToDisplay(
+      routeMid,
+      prefill,
+      stickyScorecardCourseName,
+      mergeAvatarDisplayMaps,
+      rosterAvatarDisplay,
+    );
+  }
+
+  try {
   if (enteredViaInvite.value && (await shouldBlockCloudForPrivacy())) {
     matchStore.ensureEighteenHoles();
     await maybeRunInviteFlow(null);
@@ -1160,12 +1182,36 @@ async function bootstrapScorecardPage() {
   seedRosterAvatarDisplayFromMatchDoc(match as Record<string, unknown>);
   seedRosterAvatarDisplayFromCache();
   seedRosterAvatarDisplayFromStorePlayers();
+  if (prefill?.avatarsByOpenId && Object.keys(prefill.avatarsByOpenId).length) {
+    matchStore.user_list = matchStore.user_list.map((pl) => {
+      const pid = resolvePlayerOpenId(pl) || pl.id;
+      const av = prefill.avatarsByOpenId[pid];
+      const display = av ? pickAvatarSrcForDisplay(av) : '';
+      if (display && display !== pl.avatar) return { ...pl, avatar: display };
+      return pl;
+    });
+    if (currentMatch.value) {
+      currentMatch.value.user_list = matchStore.user_list as unknown[];
+      if (Array.isArray(currentMatch.value.players)) {
+        currentMatch.value.players = matchStore.user_list as unknown[];
+      }
+    }
+  }
   lastLocalScoreCommitAt.value = Date.now();
   refreshSavedRuleAndMetaFingerprints();
   const inviteNeedPrivacy = enteredViaInvite.value ? await shouldBlockCloudForPrivacy() : false;
-  if (!inviteNeedPrivacy) {
+  const displayAlreadyReady = !matchStore.user_list.some((p) => {
+    const id = resolvePlayerOpenId(p) || p.id;
+    if (!id || id.startsWith('virtual_') || id.startsWith('temp_') || id.startsWith('anon_')) return false;
+    return !pickAvatarSrcForDisplay(
+      rosterAvatarDisplay.value[id] || getCachedAvatarDisplay(id) || p.avatar,
+    );
+  });
+  if (!inviteNeedPrivacy && !displayAlreadyReady) {
     await hydrateTeammatesFromUsersCollection(match as Record<string, unknown>);
     await hydrateRosterAvatarDisplay(true);
+  } else {
+    seedRosterAvatarDisplayFromStorePlayers();
   }
   await maybeRunInviteFlow(match);
 
@@ -1173,8 +1219,12 @@ async function bootstrapScorecardPage() {
 
   if (seq !== scorecardBootstrapSeq) return;
   await nextTick();
+  scorecardBootstrappedMid = routeMid;
   if (matchId.value && currentMatch.value && !inviteNeedPrivacy) {
     void syncMatchFromCloud('show', { gentle: true });
+  }
+  } finally {
+    scorecardBootstrapInFlight = false;
   }
 }
 
@@ -2253,7 +2303,7 @@ async function flushCloudScoreSync() {
       await new Promise((r) => setTimeout(r, 100));
       wait += 100;
     }
-    await syncMatchFromCloud('show');
+    await syncMatchFromCloud('show', { gentle: true });
   } catch (e) {
     console.warn('[scorecard] flushCloudScoreSync', e);
   }
@@ -2772,7 +2822,10 @@ onShow(() => {
   if (consumeScorecardReopenPkRulesModal()) {
     showRulesModal.value = true;
   }
-  void syncMatchFromCloud('show');
+  if (scorecardBootstrapInFlight) return;
+  const mid = String(matchId.value || '').trim();
+  if (!mid || !currentMatch.value) return;
+  void syncMatchFromCloud('show', { gentle: true });
 });
 
 onPullDownRefresh(async () => {

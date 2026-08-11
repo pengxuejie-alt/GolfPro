@@ -15,7 +15,15 @@ import {
 import PrivacyPopup from '@/components/PrivacyPopup.vue';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
-import { hydrateMatchListAvatarsForDisplay, buildMatchListAvatarDisplayMap, rosterOpenIdFromPlayer, seedMatchListAvatarDisplayFromRosters } from '@/utils/rosterAvatarDisplay';
+import {
+  buildMatchListAvatarDisplayMap,
+  buildRosterAvatarDisplayMap,
+  hydrateMatchListAvatarsForDisplay,
+  isLikelyWeChatOpenId,
+  rosterOpenIdFromPlayer,
+  seedMatchListAvatarDisplayFromRosters,
+} from '@/utils/rosterAvatarDisplay';
+import { stashScorecardPrefillFromIndex } from '@/utils/scorecardPrefill';
 import { resolveCloudFileIdToHttps, isWxCloudFileId } from '@/utils/mpCloudFileUrl';
 import {
   getCachedAvatarDisplay,
@@ -1259,6 +1267,12 @@ const handleNavigate = (tab: Tab, params?: Record<string, any>) => {
   openRoute(tab, params);
 };
 
+function handleOpenScorecard(match: Record<string, unknown>) {
+  stashScorecardPrefillFromIndex(match, matchAvatarDisplayMap.value);
+  const mid = match.match_id ?? match.id;
+  handleNavigate(Tab.SCORECARD, { match_id: mid });
+}
+
 /** 独立列表页：不走「我的」Tab */
 function openCurrentRoundsFullList() {
   handleNavigate(Tab.MATCH_HISTORY_LIST, { mode: 'live' });
@@ -1529,7 +1543,7 @@ const executeDeleteOrQuit = async () => {
       <div 
         v-for="(match, mi) in ongoingMatchesPreview"
         :key="matchRowKey(match, mi)"
-        @click="handleNavigate(Tab.SCORECARD, { match_id: match.match_id })"
+        @click="handleOpenScorecard(match)"
         class="gp-card bg-white p-4 gp-shadow border border-slate-100 relative overflow-hidden group active:scale-95 transition-all cursor-pointer"
       >
         <div class="absolute right-0 top-0 z-10 flex items-center">
@@ -1605,7 +1619,7 @@ const executeDeleteOrQuit = async () => {
       <div
         v-for="(match, hi) in historyMatchesPreview"
         :key="matchRowKey(match, hi)"
-        @click="handleNavigate(Tab.SCORECARD, { match_id: match.match_id })"
+        @click="handleOpenScorecard(match)"
         class="relative gp-card p-5 border border-slate-200 history-mini-card active:opacity-90 transition-colors cursor-pointer overflow-hidden"
       >
         <image class="history-poster-bg" :src="SHARE_CARD_POSTER_BG" mode="aspectFill" />
