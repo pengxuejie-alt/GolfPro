@@ -1,0 +1,37 @@
+---
+description: 头像 cloud:// 展示与换链规则（防回归）
+globs: src/utils/mpAvatar*.ts,src/utils/*Avatar*.ts,src/utils/rosterAvatarDisplay.ts,src/utils/fetchUserProfilesForOpenIds.ts,cloudfunctions/getUserProfiles/**,cloudfunctions/resolveAvatarUrls/**
+alwaysApply: false
+---
+
+# 头像展示规则
+
+## 禁止再犯的回归（e01a52b 类）
+
+```typescript
+// ❌ 禁止：展示层一律丢弃 cloud://（真机曾可直绑）
+if (s.startsWith('cloud://')) return fallback;
+
+// ❌ 禁止：merge/hydrate 时 strip cloud://
+if (s.startsWith('cloud://')) return '';
+
+// ✅ 真机兜底：pickAvatarSrcForDisplay 在 MP-WEIXIN 可透传 cloud://
+// ✅ 优先：https 换链成功则用 https（getUserProfiles / resolveAvatarUrls）
+```
+
+## 换链顺序（当前架构）
+
+1. `fetchUserProfilesForOpenIds` → `getUserProfiles` 云函数（服务端 getTempFileURL）
+2. `batchResolveCloudFileIds` → `resolveAvatarUrls` 云函数 → 客户端兜底（ mainly 自己的文件）
+3. 展示：`mpAvatarImgSrcForDisplay`；resolve 失败时真机可回退 `cloud://`
+
+## 改头像链路时必同步
+
+- `buildRosterAvatarDisplayMap` / `buildMatchListAvatarDisplayMap`
+- `mpMatchListRosterHydrate.ts` 的 `rosterAvatarForMerge`（须保留 cloud://）
+- 首页 `hydrateIndexMatchAvatars` 与计分板 `hydrateRosterAvatarDisplay` 同链路
+- 部署：`getUserProfiles` + `resolveAvatarUrls`（改换链逻辑时必须）
+
+## openId 键
+
+统一 `resolvePlayerOpenId`；勿在首页与计分板用不同的 `uid/id/openId` 优先级。

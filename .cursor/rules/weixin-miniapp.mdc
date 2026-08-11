@@ -1,0 +1,37 @@
+---
+description: golfpro 微信小程序/uni-app 开发与回归防护
+globs: src/**/*.{vue,ts,js},cloudfunctions/**/*.js
+alwaysApply: false
+---
+
+# 微信小程序开发约束
+
+## 改前必查（防「改 A 带出 B」）
+
+动以下任一模块时，**grep 全项目引用**并同步检查关联页面：
+
+| 改动点 | 必查页面/模块 |
+|--------|----------------|
+| `mpAvatarSrc.ts` / `mpCloudFileUrl.ts` | `index.vue`、`scorecard.vue`、`Me.vue`、`rosterAvatarDisplay.ts` |
+| `fetchUserProfilesForOpenIds.ts` | 首页列表、计分板 roster、`getUserProfiles` 云函数 |
+| `matchStore.ts` / `resolvePlayerOpenId` | 创建球局、加入、列表、计分板 roster |
+| 云函数 `createMatch` / `joinMatch` | 客户端 `db.saveMatch`、roster 字段 `id/openId/avatar` |
+
+## uni-app / 微信特有
+
+- 条件编译：`#ifdef MP-WEIXIN` 包裹 `wx.cloud` 调用；勿在 H5 路径假设 cloud 存在
+- 开发者工具 base library 3.15.x 易出 `$gwx is not defined`：清 `dist/dev/mp-weixin` 后重建；真机行为以真机为准
+- 勿用 `queueMicrotask`（旧基础库不支持）；用 `Promise.resolve().then()`
+- Vue slot 命名勿与 uni 内置冲突（如 `e10`）；复杂弹层拆独立 `.vue` 组件
+
+## 云函数与客户端
+
+- 云环境须与 `src/utils/db.js` 中 `init` 的 env 一致
+- **新增/改云函数后**：提醒用户「上传并部署 → 云端安装依赖」，并 bump `manifest.json` 版本
+- 禁止客户端直接 `collection('matches').add()` 创建比赛；走 `createMatch` 云函数
+
+## 提交前自检
+
+- [ ] 首页 + 计分板 + 我的：涉及 UI 的改动至少说明验证路径
+- [ ] openId 解析统一用 `resolvePlayerOpenId`（优先 `openid`/`openId`，偏好 `o` 开头微信形态）
+- [ ] 未引入 `.env`、`project.private.config.json` 等敏感文件
