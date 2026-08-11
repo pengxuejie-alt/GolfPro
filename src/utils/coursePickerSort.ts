@@ -19,7 +19,13 @@ type SortableCourse = {
 };
 
 function compareByName(a: SortableCourse, b: SortableCourse): number {
-  return String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN');
+  const na = String(a.name || '');
+  const nb = String(b.name || '');
+  try {
+    return na.localeCompare(nb, 'zh-CN');
+  } catch {
+    return na.localeCompare(nb);
+  }
 }
 
 function courseIdOf(c: SortableCourse): string {

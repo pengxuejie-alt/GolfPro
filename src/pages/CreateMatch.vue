@@ -5,7 +5,6 @@ import { Tab } from '@/types';
 import { useMatchStore } from '@/store/matchStore';
 import { useUserStore } from '@/store/userStore';
 import { MatchManager } from '@/utils/match_manager';
-import { gdMockCourses } from '@/utils/mockData';
 import { courseCatalogData, courseCatalogStats } from '@/data/courseCatalog';
 import { goBack, replaceRoute } from '@/utils/uniNav';
 import { courseNeedsSectionCombo, sectionsForCoursePicker } from '@/utils/courseSections';
@@ -87,18 +86,22 @@ const searchKey = ref('');
 const selectedCourse = ref<any>(null);
 const selectedSections = ref<any[]>([]);
 const isEditMode = computed(() => editingMatchId.value !== '');
+/** 小程序 scroll-view 需明确高度（px），overflow-y 在 view 上常无效 */
+const coursePickerScrollPx = ref(420);
 
-// Flatten courseCatalogData for easier filtering
-const allCourses = computed(() => {
+function flattenCourseCatalog(): any[] {
   const courses: any[] = [];
   Object.entries(courseCatalogData).forEach(([province, provinceCourses]) => {
-    provinceCourses.forEach(c => {
+    provinceCourses.forEach((c) => {
+      const name = String(c?.name || '').trim();
+      if (!name) return;
       courses.push({
         ...c,
-        id: c.id || c.name,
+        id: c.id || name,
+        name,
         province,
-        city: c.city || province,
-        logo_url: `https://picsum.photos/seed/${encodeURIComponent(c.name)}/100/100`,
+        city: String(c.city || province || '').trim() || province,
+        logo_url: `https://picsum.photos/seed/${encodeURIComponent(name)}/100/100`,
         latitude: c.latitude,
         longitude: c.longitude,
         holes: c.holes_par ? c.holes_par.map((par: number, i: number) => ({ no: i + 1, par })) : [],
@@ -106,9 +109,24 @@ const allCourses = computed(() => {
     });
   });
   return courses;
-});
+}
+
+/** 全国球场扁平列表（模块级缓存，避免弹层内重复 flatten） */
+const allCoursesFlat = flattenCourseCatalog();
 
 const catalogStats = courseCatalogStats();
+
+function onCourseSearchInput(e: { detail?: { value?: string } }) {
+  searchKey.value = String(e?.detail?.value ?? '');
+}
+
+function courseMatchesSearch(c: { name?: string; city?: string; province?: string }, key: string): boolean {
+  if (!key) return true;
+  const name = String(c.name || '').toLowerCase();
+  const city = String(c.city || '').toLowerCase();
+  const province = String(c.province || '').toLowerCase();
+  return name.includes(key) || city.includes(key) || province.includes(key);
+}
 
 const pickerLocation = ref<{ lat: number; lng: number }>(getPickerLocationSync());
 const coursePlayCounts = ref<Record<string, number>>({});
@@ -136,6 +154,14 @@ async function loadCoursePlayCounts() {
 
 watch(showCoursePicker, (open) => {
   if (!open) return;
+  searchKey.value = '';
+  try {
+    const sys = uni.getSystemInfoSync();
+    const winH = Number(sys.windowHeight) || 667;
+    coursePickerScrollPx.value = Math.max(280, Math.floor(winH * 0.8 - 200));
+  } catch {
+    coursePickerScrollPx.value = 420;
+  }
   pickerLocation.value = getPickerLocationSync();
   void resolvePickerLocation().then((loc) => {
     pickerLocation.value = loc;
@@ -145,20 +171,19 @@ watch(showCoursePicker, (open) => {
 
 const filteredCourses = computed(() => {
   const key = searchKey.value.trim().toLowerCase();
-  const base = key
-    ? allCourses.value.filter(
-        (c) =>
-          c.name.toLowerCase().includes(key) ||
-          c.city.toLowerCase().includes(key) ||
-          (c.province && c.province.toLowerCase().includes(key)),
-      )
-    : allCourses.value;
-  const sorted = sortCoursesForPicker(base, {
-    lat: pickerLocation.value?.lat,
-    lng: pickerLocation.value?.lng,
-    playCountById: coursePlayCounts.value,
-    lastPlayedMsById: courseLastPlayedMs.value,
-  });
+  const base = key ? allCoursesFlat.filter((c) => courseMatchesSearch(c, key)) : allCoursesFlat;
+  let sorted: typeof allCoursesFlat;
+  try {
+    sorted = sortCoursesForPicker(base, {
+      lat: pickerLocation.value?.lat,
+      lng: pickerLocation.value?.lng,
+      playCountById: coursePlayCounts.value,
+      lastPlayedMsById: courseLastPlayedMs.value,
+    });
+  } catch (e) {
+    console.warn('[CreateMatch] sortCoursesForPicker', e);
+    sorted = [...base].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  }
   if (!key) return sorted.slice(0, 100);
   return sorted;
 });
@@ -279,7 +304,7 @@ function formatCloudSyncError(res: { step?: string; error?: string } | null): st
 const pickCourseByMatch = (match: any) => {
   const rawName = String(match?.course_name || match?.courseName || '').trim();
   if (!rawName) return null;
-  const all = allCourses.value;
+  const all = allCoursesFlat;
   const found = all.find((c) => rawName === c.name || rawName.startsWith(c.name));
   if (found) return found;
   const holes = Array.isArray(match?.hole_scores)
@@ -666,35 +691,51 @@ const handleStart = async () => {
         </div>
 
         <div class="relative mb-2">
-            <input 
-              v-model="searchKey"
+            <input
               type="text"
+              :value="searchKey"
+              confirm-type="search"
+              adjust-position
               class="mp-safe-input-full w-full pl-12 pr-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-lime-400 font-medium text-slate-900"
-              placeholder="搜索省份、城市或球场名…"
+              placeholder="搜索省份、城市或球场名"
+              @input="onCourseSearchInput"
             />
-          <view class="absolute left-4 top-1/2 -translate-y-1/2">
-            <uni-icons type="location" :size="20" color="#94a3b8" />
+          <view class="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+            <uni-icons type="search" :size="20" color="#94a3b8" />
           </view>
         </div>
         <p class="text-xs text-slate-400 mb-4 px-1">{{ courseListHint }}</p>
 
-        <div class="flex-1 overflow-y-auto no-scrollbar space-y-2">
-          <div 
-            v-for="course in filteredCourses" 
+        <scroll-view
+          scroll-y
+          enable-flex
+          class="no-scrollbar"
+          :style="{ height: coursePickerScrollPx + 'px' }"
+        >
+          <view class="space-y-2 pb-2">
+          <view
+            v-for="course in filteredCourses"
             :key="course.id"
             @click="selectCourse(course)"
-            class="flex items-center gap-4 p-3 rounded-2xl hover:bg-slate-50 active:bg-slate-100 transition-colors"
+            class="flex items-center gap-4 p-3 rounded-2xl active:bg-slate-100 transition-colors"
           >
             <image :src="course.logo_url" class="w-12 h-12 rounded-xl object-cover shadow-sm" mode="aspectFill" />
-            <div class="flex-1 min-w-0">
-              <h4 class="font-bold text-slate-900 truncate">{{ course.name }}</h4>
-              <p class="text-xs text-slate-500">{{ course.province }} · {{ course.city }}</p>
-            </div>
+            <view class="flex-1 min-w-0">
+              <text class="font-bold text-slate-900 truncate block">{{ course.name }}</text>
+              <text class="text-xs text-slate-500 block">{{ course.province }} · {{ course.city }}</text>
+            </view>
             <uni-icons type="right" :size="16" color="#cbd5e1" />
-          </div>
-          
+          </view>
+
+          <view
+            v-if="!searchKey && filteredCourses.length === 0"
+            class="py-8 text-center text-sm text-slate-400"
+          >
+            球场列表加载异常，请重启小程序后重试
+          </view>
+
           <!-- Fallback Option -->
-          <div 
+          <view
             v-if="searchKey && filteredCourses.length === 0"
             @click="selectCourse({
               id: 'custom-indoor',
@@ -703,18 +744,19 @@ const handleStart = async () => {
               total_par: 72,
               holes: Array.from({length: 18}, (_, i) => ({ no: i + 1, par: 4 }))
             })"
-            class="flex items-center gap-4 p-3 rounded-2xl hover:bg-slate-50 active:bg-slate-100 transition-colors border border-dashed border-slate-300"
+            class="flex items-center gap-4 p-3 rounded-2xl active:bg-slate-100 transition-colors border border-dashed border-slate-300"
           >
-            <div class="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center">
-              <uni-icons type="location" :size="20" color="#94a3b8" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <h4 class="font-bold text-slate-900 truncate">使用 "{{ searchKey }}" 作为室内练习场</h4>
-              <p class="text-xs text-slate-500">默认 18 洞全为 Par 4</p>
-            </div>
+            <view class="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center">
+              <uni-icons type="search" :size="20" color="#94a3b8" />
+            </view>
+            <view class="flex-1 min-w-0">
+              <text class="font-bold text-slate-900 truncate block">使用 "{{ searchKey }}" 作为室内练习场</text>
+              <text class="text-xs text-slate-500 block">默认 18 洞全为 Par 4</text>
+            </view>
             <uni-icons type="right" :size="16" color="#cbd5e1" />
-          </div>
-        </div>
+          </view>
+          </view>
+        </scroll-view>
       </div>
     </div>
 
