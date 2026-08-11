@@ -30,6 +30,7 @@ import {
   consumeScorecardPrefill,
 } from '@/utils/scorecardPrefill';
 import { buildRosterAvatarDisplayMap, isLikelyWeChatOpenId } from '@/utils/rosterAvatarDisplay';
+import { rosterRowToPlayer, rosterIdsSignature } from '@/utils/rosterPlayerNormalize';
 import {
   fetchUserProfilesForOpenIds,
   profileMapToAvatarHttps,
@@ -256,7 +257,62 @@ const stickyScorecardCourseName: Record<string, string> = {};
 
 /** 展示用临时 https（不写回云库，避免签名过期） */
 const rosterAvatarDisplay = ref<Record<string, string>>({});
+/** 首页带入的同组头像，整局会话内只升不降（sync 不得冲掉） */
+const sessionPrefillAvatars = ref<Record<string, string>>({});
 let avatarHydratedForMatchId = '';
+
+async function ensureRosterAvatarsStable(cloudMatch?: Record<string, unknown>): Promise<void> {
+  if (cloudMatch) seedRosterAvatarDisplayFromMatchDoc(cloudMatch);
+  if (Object.keys(sessionPrefillAvatars.value).length) {
+    rosterAvatarDisplay.value = mergeAvatarDisplayMaps(
+      rosterAvatarDisplay.value,
+      sessionPrefillAvatars.value,
+    );
+  }
+  seedRosterAvatarDisplayFromCache();
+  seedRosterAvatarDisplayFromStorePlayers();
+
+  const missingIds: string[] = [];
+  for (const p of matchStore.user_list) {
+    const id = resolvePlayerOpenId(p) || p.id;
+    if (!id || id.startsWith('virtual_') || id.startsWith('temp_') || id.startsWith('anon_')) continue;
+    const has = pickAvatarSrcForDisplay(
+      rosterAvatarDisplay.value[id] ||
+        sessionPrefillAvatars.value[id] ||
+        getCachedAvatarDisplay(id) ||
+        p.avatar,
+    );
+    if (!has) missingIds.push(id);
+  }
+  if (missingIds.length) {
+    const profiles = await fetchUserProfilesForOpenIds(missingIds);
+    const built = await buildRosterAvatarDisplayMap(
+      matchStore.user_list.map((p) => ({
+        id: resolvePlayerOpenId(p) || p.id,
+        avatar: p.avatar || '',
+      })),
+      profileMapToAvatarHttps(profiles),
+    );
+    rosterAvatarDisplay.value = mergeAvatarDisplayMaps(rosterAvatarDisplay.value, built);
+  }
+
+  matchStore.user_list = matchStore.user_list.map((pl) => {
+    const id = resolvePlayerOpenId(pl) || pl.id;
+    const av =
+      rosterAvatarDisplay.value[id] ||
+      sessionPrefillAvatars.value[id] ||
+      getCachedAvatarDisplay(id);
+    const display = pickAvatarSrcForDisplay(av) || pickAvatarSrcForDisplay(pl.avatar);
+    if (display && display !== pl.avatar) return { ...pl, avatar: display };
+    return pl;
+  });
+  if (currentMatch.value) {
+    currentMatch.value.user_list = matchStore.user_list as unknown[];
+    if (Array.isArray(currentMatch.value.players)) {
+      currentMatch.value.players = matchStore.user_list as unknown[];
+    }
+  }
+}
 
 function seedRosterAvatarDisplayFromCache(): void {
   const ids = matchStore.user_list.map((p) => p.id).filter(Boolean);
@@ -404,7 +460,11 @@ function isPlaceholderJoinNickname(nick: string | undefined, playerId?: string):
 function effectivePlayerAvatarForMerge(playerId: string, storeAv: string | undefined): string | undefined {
   const id = String(playerId || '').trim();
   const fromDisplay = id
-    ? pickAvatarSrcForDisplay(rosterAvatarDisplay.value[id] || getCachedAvatarDisplay(id))
+    ? pickAvatarSrcForDisplay(
+        rosterAvatarDisplay.value[id] ||
+          sessionPrefillAvatars.value[id] ||
+          getCachedAvatarDisplay(id),
+      )
     : '';
   const store = storeAv != null && String(storeAv).trim() !== '' ? String(storeAv).trim() : '';
   if (fromDisplay && fromDisplay.startsWith('https://')) return fromDisplay;
@@ -589,7 +649,10 @@ function isCloudMatchNotFound(res: { success?: boolean; error?: string } | null 
   return res?.success === false && String(res.error || '').trim() === 'not_found';
 }
 
-async function loadMatchForScorecard(mid: string): Promise<any | null> {
+async function loadMatchForScorecard(
+  mid: string,
+  opts?: { minRosterCount?: number },
+): Promise<any | null> {
   /** 未同意隐私：禁止 cloud，避免系统 toast 盖住加入/围观浮层 */
   const needPrivacy = await shouldBlockCloudForPrivacy();
   if (needPrivacy) {
@@ -601,23 +664,20 @@ async function loadMatchForScorecard(mid: string): Promise<any | null> {
     return null;
   }
 
-  /** 分享 / 扫码 / scene 进入：必须用云端覆盖本机缓存 */
-  const preferCloudFirst = enteredViaInvite.value;
+  /** 分享 / 扫码 / scene 进入：必须用云端覆盖本机缓存（cloud-first 已覆盖） */
 
   const fetchCloud = () =>
     callWxCloudFn<{ success?: boolean; match?: any; error?: string }>('getMatch', { match_id: mid });
 
-  let cloudMatch: any | null = null;
-  if (preferCloudFirst) {
-    const cloudRes = await fetchCloud();
-    if (isCloudMatchNotFound(cloudRes)) {
-      await purgeDeletedInviteMatch(mid);
-      return null;
-    }
-    if (cloudRes?.success && cloudRes.match) {
-      cloudMatch = enrichMatchKickoffFromDoc(cloudRes.match as Record<string, unknown>) as any;
-      return upsertLocalMatchFromCloudAndRefetch(mid, cloudMatch);
-    }
+  /** 优先云端完整 roster（含 enrich 头像），避免本地快照少人、头像空 */
+  const cloudResFirst = await fetchCloud();
+  if (isCloudMatchNotFound(cloudResFirst)) {
+    await purgeDeletedInviteMatch(mid);
+    return null;
+  }
+  if (cloudResFirst?.success && cloudResFirst.match) {
+    const cm = enrichMatchKickoffFromDoc(cloudResFirst.match as Record<string, unknown>) as any;
+    return upsertLocalMatchFromCloudAndRefetch(mid, cm);
   }
 
   let match = await MatchManager.getMatch(mid);
@@ -1104,6 +1164,7 @@ async function bootstrapScorecardPage() {
 
   const prefill = consumeScorecardPrefill(routeMid);
   if (prefill) {
+    sessionPrefillAvatars.value = { ...prefill.avatarsByOpenId };
     applyScorecardPrefillToDisplay(
       routeMid,
       prefill,
@@ -1120,7 +1181,9 @@ async function bootstrapScorecardPage() {
     return;
   }
 
-  let match = await loadMatchForScorecard(routeMid);
+  let match = await loadMatchForScorecard(routeMid, {
+    minRosterCount: prefill?.rosterCount ?? 0,
+  });
   if (seq !== scorecardBootstrapSeq) return;
 
   const rawFirst = match?.user_list?.[0] || match?.players?.[0];
@@ -1200,18 +1263,8 @@ async function bootstrapScorecardPage() {
   lastLocalScoreCommitAt.value = Date.now();
   refreshSavedRuleAndMetaFingerprints();
   const inviteNeedPrivacy = enteredViaInvite.value ? await shouldBlockCloudForPrivacy() : false;
-  const displayAlreadyReady = !matchStore.user_list.some((p) => {
-    const id = resolvePlayerOpenId(p) || p.id;
-    if (!id || id.startsWith('virtual_') || id.startsWith('temp_') || id.startsWith('anon_')) return false;
-    return !pickAvatarSrcForDisplay(
-      rosterAvatarDisplay.value[id] || getCachedAvatarDisplay(id) || p.avatar,
-    );
-  });
-  if (!inviteNeedPrivacy && !displayAlreadyReady) {
-    await hydrateTeammatesFromUsersCollection(match as Record<string, unknown>);
-    await hydrateRosterAvatarDisplay(true);
-  } else {
-    seedRosterAvatarDisplayFromStorePlayers();
+  if (!inviteNeedPrivacy) {
+    await ensureRosterAvatarsStable(match as Record<string, unknown>);
   }
   await maybeRunInviteFlow(match);
 
@@ -1232,6 +1285,7 @@ watch(
   matchId,
   () => {
     avatarHydratedForMatchId = '';
+    sessionPrefillAvatars.value = {};
     const routeMid = String(matchId.value || '').trim();
     if (!routeMid) return;
     if (matchStore.match_id !== routeMid) {
@@ -2333,39 +2387,12 @@ const saveMatch = async (opts?: { skipCloudPush?: boolean }) => {
   }
 };
 
-/** 云侧 players 行 → 记分卡 Player（与 matchStore.normalizeMatchPlayer 对齐） */
-function rosterRowToPlayer(raw: unknown, index: number): Player {
-  if (!raw || typeof raw !== 'object') {
-    return { id: `invalid_${index}`, nickname: '?', handicap: null };
-  }
-  const o = raw as Record<string, unknown>;
-  const rawId = o.id ?? o.uid ?? o.openId ?? o.openid ?? o.player_uid;
-  const id =
-    rawId != null && String(rawId) !== ''
-      ? String(rawId)
-      : `anon_${index}_${Math.random().toString(36).slice(2, 8)}`;
-  const nick = o.nickname ?? o.nickName;
-  const nickname = nick != null && String(nick).trim() !== '' ? String(nick).trim() : GUEST_NICKNAME;
-  const avatar = (o.avatar ?? o.avatarUrl) != null ? String(o.avatar ?? o.avatarUrl) : undefined;
-  const rawHcp = o.handicap;
-  let handicap: number | null = null;
-  if (rawHcp !== '' && rawHcp !== undefined && rawHcp !== null) {
-    const n = Number(rawHcp);
-    handicap = Number.isFinite(n) ? n : null;
-  }
-  return { id, nickname, avatar: avatar || undefined, handicap };
-}
-
 /**
  * 与云端 players/user_list 对齐：退赛移除、新加入并入、顺序与云一致（permute 成绩列）。
  * 不在此处 saveMatch，由 syncMatchFromCloud 统一提交。
  */
 function cloudRosterIdsSig(cloudMatch: any): string {
-  const roster = (cloudMatch.user_list ?? cloudMatch.players) as unknown[];
-  if (!Array.isArray(roster)) return '';
-  return roster
-    .map((raw, i) => rosterRowToPlayer(raw, i).id)
-    .join('\u001f');
+  return rosterIdsSignature(cloudMatch?.user_list ?? cloudMatch?.players);
 }
 
 function localRosterIdsSig(): string {
@@ -2391,7 +2418,16 @@ function mergeCloudRosterIntoScorecard(cloudMatch: any): boolean {
   const seen = new Set(matchStore.user_list.map((p) => p.id));
   for (const pl of cloudPlayers) {
     if (!seen.has(pl.id)) {
-      matchStore.addPlayer(pl);
+      const displayAv = pickAvatarSrcForDisplay(
+        rosterAvatarDisplay.value[pl.id] ||
+          sessionPrefillAvatars.value[pl.id] ||
+          getCachedAvatarDisplay(pl.id) ||
+          pl.avatar,
+      );
+      matchStore.addPlayer({
+        ...pl,
+        avatar: displayAv || pl.avatar,
+      } as Player);
       seen.add(pl.id);
       changed = true;
     }
@@ -2429,9 +2465,17 @@ function applyRosterCosmeticsFromCloud(cloudMatch: any): boolean {
     const cur = matchStore.user_list[idx];
     const nick = pl.nickname && pl.nickname.trim() ? pl.nickname.trim() : cur.nickname;
     const storeAv = effectivePlayerAvatarForMerge(pl.id, cur.avatar);
-    const avatar = mergeAvatarForCloudCosmeticSync(pl.avatar, storeAv);
-    if (nick !== cur.nickname || avatar !== cur.avatar) {
-      matchStore.user_list.splice(idx, 1, { ...cur, nickname: nick, avatar });
+    const merged = mergeAvatarForCloudCosmeticSync(pl.avatar, storeAv);
+    const avatar =
+      (merged && pickAvatarSrcForDisplay(merged) ? merged : undefined) ??
+      (storeAv && pickAvatarSrcForDisplay(storeAv) ? storeAv : undefined) ??
+      cur.avatar;
+    if (nick !== cur.nickname || (avatar && avatar !== cur.avatar)) {
+      matchStore.user_list.splice(idx, 1, {
+        ...cur,
+        nickname: nick,
+        avatar: avatar || cur.avatar,
+      });
       changed = true;
     }
   }
@@ -2743,32 +2787,23 @@ async function syncMatchFromCloud(
     scoreUpdate = mergeHoleScoresFromCloud(cm) || scoreUpdate;
     changed = scoreUpdate || changed;
 
-    const needsAvatarHydrate = matchStore.user_list.some((p) => {
-      const id = String(p.id || '');
-      if (!id || id.startsWith('virtual_') || id.startsWith('temp_') || id.startsWith('anon_')) return false;
-      const resolved = rosterAvatarDisplay.value[id] || getCachedAvatarDisplay(id);
-      if (pickAvatarSrcForDisplay(resolved)) return false;
-      const av = String(p.avatar || '').trim();
-      if (!av) return true;
-      if (av.startsWith('cloud://')) return true;
-      return !isShareableAvatarUrl(av);
-    });
-    const shouldHydrateProfiles =
-      !gentle &&
-      (needsAvatarHydrate || source !== 'poll' || !rosterStable || rosterChanged);
-    let hydratedProfiles = false;
-    if (shouldHydrateProfiles) {
-      hydratedProfiles = await hydrateTeammatesFromUsersCollection(cm as Record<string, unknown>);
+    let rosterAvatarsSynced = false;
+    if (newPlayers || rosterChanged) {
+      await ensureRosterAvatarsStable(cm as Record<string, unknown>);
+      rosterAvatarsSynced = true;
+      changed = true;
+    } else {
+      seedRosterAvatarDisplayFromMatchDoc(cm as Record<string, unknown>);
     }
 
     const scoresOnlyPoll =
       source === 'poll' &&
       rosterStable &&
+      !rosterChanged &&
       scoreUpdate &&
       !newPlayers &&
       !rulesMeta.pk &&
-      !rulesMeta.meta &&
-      !hydratedProfiles;
+      !rulesMeta.meta;
 
     if (scoresOnlyPoll) {
       if (currentMatch.value) {
@@ -2776,7 +2811,7 @@ async function syncMatchFromCloud(
       }
       await MatchManager.upsertLocalMatch(currentMatch.value);
       await saveMatch({ skipCloudPush: true });
-    } else if (changed || hydratedProfiles) {
+    } else if (changed || rosterAvatarsSynced) {
       currentMatch.value.user_list = matchStore.user_list as unknown[];
       currentMatch.value.hole_scores = matchStore.holeScores;
       if (Array.isArray(currentMatch.value.players)) {
@@ -2784,9 +2819,6 @@ async function syncMatchFromCloud(
       }
       await MatchManager.upsertLocalMatch(currentMatch.value);
       await saveMatch({ skipCloudPush: true });
-    }
-    if (!scoresOnlyPoll && (shouldHydrateProfiles || newPlayers)) {
-      await hydrateRosterAvatarDisplay(!!newPlayers || source !== 'poll');
     }
     if (source === 'poll' || source === 'pull') {
       if (newPlayers || scoreUpdate || rulesMeta.pk || rulesMeta.meta) {
@@ -2893,7 +2925,11 @@ const DEFAULT_RULE_SLOT_AVATAR = mpStaticAbsolute('tab/me.png');
 
 function avatarOrDefault(p: { id?: string; avatar?: string } | null | undefined): string {
   const id = (p ? resolvePlayerOpenId(p) || String(p.id || '').trim() : '') || '';
-  const resolved = id ? rosterAvatarDisplay.value[id] || getCachedAvatarDisplay(id) : '';
+  const resolved = id
+    ? rosterAvatarDisplay.value[id] ||
+      sessionPrefillAvatars.value[id] ||
+      getCachedAvatarDisplay(id)
+    : '';
   const a = resolved || (p?.avatar != null ? String(p.avatar).trim() : '');
   return mpAvatarImgSrcForDisplay(a, DEFAULT_RULE_SLOT_AVATAR);
 }

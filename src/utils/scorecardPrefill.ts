@@ -14,6 +14,8 @@ export interface ScorecardPrefillPayload {
   courseName?: string;
   title?: string;
   avatarsByOpenId: Record<string, string>;
+  openIds: string[];
+  rosterCount: number;
 }
 
 export function stashScorecardPrefillFromIndex(
@@ -37,12 +39,23 @@ export function stashScorecardPrefillFromIndex(
     }
   }
 
+  const openIds: string[] = [];
+  for (const roster of [match.user_list, match.players]) {
+    if (!Array.isArray(roster)) continue;
+    for (const p of roster) {
+      const pid = resolvePlayerOpenId(p);
+      if (pid && !openIds.includes(pid)) openIds.push(pid);
+    }
+  }
+
   const course = String(match.course_name ?? match.courseName ?? '').trim();
   const payload = {
     course_name: course || undefined,
     courseName: course || undefined,
     title: match.title != null ? String(match.title).trim() : undefined,
     avatarsByOpenId,
+    openIds,
+    rosterCount: openIds.length,
     at: Date.now(),
   };
 
@@ -72,6 +85,10 @@ export function consumeScorecardPrefill(mid: string): ScorecardPrefillPayload | 
       title: (parsed as { title?: string }).title,
       avatarsByOpenId:
         avatarsByOpenId && typeof avatarsByOpenId === 'object' ? avatarsByOpenId : {},
+      openIds: Array.isArray((parsed as { openIds?: string[] }).openIds)
+        ? (parsed as { openIds: string[] }).openIds
+        : [],
+      rosterCount: Number((parsed as { rosterCount?: number }).rosterCount || 0),
     };
   } catch {
     return null;
