@@ -233,12 +233,22 @@ async function finalizeCurrentMatchKickoffAutoEnd() {
 }
 
 const scorecardCourseName = computed(() => {
-  return (
+  const mid = String(matchId.value || matchStore.match_id || '').trim();
+  const fromMatch =
     currentMatch.value?.courseName ||
     currentMatch.value?.course_name ||
-    '未命名球场'
-  );
+    '';
+  const trimmed = String(fromMatch).trim();
+  if (trimmed) {
+    if (mid) stickyScorecardCourseName[mid] = trimmed;
+    return trimmed;
+  }
+  if (mid && stickyScorecardCourseName[mid]) return stickyScorecardCourseName[mid];
+  return '未命名球场';
 });
+
+/** 同局内球场名只升不降：避免先「未命名」再被云同步刷成正式名 */
+const stickyScorecardCourseName: Record<string, string> = {};
 
 /** 展示用临时 https（不写回云库，避免签名过期） */
 const rosterAvatarDisplay = ref<Record<string, string>>({});
@@ -248,6 +258,22 @@ function seedRosterAvatarDisplayFromCache(): void {
   const ids = matchStore.user_list.map((p) => p.id).filter(Boolean);
   const seeded = seedAvatarDisplayMapFromCache(ids);
   rosterAvatarDisplay.value = mergeAvatarDisplayMaps(rosterAvatarDisplay.value, seeded);
+}
+
+/** 从比赛文档 roster（含 listMyMatches/getMatch enrich 后的 https）种子化，merge-only */
+function seedRosterAvatarDisplayFromMatchDoc(m: Record<string, unknown> | null | undefined): void {
+  if (!m) return;
+  const patch: Record<string, string> = {};
+  for (const roster of [m.user_list, m.players]) {
+    if (!Array.isArray(roster)) continue;
+    for (const raw of roster) {
+      const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+      const id = resolvePlayerOpenId(raw) || String(o.id ?? o.uid ?? o.openId ?? '').trim();
+      const av = pickAvatarSrcForDisplay(o.avatar ?? o.avatarUrl);
+      if (id && av) patch[id] = av;
+    }
+  }
+  rosterAvatarDisplay.value = mergeAvatarDisplayMaps(rosterAvatarDisplay.value, patch);
 }
 
 function seedRosterAvatarDisplayFromStorePlayers(): void {
@@ -371,6 +397,18 @@ function isPlaceholderJoinNickname(nick: string | undefined, playerId?: string):
   return isGuestOrPlaceholderNickname(nick, playerId);
 }
 
+function effectivePlayerAvatarForMerge(playerId: string, storeAv: string | undefined): string | undefined {
+  const id = String(playerId || '').trim();
+  const fromDisplay = id
+    ? pickAvatarSrcForDisplay(rosterAvatarDisplay.value[id] || getCachedAvatarDisplay(id))
+    : '';
+  const store = storeAv != null && String(storeAv).trim() !== '' ? String(storeAv).trim() : '';
+  if (fromDisplay && fromDisplay.startsWith('https://')) return fromDisplay;
+  if (store && isShareableAvatarUrl(store)) return store;
+  if (fromDisplay) return fromDisplay;
+  return store || undefined;
+}
+
 /** 根据 openId 对齐 matchStore · currentMatch，完成计分卡展示闭环 */
 function applyUsersProfilesToRoster(profileMap: Map<string, { nickName: string; avatarUrl: string }>): boolean {
   let modified = false;
@@ -378,9 +416,10 @@ function applyUsersProfilesToRoster(profileMap: Map<string, { nickName: string; 
     const pid = resolvePlayerOpenId(pl) || pl.id;
     const u = profileMap.get(pid);
     if (!u) {
-      if (pl.avatar && !isShareableAvatarUrl(pl.avatar)) {
+      const kept = effectivePlayerAvatarForMerge(pid, pl.avatar);
+      if (kept !== pl.avatar) {
         modified = true;
-        return { ...pl, avatar: undefined };
+        return { ...pl, avatar: kept };
       }
       return pl;
     }
@@ -388,7 +427,9 @@ function applyUsersProfilesToRoster(profileMap: Map<string, { nickName: string; 
     /** users 里易过期的 getTempFileURL 链不要盖过 roster 上的 cloud://（否则 <image> 空白） */
     const profileAvFiltered =
       avCloudRaw && looksLikeExpiredProneTencentTempHttps(avCloudRaw) ? undefined : avCloudRaw || undefined;
-    const avatar = mergeAvatarFromCloudRoster(pl.avatar, profileAvFiltered);
+    const avatar =
+      mergeAvatarFromCloudRoster(profileAvFiltered, effectivePlayerAvatarForMerge(pid, pl.avatar)) ??
+      effectivePlayerAvatarForMerge(pid, pl.avatar);
     let nickname = (u.nickName && String(u.nickName).trim()) || pl.nickname;
     if (u.nickName && isPlaceholderJoinNickname(pl.nickname, pid)) {
       nickname = String(u.nickName).trim();
@@ -578,6 +619,19 @@ async function loadMatchForScorecard(mid: string): Promise<any | null> {
   let match = await MatchManager.getMatch(mid);
   if (match) {
     match = enrichMatchKickoffFromDoc(match as Record<string, unknown>) as typeof match;
+    const localCourse = String(
+      (match as { course_name?: string; courseName?: string }).course_name ??
+        (match as { courseName?: string }).courseName ??
+        '',
+    ).trim();
+    /** 本地快照缺球场名时先拉云，避免计分页标题先显示「未命名球场」 */
+    if (!localCourse) {
+      const cloudRes = await fetchCloud();
+      if (cloudRes?.success && cloudRes.match) {
+        const cm = enrichMatchKickoffFromDoc(cloudRes.match as Record<string, unknown>) as typeof match;
+        return upsertLocalMatchFromCloudAndRefetch(mid, cm);
+      }
+    }
     /** 列表合并层可能给到「有局无分」快照；云端 getMatch 可从 scores 表回填 matches（需部署同名云函数最新版） */
     const embedded = (match as { hole_scores?: unknown; scores?: unknown }).hole_scores ?? (match as { scores?: unknown }).scores;
     if (strokeCountInHoleList(embedded) === 0) {
@@ -1100,8 +1154,12 @@ async function bootstrapScorecardPage() {
   match = await finalizeMatchKickoffAutoEnd(match);
   if (seq !== scorecardBootstrapSeq) return;
   currentMatch.value = match;
+  const bootCourse = String(match.course_name ?? match.courseName ?? '').trim();
+  if (bootCourse) stickyScorecardCourseName[routeMid] = bootCourse;
   matchStore.initMatch(match);
+  seedRosterAvatarDisplayFromMatchDoc(match as Record<string, unknown>);
   seedRosterAvatarDisplayFromCache();
+  seedRosterAvatarDisplayFromStorePlayers();
   lastLocalScoreCommitAt.value = Date.now();
   refreshSavedRuleAndMetaFingerprints();
   const inviteNeedPrivacy = enteredViaInvite.value ? await shouldBlockCloudForPrivacy() : false;
@@ -1116,7 +1174,7 @@ async function bootstrapScorecardPage() {
   if (seq !== scorecardBootstrapSeq) return;
   await nextTick();
   if (matchId.value && currentMatch.value && !inviteNeedPrivacy) {
-    void syncMatchFromCloud('show');
+    void syncMatchFromCloud('show', { gentle: true });
   }
 }
 
@@ -2320,7 +2378,8 @@ function applyRosterCosmeticsFromCloud(cloudMatch: any): boolean {
     if (idx < 0) continue;
     const cur = matchStore.user_list[idx];
     const nick = pl.nickname && pl.nickname.trim() ? pl.nickname.trim() : cur.nickname;
-    const avatar = mergeAvatarForCloudCosmeticSync(pl.avatar, cur.avatar);
+    const storeAv = effectivePlayerAvatarForMerge(pl.id, cur.avatar);
+    const avatar = mergeAvatarForCloudCosmeticSync(pl.avatar, storeAv);
     if (nick !== cur.nickname || avatar !== cur.avatar) {
       matchStore.user_list.splice(idx, 1, { ...cur, nickname: nick, avatar });
       changed = true;
@@ -2330,6 +2389,7 @@ function applyRosterCosmeticsFromCloud(cloudMatch: any): boolean {
     currentMatch.value.user_list = matchStore.user_list as unknown[];
     currentMatch.value.players = matchStore.user_list as unknown[];
   }
+  seedRosterAvatarDisplayFromStorePlayers();
   return changed;
 }
 
@@ -2426,8 +2486,22 @@ function mergePkRulesAndMetaFromCloud(cloudMatch: any): { pk: boolean; meta: boo
   }
   const cloudMetaTs = Number(cloudMatch.match_meta_sync_ts || 0);
   const localMetaTs = Number(currentMatch.value.match_meta_sync_ts || 0);
+  const cm = cloudMatch;
+  const cur = currentMatch.value as Record<string, unknown>;
+  const localCourse = String(cur.course_name ?? cur.courseName ?? '').trim();
+  const cloudCourse = String(cm.course_name ?? cm.courseName ?? '').trim();
+  const localTitle = String(cur.title ?? '').trim();
+  const cloudTitle = String(cm.title ?? '').trim();
+  if (!localCourse && cloudCourse) {
+    cur.course_name = cm.course_name ?? cloudCourse;
+    cur.courseName = cm.courseName ?? cloudCourse;
+    out.meta = true;
+  }
+  if (!localTitle && cloudTitle) {
+    cur.title = cm.title;
+    out.meta = true;
+  }
   if (cloudMetaTs > localMetaTs) {
-    const cm = cloudMatch;
     if (cm.title != null) currentMatch.value.title = cm.title;
     if (cm.course_name != null) currentMatch.value.course_name = cm.course_name;
     if (cm.courseName != null) currentMatch.value.courseName = cm.courseName;
@@ -2512,6 +2586,9 @@ let rosterPollTimer: ReturnType<typeof setInterval> | null = null;
 let lastKnownCloudRevisionSig = '';
 const POLL_INTERVAL_ACTIVE_MS = 5000;
 const POLL_INTERVAL_IDLE_MS = 15000;
+/** 进入计分页后延迟首轮轮询，避免盖掉首页/本地已 hydrate 的头像与球场名 */
+const POLL_WARMUP_MS = 12000;
+let pollStartAllowedAt = 0;
 const POLL_ACTIVITY_WINDOW_MS = 120000;
 let pollIntervalMs = POLL_INTERVAL_ACTIVE_MS;
 let lastPollActivityAt = 0;
@@ -2535,6 +2612,7 @@ function rescheduleScorecardPollTimer() {
   }
   pollIntervalMs = computeScorecardPollIntervalMs();
   rosterPollTimer = setInterval(() => {
+    if (Date.now() < pollStartAllowedAt) return;
     void syncMatchFromCloud('poll');
     const next = computeScorecardPollIntervalMs();
     if (next !== pollIntervalMs) {
@@ -2558,7 +2636,10 @@ function rememberCloudRevision(rev: MatchCloudRevision | null | undefined, cm?: 
 }
 
 /** 从云端拉取：头像/昵称、新球友、成绩（最后录入为准） */
-async function syncMatchFromCloud(source: 'show' | 'poll' | 'pull') {
+async function syncMatchFromCloud(
+  source: 'show' | 'poll' | 'pull',
+  opts?: { gentle?: boolean },
+) {
   const mid = matchId.value;
   if (!mid || !currentMatch.value) return;
   if (enteredViaInvite.value && (await shouldBlockCloudForPrivacy())) return;
@@ -2593,8 +2674,17 @@ async function syncMatchFromCloud(source: 'show' | 'poll' | 'pull') {
       source === 'poll' &&
       cloudRosterIdsSig(cm) === localRosterIdsSig() &&
       localRosterIdsSig().length > 0;
+    const rosterChanged = cloudRosterIdsSig(cm) !== localRosterIdsSig();
+    const gentle = opts?.gentle === true;
 
-    if (!rosterStable) {
+    seedRosterAvatarDisplayFromMatchDoc(cm as Record<string, unknown>);
+
+    if (!gentle && !rosterStable) {
+      changed = applyRosterCosmeticsFromCloud(cm) || changed;
+      newPlayers = mergeCloudRosterIntoScorecard(cm) || newPlayers;
+      changed = newPlayers || changed;
+      changed = applyRosterCosmeticsFromCloud(cm) || changed;
+    } else if (rosterChanged) {
       changed = applyRosterCosmeticsFromCloud(cm) || changed;
       newPlayers = mergeCloudRosterIntoScorecard(cm) || newPlayers;
       changed = newPlayers || changed;
@@ -2606,12 +2696,16 @@ async function syncMatchFromCloud(source: 'show' | 'poll' | 'pull') {
     const needsAvatarHydrate = matchStore.user_list.some((p) => {
       const id = String(p.id || '');
       if (!id || id.startsWith('virtual_') || id.startsWith('temp_') || id.startsWith('anon_')) return false;
+      const resolved = rosterAvatarDisplay.value[id] || getCachedAvatarDisplay(id);
+      if (pickAvatarSrcForDisplay(resolved)) return false;
       const av = String(p.avatar || '').trim();
       if (!av) return true;
       if (av.startsWith('cloud://')) return true;
       return !isShareableAvatarUrl(av);
     });
-    const shouldHydrateProfiles = needsAvatarHydrate || source !== 'poll' || !rosterStable;
+    const shouldHydrateProfiles =
+      !gentle &&
+      (needsAvatarHydrate || source !== 'poll' || !rosterStable || rosterChanged);
     let hydratedProfiles = false;
     if (shouldHydrateProfiles) {
       hydratedProfiles = await hydrateTeammatesFromUsersCollection(cm as Record<string, unknown>);
@@ -2692,6 +2786,7 @@ onPullDownRefresh(async () => {
 });
 
 onMounted(() => {
+  pollStartAllowedAt = Date.now() + POLL_WARMUP_MS;
   markScorecardPollActivity();
   rescheduleScorecardPollTimer();
 });
