@@ -84,7 +84,7 @@ async function fetchUserProfilesFromUsersDb(
   return map;
 }
 
-async function fetchUserProfilesMerged(
+export async function fetchUserProfilesMerged(
   openIds: string[],
 ): Promise<Map<string, { nickName: string; avatarUrl: string }>> {
   const map = new Map<string, { nickName: string; avatarUrl: string }>();

@@ -15,7 +15,7 @@ import {
 import PrivacyPopup from '@/components/PrivacyPopup.vue';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
-import { hydrateMatchListAvatarsForDisplay, buildRosterAvatarDisplayMap } from '@/utils/rosterAvatarDisplay';
+import { hydrateMatchListAvatarsForDisplay, buildMatchListAvatarDisplayMap, rosterOpenIdFromPlayer } from '@/utils/rosterAvatarDisplay';
 import { resolveCloudFileIdToHttps, isWxCloudFileId } from '@/utils/mpCloudFileUrl';
 import {
   getCachedAvatarDisplay,
@@ -118,12 +118,27 @@ watch(
 async function hydrateIndexMatchAvatars(list: unknown[]) {
   if (!Array.isArray(list) || list.length === 0) return;
   await db.waitForInit();
+  // #ifdef MP-WEIXIN
+  if (!userStore.openId) {
+    await bootstrapIndexSession();
+  }
+  // #endif
   await hydrateMatchListAvatarsForDisplay(list);
-  await rebuildMatchAvatarDisplayMap(list);
+  matchAvatarDisplayMap.value = {
+    ...matchAvatarDisplayMap.value,
+    ...(await buildMatchListAvatarDisplayMap(list)),
+  };
 }
 
 async function refreshIndexMatchListAvatars(): Promise<void> {
   if (!matches.value.length) return;
+  // #ifdef MP-WEIXIN
+  if (!userStore.openId) {
+    const gated = await gateIndexPrivacyBeforeLogin();
+    if (!gated) return;
+    await bootstrapIndexSession();
+  }
+  // #endif
   const copy = matches.value.map((m) =>
     m && typeof m === 'object' ? JSON.parse(JSON.stringify(m)) : m,
   );
@@ -152,9 +167,7 @@ const matches = ref<any[]>([]);
 const matchAvatarDisplayMap = ref<Record<string, string>>({});
 
 function rosterPlayerKey(p: unknown): string {
-  if (!p || typeof p !== 'object') return '';
-  const o = p as Record<string, unknown>;
-  return String(o.uid ?? o.id ?? o.openId ?? o.openid ?? '').trim();
+  return rosterOpenIdFromPlayer(p);
 }
 
 function rosterPlayerAvatarSrc(p: unknown, match: unknown): string {
@@ -169,33 +182,6 @@ function rosterPlayerAvatarSrc(p: unknown, match: unknown): string {
   if (cached) return mpAvatarImgSrcForDisplay(cached, DEFAULT_AVATAR_URL);
   const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
   return mpAvatarImgSrcForDisplay(o.avatar ?? o.avatarUrl, DEFAULT_AVATAR_URL);
-}
-
-async function rebuildMatchAvatarDisplayMap(list: unknown[]) {
-  const next: Record<string, string> = { ...matchAvatarDisplayMap.value };
-  for (const m of list) {
-    if (!m || typeof m !== 'object') continue;
-    const row = m as Record<string, unknown>;
-    const mid = String(row.match_id ?? row.id ?? '').trim();
-    if (!mid) continue;
-    const roster = matchRosterForDisplay(m);
-    const players = roster
-      .map((p) => {
-        const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
-        return {
-          id: rosterPlayerKey(p),
-          avatar: String(o.avatar ?? o.avatarUrl ?? '').trim(),
-        };
-      })
-      .filter((p) => p.id);
-    if (!players.length) continue;
-    const built = await buildRosterAvatarDisplayMap(players);
-    for (const pl of players) {
-      const https = built[pl.id];
-      if (https) next[`${mid}:${pl.id}`] = https;
-    }
-  }
-  matchAvatarDisplayMap.value = next;
 }
 
 function buildHomeShareTitle(): string {
@@ -1095,14 +1081,12 @@ onShow(() => {
   }
   if (!skipMatchReload) {
     void loadMatches({ showLoading: false });
+    if (matches.value.length > 0) {
+      void refreshIndexMatchListAvatars();
+    }
   }
 
   // #ifdef MP-WEIXIN
-  /** 冷启动/切回首页：列表已有数据时也补拉同组头像（临时 https 过期或 cloud:// 未解析） */
-  if (matches.value.length > 0) {
-    void refreshIndexMatchListAvatars();
-  }
-
   /** 分享卡片直进计分页会跳过首页 login；切回首页时补登录取 openId，并从云库恢复资料 */
   void (async () => {
     try {

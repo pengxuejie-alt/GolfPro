@@ -4,8 +4,78 @@
 
 import { batchResolveCloudFileIds, isWxCloudFileId } from './mpCloudFileUrl';
 import { hydratePlayerAvatarsInMatchList, pickAvatarSrcForDisplay } from './mpAvatarSrc';
-import { hydrateMatchListRostersFromUserProfiles } from './mpMatchListRosterHydrate';
+import { hydrateMatchListRostersFromUserProfiles, fetchUserProfilesMerged } from './mpMatchListRosterHydrate';
 import { getCachedAvatarDisplay, setCachedAvatarDisplay } from './avatarDisplayCache';
+
+export function rosterOpenIdFromPlayer(p: unknown): string {
+  if (!p || typeof p !== 'object') return '';
+  const o = p as Record<string, unknown>;
+  const raw = o.openid ?? o.openId ?? o.player_uid ?? o.uid ?? o.id;
+  if (raw == null || String(raw).trim() === '') return '';
+  return String(raw).trim();
+}
+
+function collectOpenIdsFromMatchList(list: unknown[]): string[] {
+  const set = new Set<string>();
+  for (const m of list) {
+    if (!m || typeof m !== 'object') continue;
+    const row = m as Record<string, unknown>;
+    for (const roster of [row.user_list, row.players]) {
+      if (!Array.isArray(roster)) continue;
+      for (const p of roster) {
+        const k = rosterOpenIdFromPlayer(p);
+        if (!k || k.startsWith('temp_') || k.startsWith('virtual') || k.startsWith('anon_')) continue;
+        set.add(k);
+      }
+    }
+  }
+  return [...set];
+}
+
+/**
+ * 首页多场比赛：一次 batch 拉 users 头像，再逐场 buildRosterAvatarDisplayMap。
+ * 返回 key=`match_id:openId` → 可展示 https（与计分页 hydrateRosterAvatarDisplay 同链路）。
+ */
+export async function buildMatchListAvatarDisplayMap(list: unknown[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  if (!Array.isArray(list) || !list.length) return out;
+
+  const openIds = collectOpenIdsFromMatchList(list);
+  const profiles = openIds.length ? await fetchUserProfilesMerged(openIds) : new Map();
+  const profileHttps = new Map<string, string>();
+  for (const [oid, prof] of profiles) {
+    const av = String(prof.avatarUrl || '').trim();
+    if (av) profileHttps.set(oid, av);
+  }
+
+  for (const m of list) {
+    if (!m || typeof m !== 'object') continue;
+    const row = m as Record<string, unknown>;
+    const mid = String(row.match_id ?? row.id ?? '').trim();
+    if (!mid) continue;
+    const roster = Array.isArray(row.user_list) && row.user_list.length
+      ? row.user_list
+      : Array.isArray(row.players)
+        ? row.players
+        : [];
+    const players = roster
+      .map((p) => {
+        const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
+        return {
+          id: rosterOpenIdFromPlayer(p),
+          avatar: String(o.avatar ?? o.avatarUrl ?? '').trim(),
+        };
+      })
+      .filter((p) => p.id);
+    if (!players.length) continue;
+    const built = await buildRosterAvatarDisplayMap(players, profileHttps);
+    for (const pl of players) {
+      const https = built[pl.id];
+      if (https) out[`${mid}:${pl.id}`] = https;
+    }
+  }
+  return out;
+}
 
 export function isLikelyWeChatOpenId(s: unknown): boolean {
   const t = String(s ?? '').trim();
