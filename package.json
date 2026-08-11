@@ -10,6 +10,8 @@
     "build": "cross-env UNI_INPUT_DIR=src uni build",
     "build:h5": "cross-env UNI_INPUT_DIR=src uni build",
     "build:mp-weixin": "node scripts/sync-cloud-matchCanonical.mjs && cross-env UNI_INPUT_DIR=src uni build -p mp-weixin",
+    "verify:mp-weixin": "node scripts/verify-mp-weixin-build.mjs",
+    "upload:mp-weixin": "npm run build:mp-weixin && node scripts/verify-mp-weixin-build.mjs",
     "preview": "cross-env UNI_INPUT_DIR=src uni preview",
     "lint": "tsc --noEmit",
     "audit:mp-wxss": "node scripts/audit-mp-wxss.mjs",

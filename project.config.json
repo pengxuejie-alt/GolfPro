@@ -1,5 +1,5 @@
 {
-  "description": "仓库根导入：miniprogramRoot 指向 Vite 产出；cloudfunctionRoot 指向仓库根的 cloudfunctions/（勿改成 dist 下路径，否则微信工具不认云函数上传）。请先 npm run dev:mp-weixin。",
+  "description": "【开发】导入本仓库根目录 + npm run dev:mp-weixin（miniprogramRoot=dist/dev/mp-weixin）。【上传体验版/正式版】npm run upload:mp-weixin 后导入 dist/build/mp-weixin 再点上传；勿用 build 产物却从本根目录上传（会读到 dist/dev 旧代码）。cloudfunctionRoot 为仓库根 cloudfunctions/。",
   "packOptions": {
     "ignore": [],
     "include": []
