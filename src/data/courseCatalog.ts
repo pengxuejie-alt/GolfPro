@@ -151,3 +151,32 @@ export function courseCatalogStats() {
   const courses = Object.values(courseCatalogData).reduce((n, arr) => n + arr.length, 0);
   return { provinces, courses };
 }
+
+export type PickerCourseRow = CatalogCourse & {
+  id: string;
+  name: string;
+  province: string;
+  city: string;
+  logo_url: string;
+  holes: { no: number; par: number }[];
+};
+
+export function flattenCoursesForPicker(): PickerCourseRow[] {
+  const courses: PickerCourseRow[] = [];
+  Object.entries(courseCatalogData).forEach(([province, provinceCourses]) => {
+    provinceCourses.forEach((c) => {
+      const name = String(c?.name || '').trim();
+      if (!name) return;
+      courses.push({
+        ...c,
+        id: c.id || name,
+        name,
+        province,
+        city: String(c.city || province || '').trim() || province,
+        logo_url: `https://picsum.photos/seed/${encodeURIComponent(name)}/100/100`,
+        holes: c.holes_par ? c.holes_par.map((par, i) => ({ no: i + 1, par })) : [],
+      });
+    });
+  });
+  return courses;
+}

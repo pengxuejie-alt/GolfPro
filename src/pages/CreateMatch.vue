@@ -5,16 +5,14 @@ import { Tab } from '@/types';
 import { useMatchStore } from '@/store/matchStore';
 import { useUserStore } from '@/store/userStore';
 import { MatchManager } from '@/utils/match_manager';
-import { courseCatalogData, courseCatalogStats } from '@/data/courseCatalog';
+import { flattenCoursesForPicker } from '@/data/courseCatalog';
 import { goBack, replaceRoute } from '@/utils/uniNav';
 import { courseNeedsSectionCombo, sectionsForCoursePicker } from '@/utils/courseSections';
-import { sortCoursesForPicker } from '@/utils/coursePickerSort';
-import { kickoffTimeMs, matchListSortTimeMs } from '@/utils/matchKickoff';
-import { getPickerLocationSync, resolvePickerLocation } from '@/utils/deviceLocationCache';
 import { ensureWxSessionForCloud } from '@/utils/auth';
 import { db } from '@/utils/db';
 import PrivacyPopup from '@/components/PrivacyPopup.vue';
 import MpPrivacyGateModal from '@/components/MpPrivacyGateModal.vue';
+import CreateMatchCoursePicker from '@/components/CreateMatchCoursePicker.vue';
 import { useMpPrivacyGate } from '@/composables/useMpPrivacyGate';
 
 const matchStore = useMatchStore();
@@ -82,119 +80,11 @@ const showPKRules = ref(false);
 const showDateTimePicker = ref(false);
 const showCoursePicker = ref(false);
 const showSectionPicker = ref(false);
-const searchKey = ref('');
 const selectedCourse = ref<any>(null);
 const selectedSections = ref<any[]>([]);
 const isEditMode = computed(() => editingMatchId.value !== '');
-/** 小程序 scroll-view 需明确高度（px），overflow-y 在 view 上常无效 */
-const coursePickerScrollPx = ref(420);
-
-function flattenCourseCatalog(): any[] {
-  const courses: any[] = [];
-  Object.entries(courseCatalogData).forEach(([province, provinceCourses]) => {
-    provinceCourses.forEach((c) => {
-      const name = String(c?.name || '').trim();
-      if (!name) return;
-      courses.push({
-        ...c,
-        id: c.id || name,
-        name,
-        province,
-        city: String(c.city || province || '').trim() || province,
-        logo_url: `https://picsum.photos/seed/${encodeURIComponent(name)}/100/100`,
-        latitude: c.latitude,
-        longitude: c.longitude,
-        holes: c.holes_par ? c.holes_par.map((par: number, i: number) => ({ no: i + 1, par })) : [],
-      });
-    });
-  });
-  return courses;
-}
-
-/** 全国球场扁平列表（模块级缓存，避免弹层内重复 flatten） */
-const allCoursesFlat = flattenCourseCatalog();
-
-const catalogStats = courseCatalogStats();
-
-function onCourseSearchInput(e: { detail?: { value?: string } }) {
-  searchKey.value = String(e?.detail?.value ?? '');
-}
-
-function courseMatchesSearch(c: { name?: string; city?: string; province?: string }, key: string): boolean {
-  if (!key) return true;
-  const name = String(c.name || '').toLowerCase();
-  const city = String(c.city || '').toLowerCase();
-  const province = String(c.province || '').toLowerCase();
-  return name.includes(key) || city.includes(key) || province.includes(key);
-}
-
-const pickerLocation = ref<{ lat: number; lng: number }>(getPickerLocationSync());
-const coursePlayCounts = ref<Record<string, number>>({});
-const courseLastPlayedMs = ref<Record<string, number>>({});
-
-async function loadCoursePlayCounts() {
-  try {
-    const list = await MatchManager.getMatchList();
-    const counts: Record<string, number> = {};
-    const lastMs: Record<string, number> = {};
-    for (const m of Array.isArray(list) ? list : []) {
-      const id = String(m?.course_id || '').trim();
-      if (!id) continue;
-      counts[id] = (counts[id] || 0) + 1;
-      const t = kickoffTimeMs(m) ?? matchListSortTimeMs(m);
-      if (t > 0) lastMs[id] = Math.max(lastMs[id] || 0, t);
-    }
-    coursePlayCounts.value = counts;
-    courseLastPlayedMs.value = lastMs;
-  } catch {
-    coursePlayCounts.value = {};
-    courseLastPlayedMs.value = {};
-  }
-}
-
-watch(showCoursePicker, (open) => {
-  if (!open) return;
-  searchKey.value = '';
-  try {
-    const sys = uni.getSystemInfoSync();
-    const winH = Number(sys.windowHeight) || 667;
-    coursePickerScrollPx.value = Math.max(280, Math.floor(winH * 0.8 - 200));
-  } catch {
-    coursePickerScrollPx.value = 420;
-  }
-  pickerLocation.value = getPickerLocationSync();
-  void resolvePickerLocation().then((loc) => {
-    pickerLocation.value = loc;
-  });
-  void loadCoursePlayCounts();
-});
-
-const filteredCourses = computed(() => {
-  const key = searchKey.value.trim().toLowerCase();
-  const base = key ? allCoursesFlat.filter((c) => courseMatchesSearch(c, key)) : allCoursesFlat;
-  let sorted: typeof allCoursesFlat;
-  try {
-    sorted = sortCoursesForPicker(base, {
-      lat: pickerLocation.value?.lat,
-      lng: pickerLocation.value?.lng,
-      playCountById: coursePlayCounts.value,
-      lastPlayedMsById: courseLastPlayedMs.value,
-    });
-  } catch (e) {
-    console.warn('[CreateMatch] sortCoursesForPicker', e);
-    sorted = [...base].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-  }
-  if (!key) return sorted.slice(0, 100);
-  return sorted;
-});
-
-const courseListHint = computed(() => {
-  const total = catalogStats.courses;
-  if (searchKey.value.trim()) {
-    return `共 ${total} 座 · 匹配 ${filteredCourses.value.length} 条`;
-  }
-  return total > 100 ? `全国 ${total} 座 · 显示前 100 条，请搜索省份/城市/球场名` : `全国 ${total} 座球场`;
-});
+const publishBtnLabel = computed(() => (isEditMode.value ? '保存修改' : '发布并开球'));
+const allCoursesFlat = flattenCoursesForPicker();
 
 /** 半场组合弹层：多半场用 sections；标准 18 洞用合成的前 9 / 后 9 */
 const createMatchSectionPickerList = computed(() => sectionsForCoursePicker(selectedCourse.value));
@@ -562,7 +452,7 @@ const handleStart = async () => {
     <!-- Header -->
     <div class="sticky top-0 bg-slate-50/80 backdrop-blur-md z-20 px-4 py-3 flex items-center justify-between">
       <view @click="handleBack" class="w-10 h-10 flex items-center justify-center rounded-full active:bg-slate-200">
-        <uni-icons type="left" :size="22" color="#1e293b" />
+        <uni-icons type="left" :size="22" color="#334155" />
       </view>
       <h1 class="text-lg font-bold text-slate-900">{{ isEditMode ? '修改比赛' : '发布球局' }}</h1>
       <div class="w-10"></div>
@@ -675,90 +565,15 @@ const handleStart = async () => {
         @click="handleStart"
         class="w-full bg-emerald-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-emerald-600/30 active:scale-95 transition-all flex items-center justify-center"
       >
-        {{ isEditMode ? '保存修改' : '发布并开球' }}
+        {{ publishBtnLabel }}
       </button>
     </div>
 
-    <!-- Course Picker Modal -->
-    <div v-if="showCoursePicker" class="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm">
-      <div class="w-full max-w-md bg-white rounded-t-[40px] p-6 pb-10 animate-slide-up h-[80vh] flex flex-col">
-        <div class="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6"></div>
-        <div class="flex justify-between items-center mb-6">
-          <h3 class="text-xl font-bold text-slate-900">选择球场</h3>
-          <view @click="showCoursePicker = false" class="w-10 h-10 flex items-center justify-center rounded-full bg-slate-100">
-            <uni-icons type="closeempty" :size="20" color="#94a3b8" />
-          </view>
-        </div>
-
-        <div class="relative mb-2">
-            <input
-              type="text"
-              :value="searchKey"
-              confirm-type="search"
-              adjust-position
-              class="mp-safe-input-full w-full pl-12 pr-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-lime-400 font-medium text-slate-900"
-              placeholder="搜索省份、城市或球场名"
-              @input="onCourseSearchInput"
-            />
-          <view class="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
-            <uni-icons type="search" :size="20" color="#94a3b8" />
-          </view>
-        </div>
-        <p class="text-xs text-slate-400 mb-4 px-1">{{ courseListHint }}</p>
-
-        <scroll-view
-          scroll-y
-          enable-flex
-          class="no-scrollbar"
-          :style="{ height: coursePickerScrollPx + 'px' }"
-        >
-          <view class="space-y-2 pb-2">
-          <view
-            v-for="course in filteredCourses"
-            :key="course.id"
-            @click="selectCourse(course)"
-            class="flex items-center gap-4 p-3 rounded-2xl active:bg-slate-100 transition-colors"
-          >
-            <image :src="course.logo_url" class="w-12 h-12 rounded-xl object-cover shadow-sm" mode="aspectFill" />
-            <view class="flex-1 min-w-0">
-              <text class="font-bold text-slate-900 truncate block">{{ course.name }}</text>
-              <text class="text-xs text-slate-500 block">{{ course.province }} · {{ course.city }}</text>
-            </view>
-            <uni-icons type="right" :size="16" color="#cbd5e1" />
-          </view>
-
-          <view
-            v-if="!searchKey && filteredCourses.length === 0"
-            class="py-8 text-center text-sm text-slate-400"
-          >
-            球场列表加载异常，请重启小程序后重试
-          </view>
-
-          <!-- Fallback Option -->
-          <view
-            v-if="searchKey && filteredCourses.length === 0"
-            @click="selectCourse({
-              id: 'custom-indoor',
-              name: searchKey + ' (室内练习场)',
-              city: '自定义',
-              total_par: 72,
-              holes: Array.from({length: 18}, (_, i) => ({ no: i + 1, par: 4 }))
-            })"
-            class="flex items-center gap-4 p-3 rounded-2xl active:bg-slate-100 transition-colors border border-dashed border-slate-300"
-          >
-            <view class="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center">
-              <uni-icons type="search" :size="20" color="#94a3b8" />
-            </view>
-            <view class="flex-1 min-w-0">
-              <text class="font-bold text-slate-900 truncate block">使用 "{{ searchKey }}" 作为室内练习场</text>
-              <text class="text-xs text-slate-500 block">默认 18 洞全为 Par 4</text>
-            </view>
-            <uni-icons type="right" :size="16" color="#cbd5e1" />
-          </view>
-          </view>
-        </scroll-view>
-      </div>
-    </div>
+    <CreateMatchCoursePicker
+      :show="showCoursePicker"
+      @close="showCoursePicker = false"
+      @select="selectCourse"
+    />
 
     <!-- DateTime Picker Modal -->
     <div v-if="showDateTimePicker" class="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm">
