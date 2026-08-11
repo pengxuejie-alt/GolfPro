@@ -47,17 +47,15 @@ function cloudInitTraceUser() {
 let cloudInitPromise = null;
 let cloudInitCalled = false;
 
-/** 部分旧版微信基础库无 queueMicrotask，会导致 cloud init 永不 resolve、login/头像换链全挂 */
+/** 微信部分基础库无 queueMicrotask；仅用 Promise 微任务，避免 ReferenceError */
 function deferMicrotask(fn) {
-  try {
-    if (typeof queueMicrotask === 'function') {
-      queueMicrotask(fn);
-      return;
+  Promise.resolve().then(fn).catch(() => {
+    try {
+      if (typeof setTimeout === 'function') setTimeout(fn, 0);
+    } catch {
+      /* ignore */
     }
-  } catch {
-    /* ignore */
-  }
-  Promise.resolve().then(fn);
+  });
 }
 
 function ensureCloudInitDeferred() {
