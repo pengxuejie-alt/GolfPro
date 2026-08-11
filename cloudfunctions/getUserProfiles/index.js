@@ -18,15 +18,19 @@ async function resolveAvatarFileIdsToHttps(profiles) {
   const chunkSize = 50;
   for (let i = 0; i < fileIds.length; i += chunkSize) {
     const chunk = fileIds.slice(i, i + chunkSize);
-    try {
-      const res = await cloud.getTempFileURL({ fileList: chunk });
-      for (const item of res.fileList || []) {
-        const fid = item.fileID != null ? String(item.fileID).trim() : '';
-        const url = item.tempFileURL != null ? String(item.tempFileURL).trim() : '';
-        if (fid && url) idToUrl.set(fid, url);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await cloud.getTempFileURL({ fileList: chunk });
+        for (const item of res.fileList || []) {
+          const fid = item.fileID != null ? String(item.fileID).trim() : '';
+          const url = item.tempFileURL != null ? String(item.tempFileURL).trim() : '';
+          if (fid && url) idToUrl.set(fid, url);
+        }
+        break;
+      } catch (e) {
+        console.warn('[getUserProfiles] getTempFileURL attempt', attempt + 1, e);
+        if (attempt === 0) await new Promise((r) => setTimeout(r, 300));
       }
-    } catch (e) {
-      console.warn('[getUserProfiles] getTempFileURL', e);
     }
   }
 

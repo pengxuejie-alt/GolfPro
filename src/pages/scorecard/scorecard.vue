@@ -27,6 +27,11 @@ import {
 } from '@/utils/mpAvatarSrc';
 import { buildRosterAvatarDisplayMap, isLikelyWeChatOpenId } from '@/utils/rosterAvatarDisplay';
 import {
+  fetchUserProfilesForOpenIds,
+  profileMapToAvatarHttps,
+  resolvePlayerOpenId,
+} from '@/utils/fetchUserProfilesForOpenIds';
+import {
   GUEST_NICKNAME,
   defaultGuestNickname,
   isGuestOrPlaceholderNickname,
@@ -254,14 +259,14 @@ async function hydrateRosterAvatarDisplay(force = false): Promise<void> {
   const mid = String(matchId.value || matchStore.match_id || '').trim();
   if (!force && mid && avatarHydratedForMatchId === mid) return;
 
-  const ids = players.map((p) => p.id).filter(Boolean);
-  const profileMap = await fetchUsersProfilesByOpenIds(ids);
-  const profileHttps = new Map<string, string>();
-  for (const [oid, prof] of profileMap) {
-    const av = prof.avatarUrl?.trim();
-    if (av) profileHttps.set(oid, av);
-  }
-  const built = await buildRosterAvatarDisplayMap(players, profileHttps);
+  const ids = players.map((p) => resolvePlayerOpenId(p) || p.id).filter(Boolean);
+  const profileMap = await fetchUserProfilesForOpenIds(ids);
+  const profileHttps = profileMapToAvatarHttps(profileMap);
+  const rosterPlayers = players.map((p) => ({
+    id: resolvePlayerOpenId(p) || p.id,
+    avatar: p.avatar || '',
+  }));
+  const built = await buildRosterAvatarDisplayMap(rosterPlayers, profileHttps);
   rosterAvatarDisplay.value = mergeAvatarDisplayMaps(rosterAvatarDisplay.value, built);
   if (mid) avatarHydratedForMatchId = mid;
 }
@@ -282,61 +287,10 @@ function collectPlayerOpenIdsFromMatch(m: Record<string, unknown>): string[] {
   return [...set];
 }
 
-/**
- * users 批量拉头像昵称（替代 getMatchTeammates）。
- * _.in() 单次条数受限，分页 chunk。
- */
 async function fetchUsersProfilesByOpenIds(
-  openIds: string[]
+  openIds: string[],
 ): Promise<Map<string, { nickName: string; avatarUrl: string }>> {
-  const map = new Map<string, { nickName: string; avatarUrl: string }>();
-  if (!openIds.length) return map;
-
-  const cloudRes = await callWxCloudFn<{
-    success?: boolean;
-    profiles?: Array<{ openId?: string; nickName?: string; avatarUrl?: string }>;
-  }>('getUserProfiles', { openIds });
-  if (cloudRes?.success && Array.isArray(cloudRes.profiles)) {
-    for (const row of cloudRes.profiles) {
-      const oid = row.openId != null ? String(row.openId).trim() : '';
-      if (!oid) continue;
-      const nickName =
-        row.nickName != null && String(row.nickName).trim() !== ''
-          ? String(row.nickName).trim()
-          : '球友';
-      const avatarUrl =
-        row.avatarUrl != null && String(row.avatarUrl).trim() !== ''
-          ? String(row.avatarUrl).trim()
-          : '';
-      map.set(oid, { nickName, avatarUrl });
-    }
-    if (map.size > 0) return map;
-  }
-
-  // #ifdef MP-WEIXIN
-  if (!openIds.length || typeof wx === 'undefined' || !wx.cloud?.database) return map;
-  await db.waitForInit();
-  const wxdb = wx.cloud.database();
-  const _ = wxdb.command;
-  const chunkSize = 20;
-  for (let i = 0; i < openIds.length; i += chunkSize) {
-    const chunk = openIds.slice(i, i + chunkSize);
-    const snap = await wxdb.collection('users').where({ _openid: _.in(chunk) }).get();
-    const rows = snap.data ?? [];
-    for (const row of rows) {
-      const r = row as Record<string, unknown>;
-      const oid = r._openid != null ? String(r._openid).trim() : '';
-      if (!oid) continue;
-      const nickRaw = r.nickName ?? r.nickname;
-      const avRaw = r.avatarUrl ?? r.avatar;
-      const nickName =
-        nickRaw != null && String(nickRaw).trim() !== '' ? String(nickRaw).trim() : '球友';
-      const avatarUrl = avRaw != null ? String(avRaw).trim() : '';
-      map.set(oid, { nickName, avatarUrl });
-    }
-  }
-  // #endif
-  return map;
+  return fetchUserProfilesForOpenIds(openIds);
 }
 
 /** 他机不可用的本机临时路径，避免占位阻塞从 users 拉云头像 */
@@ -399,7 +353,8 @@ function isPlaceholderJoinNickname(nick: string | undefined, playerId?: string):
 function applyUsersProfilesToRoster(profileMap: Map<string, { nickName: string; avatarUrl: string }>): boolean {
   let modified = false;
   matchStore.user_list = matchStore.user_list.map((pl) => {
-    const u = profileMap.get(pl.id);
+    const pid = resolvePlayerOpenId(pl) || pl.id;
+    const u = profileMap.get(pid);
     if (!u) {
       if (pl.avatar && !isShareableAvatarUrl(pl.avatar)) {
         modified = true;
@@ -413,7 +368,7 @@ function applyUsersProfilesToRoster(profileMap: Map<string, { nickName: string; 
       avCloudRaw && looksLikeExpiredProneTencentTempHttps(avCloudRaw) ? undefined : avCloudRaw || undefined;
     const avatar = mergeAvatarFromCloudRoster(pl.avatar, profileAvFiltered);
     let nickname = (u.nickName && String(u.nickName).trim()) || pl.nickname;
-    if (u.nickName && isPlaceholderJoinNickname(pl.nickname, pl.id)) {
+    if (u.nickName && isPlaceholderJoinNickname(pl.nickname, pid)) {
       nickname = String(u.nickName).trim();
     }
     if (nickname !== pl.nickname || avatar !== pl.avatar) modified = true;
@@ -2767,7 +2722,7 @@ const players = computed(() => {
 const DEFAULT_RULE_SLOT_AVATAR = mpStaticAbsolute('tab/me.png');
 
 function avatarOrDefault(p: { id?: string; avatar?: string } | null | undefined): string {
-  const id = p?.id != null ? String(p.id).trim() : '';
+  const id = (p ? resolvePlayerOpenId(p) || String(p.id || '').trim() : '') || '';
   const resolved = id ? rosterAvatarDisplay.value[id] || getCachedAvatarDisplay(id) : '';
   const a = resolved || (p?.avatar != null ? String(p.avatar).trim() : '');
   return mpAvatarImgSrcForDisplay(a, DEFAULT_RULE_SLOT_AVATAR);

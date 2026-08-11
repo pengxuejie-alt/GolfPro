@@ -22,12 +22,21 @@ function isPlaceholderHostUid(uid) {
 }
 
 function mapPlayersForCloud(playerList) {
-  return playerList.map((p) => ({
-    uid: p.uid || p.id || p.openId || '',
-    nickName: p.nickName || p.nickname || '',
-    avatarUrl: p.avatarUrl || p.avatar || '',
-    handicap: Number(p.handicap) || 0,
-  }));
+  return playerList.map((p) => {
+    const uid = String(p.uid || p.id || p.openId || p.openid || '').trim();
+    const av = String(p.avatarUrl || p.avatar || '').trim();
+    return {
+      uid,
+      id: uid,
+      openId: uid,
+      openid: uid,
+      nickName: p.nickName || p.nickname || '',
+      nickname: p.nickName || p.nickname || '',
+      avatarUrl: av,
+      avatar: av,
+      handicap: Number(p.handicap) || 0,
+    };
+  });
 }
 
 exports.main = async (event) => {

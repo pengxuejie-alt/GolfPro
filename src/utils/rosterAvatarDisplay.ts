@@ -4,16 +4,19 @@
 
 import { batchResolveCloudFileIds, isWxCloudFileId } from './mpCloudFileUrl';
 import { hydratePlayerAvatarsInMatchList, pickAvatarSrcForDisplay } from './mpAvatarSrc';
-import { hydrateMatchListRostersFromUserProfiles, fetchUserProfilesMerged } from './mpMatchListRosterHydrate';
+import { hydrateMatchListRostersFromUserProfiles } from './mpMatchListRosterHydrate';
 import { getCachedAvatarDisplay, setCachedAvatarDisplay } from './avatarDisplayCache';
+import {
+  fetchUserProfilesForOpenIds,
+  profileMapToAvatarHttps,
+  resolvePlayerOpenId,
+} from './fetchUserProfilesForOpenIds';
 
-export function rosterOpenIdFromPlayer(p: unknown): string {
-  if (!p || typeof p !== 'object') return '';
-  const o = p as Record<string, unknown>;
-  const raw = o.openid ?? o.openId ?? o.player_uid ?? o.uid ?? o.id;
-  if (raw == null || String(raw).trim() === '') return '';
-  return String(raw).trim();
-}
+export {
+  isLikelyWeChatOpenId,
+  resolvePlayerOpenId,
+  resolvePlayerOpenId as rosterOpenIdFromPlayer,
+} from './fetchUserProfilesForOpenIds';
 
 function collectOpenIdsFromMatchList(list: unknown[]): string[] {
   const set = new Set<string>();
@@ -23,7 +26,7 @@ function collectOpenIdsFromMatchList(list: unknown[]): string[] {
     for (const roster of [row.user_list, row.players]) {
       if (!Array.isArray(roster)) continue;
       for (const p of roster) {
-        const k = rosterOpenIdFromPlayer(p);
+        const k = resolvePlayerOpenId(p);
         if (!k || k.startsWith('temp_') || k.startsWith('virtual') || k.startsWith('anon_')) continue;
         set.add(k);
       }
@@ -41,12 +44,8 @@ export async function buildMatchListAvatarDisplayMap(list: unknown[]): Promise<R
   if (!Array.isArray(list) || !list.length) return out;
 
   const openIds = collectOpenIdsFromMatchList(list);
-  const profiles = openIds.length ? await fetchUserProfilesMerged(openIds) : new Map();
-  const profileHttps = new Map<string, string>();
-  for (const [oid, prof] of profiles) {
-    const av = String(prof.avatarUrl || '').trim();
-    if (av) profileHttps.set(oid, av);
-  }
+  const profiles = openIds.length ? await fetchUserProfilesForOpenIds(openIds) : new Map();
+  const profileHttps = profileMapToAvatarHttps(profiles);
 
   for (const m of list) {
     if (!m || typeof m !== 'object') continue;
@@ -62,7 +61,7 @@ export async function buildMatchListAvatarDisplayMap(list: unknown[]): Promise<R
       .map((p) => {
         const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
         return {
-          id: rosterOpenIdFromPlayer(p),
+          id: resolvePlayerOpenId(p),
           avatar: String(o.avatar ?? o.avatarUrl ?? '').trim(),
         };
       })
@@ -75,11 +74,6 @@ export async function buildMatchListAvatarDisplayMap(list: unknown[]): Promise<R
     }
   }
   return out;
-}
-
-export function isLikelyWeChatOpenId(s: unknown): boolean {
-  const t = String(s ?? '').trim();
-  return /^o[A-Za-z0-9_-]{10,}$/.test(t);
 }
 
 /** 展示层：https（含 getTempFileURL 临时链）可用；cloud:// 需先 resolve */

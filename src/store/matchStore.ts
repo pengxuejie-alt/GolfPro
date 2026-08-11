@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { MatchManager } from '@/utils/match_manager';
 import { normalizeMatchHoleScoresForClient } from '@/utils/matchHoleScoresNormalize';
+import { resolvePlayerOpenId } from '@/utils/fetchUserProfilesForOpenIds';
 
 /** 防止 cloud/表单混入 string 后 reduce/+= 退化成字符串拼接，避免出现一长串 9 */
 function fin(v: unknown, fallback = 0): number {
@@ -176,11 +177,13 @@ function normalizeMatchPlayer(p: unknown, index: number): Player {
     return { id: `invalid_${index}`, nickname: '?', handicap: null };
   }
   const o = p as Record<string, unknown>;
-  const rawId = o.id ?? o.uid ?? o.openId ?? o.openid ?? o.player_uid;
-  const id =
-    rawId != null && String(rawId) !== ''
-      ? String(rawId)
-      : `anon_${index}_${Math.random().toString(36).slice(2, 8)}`;
+  const id = resolvePlayerOpenId(p) || (() => {
+    const rawId = o.id ?? o.uid ?? o.openId ?? o.openid ?? o.player_uid;
+    return rawId != null && String(rawId) !== '' ? String(rawId) : '';
+  })();
+  const finalId =
+    id ||
+    `anon_${index}_${Math.random().toString(36).slice(2, 8)}`;
   const nickname = pickDisplayString(o.nickname ?? o.nickName, '球友');
   const avatar = pickAvatarString(o.avatar ?? o.avatarUrl);
   const rawHcp = (o as Record<string, unknown>).handicap;
@@ -190,7 +193,7 @@ function normalizeMatchPlayer(p: unknown, index: number): Player {
     handicap = Number.isFinite(n) ? n : null;
   }
   return {
-    id,
+    id: finalId,
     nickname,
     avatar: avatar || undefined,
     handicap,
