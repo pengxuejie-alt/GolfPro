@@ -155,15 +155,40 @@ async function fetchMatchesListFromCloud(wxdb) {
   const viaFn = await callListMyMatchesCloud(MATCHES_LIST_LIMIT);
   if (viaFn !== null) {
     console.info('[db] listMyMatches', viaFn.length, '条（含参与者）');
-    return { data: viaFn };
+    return { data: viaFn, listFnOk: true };
   }
   console.info('[db] 直连 matches _openid+updated_at (limit', MATCHES_LIST_LIMIT, ')');
-  return wxdb
+  const direct = await wxdb
     .collection('matches')
     .where({ _openid: '{openid}' })
     .orderBy('updated_at', 'desc')
     .limit(MATCHES_LIST_LIMIT)
     .get();
+  return { ...direct, listFnOk: false };
+}
+
+function readStoredOpenId() {
+  try {
+    const oid = uni.getStorageSync('golfpro_openid');
+    return oid != null ? String(oid).trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+/** 本机独有、尚未上云的局：保留在 listMyMatches 成功但云端无该 match_id 时的合并结果 */
+function isLikelyLocalHostDraft(row, openId) {
+  if (!row || typeof row !== 'object') return false;
+  const oid = openId != null ? String(openId).trim() : readStoredOpenId();
+  if (!oid) return false;
+  const docOpen = row._openid;
+  if (docOpen != null && String(docOpen) === oid) return true;
+  const roster = row.user_list || row.players;
+  if (!Array.isArray(roster) || roster.length === 0) return true;
+  const first = roster[0];
+  if (!first || typeof first !== 'object') return false;
+  const hid = first.uid ?? first.id ?? first.openId ?? first.openid;
+  return hid != null && String(hid) === oid;
 }
 
 function normalizeMidList(row) {
@@ -186,7 +211,9 @@ function dedupeMatchesByMid(rows) {
   return out;
 }
 
-function mergeMatchesCloudWithLocalCache(cloudRows, cacheRows) {
+function mergeMatchesCloudWithLocalCache(cloudRows, cacheRows, opts = {}) {
+  const cloudAuthoritative = opts.cloudAuthoritative === true;
+  const openId = opts.openId != null ? String(opts.openId).trim() : readStoredOpenId();
   const cloud = dedupeMatchesByMid(cloudRows);
   const cache = dedupeMatchesByMid(cacheRows);
   const byId = new Map();
@@ -197,6 +224,7 @@ function mergeMatchesCloudWithLocalCache(cloudRows, cacheRows) {
   for (const r of cache) {
     const id = normalizeMidList(r);
     if (!id || byId.has(id)) continue;
+    if (cloudAuthoritative && !isLikelyLocalHostDraft(r, openId)) continue;
     const copy = { ...r };
     normalizeMatchHoleScoresForClient(copy);
     byId.set(id, copy);
@@ -544,11 +572,18 @@ export const db = {
         }),
       );
       const res = await withCloudTimeout(fetchMatchesListFromCloud(wxdb), 'getMatches.fetchList');
+      const listFnOk = res?.listFnOk === true;
       const cloudRows = (res.data || []).map(mapCloudDocToMatchRow).filter(Boolean);
-      const mergedRaw =
-        cloudRows.length > 0 ? mergeMatchesCloudWithLocalCache(cloudRows, cacheBeforeFetch) : cacheBeforeFetch;
+      let mergedRaw;
+      if (listFnOk) {
+        mergedRaw = mergeMatchesCloudWithLocalCache(cloudRows, cacheBeforeFetch, { cloudAuthoritative: true });
+      } else if (cloudRows.length > 0) {
+        mergedRaw = mergeMatchesCloudWithLocalCache(cloudRows, cacheBeforeFetch);
+      } else {
+        mergedRaw = cacheBeforeFetch;
+      }
       const merged = filterExcludedFromMyMatchesList(mergedRaw);
-      if (merged.length > 0) {
+      if (listFnOk || cloudRows.length > 0) {
         persistMatchListCache(merged);
         console.info(
           '[db.getMatches] 云端',

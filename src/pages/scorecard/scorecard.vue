@@ -63,6 +63,8 @@ let lastSavedPkRulesJson = '';
 let lastSavedMatchMetaJson = '';
 const showJoinChoiceModal = ref(false);
 const joiningUser = ref<any>(null);
+/** 分享落地时云端已删局：勿再弹加入/围观 */
+const inviteMatchDeleted = ref(false);
 /** 资料门控完成后直接 joinMatch（而非回到加入/围观弹层） */
 const pendingJoinAfterProfile = ref(false);
 /** join=受邀加入前；edit=已在局内/围观后补资料 */
@@ -133,11 +135,8 @@ onLoad((query) => {
   }
 
   enteredViaInvite.value = detectScorecardInviteEntry(q, !!mid);
-  /** 必须在 bootstrap 拉云之前弹出，否则 getMatch/login 会触发无按钮的系统 privacy toast */
+  /** 隐私 gate 后再 bootstrap；已加入名单的用户由 maybeRunInviteFlow 跳过加入弹层 */
   if (enteredViaInvite.value && mid) {
-    joiningUser.value = buildJoiningUserFromProfile();
-    invitePromptShown.value = true;
-    showJoinChoiceModal.value = true;
     // #ifdef MP-WEIXIN
     void (async () => {
       const need = await getPrivacyNeedAuthorizationAsync();
@@ -529,6 +528,18 @@ async function upsertLocalMatchFromCloudAndRefetch(matchId: string, cloudDoc: an
   return (await MatchManager.getMatch(matchId)) ?? cloudDoc;
 }
 
+async function purgeDeletedInviteMatch(mid: string) {
+  inviteMatchDeleted.value = true;
+  await MatchManager.removeMatchFromLocalList(mid);
+  showJoinChoiceModal.value = false;
+  joiningUser.value = null;
+  uni.showToast({ title: '此比赛已被删除', icon: 'none', duration: 2800 });
+}
+
+function isCloudMatchNotFound(res: { success?: boolean; error?: string } | null | undefined): boolean {
+  return res?.success === false && String(res.error || '').trim() === 'not_found';
+}
+
 async function loadMatchForScorecard(mid: string): Promise<any | null> {
   /** 未同意隐私：禁止 cloud，避免系统 toast 盖住加入/围观浮层 */
   const needPrivacy = await shouldBlockCloudForPrivacy();
@@ -550,6 +561,10 @@ async function loadMatchForScorecard(mid: string): Promise<any | null> {
   let cloudMatch: any | null = null;
   if (preferCloudFirst) {
     const cloudRes = await fetchCloud();
+    if (isCloudMatchNotFound(cloudRes)) {
+      await purgeDeletedInviteMatch(mid);
+      return null;
+    }
     if (cloudRes?.success && cloudRes.match) {
       cloudMatch = enrichMatchKickoffFromDoc(cloudRes.match as Record<string, unknown>) as any;
       return upsertLocalMatchFromCloudAndRefetch(mid, cloudMatch);
@@ -575,6 +590,10 @@ async function loadMatchForScorecard(mid: string): Promise<any | null> {
   }
 
   const cloudRes = await fetchCloud();
+  if (isCloudMatchNotFound(cloudRes)) {
+    await purgeDeletedInviteMatch(mid);
+    return null;
+  }
   if (cloudRes?.success && cloudRes.match) {
     cloudMatch = enrichMatchKickoffFromDoc(cloudRes.match as Record<string, unknown>) as any;
     return upsertLocalMatchFromCloudAndRefetch(mid, cloudMatch);
@@ -812,8 +831,12 @@ async function confirmProfileGateAndContinue() {
 }
 
 async function maybeRunInviteFlow(match: any) {
-  if (!enteredViaInvite.value || !matchId.value) return;
-  if (match && userStore.openId && isOpenIdInMatchRoster(match, userStore.openId)) return;
+  if (!enteredViaInvite.value || !matchId.value || inviteMatchDeleted.value) return;
+  if (match && userStore.openId && isOpenIdInMatchRoster(match, userStore.openId)) {
+    showJoinChoiceModal.value = false;
+    joiningUser.value = null;
+    return;
+  }
   if (!invitePromptShown.value) {
     openJoinChoiceModal();
   }
