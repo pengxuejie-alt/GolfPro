@@ -17,6 +17,7 @@ import {
 } from '@/utils/avatarDisplayCache';
 import { getMpMatchListNavShellStyle } from '@/utils/mpCapsuleSafeInset';
 import { MP_BATCH_CHECK_OFF, MP_BATCH_CHECK_ON, MP_BATCH_CHECK_ICON_COLOR } from '@/utils/mpBatchCheckStyle';
+import { APP_VERSION_NAME, APP_VERSION_CODE } from '@/utils/appVersion';
 const userStore = useUserStore();
 const profile = computed(() => userStore.profile);
 const DEFAULT_AVATAR_URL = mpStaticAbsolute('tab/me.png');
@@ -274,7 +275,7 @@ onMounted(async () => {
   matches.value = await MatchManager.getMatchList();
 });
 
-const currentSubPage = ref<'main' | 'history' | 'stats' | 'courses'>('main');
+const currentSubPage = ref<'main' | 'history' | 'stats' | 'courses' | 'about'>('main');
 
 /** 在「打过的球场」内：选中的聚合键，非空时展示该球场下比赛列表 */
 const selectedCourseKey = ref<string | null>(null);
@@ -320,7 +321,7 @@ function leaveCoursesPage() {
   currentSubPage.value = 'main';
 }
 
-const handleNavigate = (page: 'main' | 'history' | 'stats' | 'courses') => {
+const handleNavigate = (page: 'main' | 'history' | 'stats' | 'courses' | 'about') => {
   if (page === 'courses') selectedCourseKey.value = null;
   if (page === 'history') exitHistoryBatchMode();
   currentSubPage.value = page;
@@ -817,6 +818,19 @@ function getMatchTotalStrokes(m: any): number {
           </div>
         </div>
 
+        <div @click="handleNavigate('about')" class="bg-white p-5 rounded-3xl flex items-center justify-between shadow-sm border border-slate-100 active:scale-[0.98] transition-all cursor-pointer">
+          <div class="flex items-center gap-4">
+            <div class="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center">
+              <uni-icons type="help" :size="24" color="#64748b" />
+            </div>
+            <div>
+              <p class="font-bold text-slate-900">关于</p>
+              <p class="text-xs text-slate-400 font-medium">版本 {{ APP_VERSION_NAME }}</p>
+            </div>
+          </div>
+          <uni-icons type="right" :size="20" color="#e2e8f0" />
+        </div>
+
       </div>
     </div>
 
@@ -1042,6 +1056,38 @@ function getMatchTotalStrokes(m: any): number {
                 <div :class="['h-full rounded-full transition-all duration-1000', item.color]" 
                      :style="{ width: `${completedMatches.length > 0 ? (item.count / completedMatches.length) * 100 : 0}%` }"></div>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- About Page -->
+    <div v-else-if="currentSubPage === 'about'" class="pb-24">
+      <div class="sticky top-0 bg-white/90 backdrop-blur-xl z-20 px-6 py-4 flex items-center justify-between border-b border-slate-100">
+        <view @click="currentSubPage = 'main'" class="flex items-center gap-1 text-slate-900 font-bold">
+          <uni-icons type="left" :size="20" color="#0f172a" />
+          <span>返回</span>
+        </view>
+        <h1 class="text-lg font-black text-slate-900 tracking-tight">关于</h1>
+        <div class="w-10"></div>
+      </div>
+
+      <div class="p-6">
+        <div class="bg-white rounded-[40px] p-8 shadow-sm border border-slate-100 text-center">
+          <div class="w-16 h-16 mx-auto mb-4 bg-lime-50 rounded-2xl flex items-center justify-center">
+            <uni-icons type="flag" :size="28" color="#65a30d" />
+          </div>
+          <h2 class="text-lg font-black text-slate-900">Golfdate计分</h2>
+          <p class="text-xs text-slate-400 font-medium mt-1">高尔夫专业计分与社交</p>
+          <div class="mt-8 pt-6 border-t border-slate-100 space-y-3">
+            <div class="flex items-center justify-between text-sm">
+              <span class="text-slate-400 font-medium">版本号</span>
+              <span class="font-black text-slate-900">{{ APP_VERSION_NAME }}</span>
+            </div>
+            <div class="flex items-center justify-between text-sm">
+              <span class="text-slate-400 font-medium">构建号</span>
+              <span class="font-bold text-slate-600">{{ APP_VERSION_CODE }}</span>
             </div>
           </div>
         </div>

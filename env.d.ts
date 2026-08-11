@@ -14,3 +14,13 @@ declare module '*.vue' {
   const component: DefineComponent<{}, {}, any>
   export default component
 }
+
+declare module '@/manifest.json' {
+  const manifest: {
+    name?: string
+    versionName?: string
+    versionCode?: string
+    [key: string]: unknown
+  }
+  export default manifest
+}
