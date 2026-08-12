@@ -90,6 +90,22 @@ export function pickAvatarSrcForDisplay(raw: unknown): string {
   return s;
 }
 
+/** 会话内是否可展示（含 getUserProfiles 刚换出的 tcb 临时 https） */
+export function isAvatarUrlDisplayable(raw: unknown): boolean {
+  const s = raw != null ? String(raw).trim() : '';
+  if (!s) return false;
+  if (pickAvatarSrcForDisplay(s)) return true;
+  return /^https:\/\//i.test(s);
+}
+
+/** 展示用 URL：pick 优先，否则保留任意 https（勿用于写库） */
+export function avatarUrlForDisplayOrEmpty(raw: unknown): string {
+  const picked = pickAvatarSrcForDisplay(raw);
+  if (picked) return picked;
+  const s = raw != null ? String(raw).trim() : '';
+  return /^https:\/\//i.test(s) ? s : '';
+}
+
 /** `<image :src>` 统一入口：展示层允许会话内临时 https；真机 MP-WEIXIN 可回退 cloud:// */
 export function mpAvatarImgSrcForDisplay(raw: unknown, fallback: string): string {
   const s = pickAvatarSrcForDisplay(raw);

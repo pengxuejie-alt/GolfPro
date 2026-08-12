@@ -6,7 +6,7 @@
 import { db } from './db.js';
 import { pickAvatarUrlFromUserRow } from './selfAvatarResolve';
 import { batchResolveCloudFileIds, isWxCloudFileId } from './mpCloudFileUrl';
-import { pickAvatarSrcForDisplay } from './mpAvatarSrc';
+import { avatarUrlForDisplayOrEmpty, isAvatarUrlDisplayable, pickAvatarSrcForDisplay } from './mpAvatarSrc';
 
 export function isLikelyWeChatOpenId(s: unknown): boolean {
   const t = String(s ?? '').trim();
@@ -81,7 +81,7 @@ async function callGetUserProfilesCloud(
           const profiles = Array.isArray(body?.profiles) ? body.profiles : [];
           for (const raw of profiles) {
             const row = raw as Record<string, unknown>;
-            const oid = row.openId != null ? String(row.openId).trim() : '';
+            const oid = String(row.openId ?? row.openid ?? row._openid ?? '').trim();
             if (!oid) continue;
             const nickRaw = row.nickName ?? row.nickname;
             const nickName =
@@ -154,7 +154,7 @@ async function resolveProfileMapAvatarsForDisplay(map: Map<string, UserProfileRo
   for (const [, prof] of map) {
     const av = String(prof.avatarUrl || '').trim();
     if (!isWxCloudFileId(av)) continue;
-    const https = pickAvatarSrcForDisplay(resolved.get(av));
+    const https = avatarUrlForDisplayOrEmpty(resolved.get(av));
     if (https) prof.avatarUrl = https;
   }
 }
@@ -189,8 +189,7 @@ export async function fetchUserProfilesForOpenIds(
 
   const stillMissing = uniq.filter((id) => {
     const av = map.get(id)?.avatarUrl;
-    if (!av || !String(av).trim()) return true;
-    return !pickAvatarSrcForDisplay(av);
+    return !isAvatarUrlDisplayable(av);
   });
   if (stillMissing.length > 0) {
     console.warn(

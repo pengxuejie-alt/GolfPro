@@ -259,7 +259,10 @@ const stickyScorecardCourseName: Record<string, string> = {};
 const rosterAvatarDisplay = ref<Record<string, string>>({});
 /** 首页带入的同组头像，整局会话内只升不降（sync 不得冲掉） */
 const sessionPrefillAvatars = ref<Record<string, string>>({});
+/** loadMatch 完成前用首页 prefill 渲染完整 roster，避免首帧仅显示「我」 */
+const bootstrapPreviewRoster = ref<Player[]>([]);
 let avatarHydratedForMatchId = '';
+let scorecardBootstrapFinishedAt = 0;
 
 async function ensureRosterAvatarsStable(cloudMatch?: Record<string, unknown>): Promise<void> {
   if (cloudMatch) seedRosterAvatarDisplayFromMatchDoc(cloudMatch);
@@ -1165,6 +1168,14 @@ async function bootstrapScorecardPage() {
   const prefill = consumeScorecardPrefill(routeMid);
   if (prefill) {
     sessionPrefillAvatars.value = { ...prefill.avatarsByOpenId };
+    if (prefill.rosterPreview?.length) {
+      bootstrapPreviewRoster.value = prefill.rosterPreview.map((row) => ({
+        id: row.id,
+        nickname: row.nickname,
+        avatar: row.avatar || prefill.avatarsByOpenId[row.id] || '',
+        handicap: null,
+      }));
+    }
     applyScorecardPrefillToDisplay(
       routeMid,
       prefill,
@@ -1242,6 +1253,7 @@ async function bootstrapScorecardPage() {
   const bootCourse = String(match.course_name ?? match.courseName ?? '').trim();
   if (bootCourse) stickyScorecardCourseName[routeMid] = bootCourse;
   matchStore.initMatch(match);
+  bootstrapPreviewRoster.value = [];
   seedRosterAvatarDisplayFromMatchDoc(match as Record<string, unknown>);
   seedRosterAvatarDisplayFromCache();
   seedRosterAvatarDisplayFromStorePlayers();
@@ -1273,8 +1285,9 @@ async function bootstrapScorecardPage() {
   if (seq !== scorecardBootstrapSeq) return;
   await nextTick();
   scorecardBootstrappedMid = routeMid;
+  scorecardBootstrapFinishedAt = Date.now();
   if (matchId.value && currentMatch.value && !inviteNeedPrivacy) {
-    void syncMatchFromCloud('show', { gentle: true });
+    void syncMatchFromCloud('show', { gentle: true, skipRosterMerge: true });
   }
   } finally {
     scorecardBootstrapInFlight = false;
@@ -1286,6 +1299,8 @@ watch(
   () => {
     avatarHydratedForMatchId = '';
     sessionPrefillAvatars.value = {};
+    bootstrapPreviewRoster.value = [];
+    scorecardBootstrapFinishedAt = 0;
     const routeMid = String(matchId.value || '').trim();
     if (!routeMid) return;
     if (matchStore.match_id !== routeMid) {
@@ -2396,7 +2411,22 @@ function cloudRosterIdsSig(cloudMatch: any): string {
 }
 
 function localRosterIdsSig(): string {
-  return matchStore.user_list.map((p) => p.id).join('\u001f');
+  return rosterIdsSignature(matchStore.user_list);
+}
+
+function rosterSigSamePlayerSet(a: string, b: string): boolean {
+  if (a === b) return true;
+  const sa = new Set(a.split('\u001f').filter(Boolean));
+  const sb = new Set(b.split('\u001f').filter(Boolean));
+  if (sa.size !== sb.size) return false;
+  for (const id of sa) {
+    if (!sb.has(id)) return false;
+  }
+  return true;
+}
+
+function normStorePlayerId(p: { id?: string }): string {
+  return resolvePlayerOpenId(p) || String(p.id || '').trim();
 }
 
 function mergeCloudRosterIntoScorecard(cloudMatch: any): boolean {
@@ -2409,13 +2439,15 @@ function mergeCloudRosterIntoScorecard(cloudMatch: any): boolean {
 
   let changed = false;
 
-  const toRemove = matchStore.user_list.filter((p) => !cloudIds.includes(p.id)).map((p) => p.id);
+  const toRemove = matchStore.user_list
+    .filter((p) => !cloudIds.includes(normStorePlayerId(p)))
+    .map((p) => normStorePlayerId(p));
   for (const id of toRemove) {
     matchStore.removePlayer(id);
     changed = true;
   }
 
-  const seen = new Set(matchStore.user_list.map((p) => p.id));
+  const seen = new Set(matchStore.user_list.map((p) => normStorePlayerId(p)));
   for (const pl of cloudPlayers) {
     if (!seen.has(pl.id)) {
       const displayAv = pickAvatarSrcForDisplay(
@@ -2433,9 +2465,8 @@ function mergeCloudRosterIntoScorecard(cloudMatch: any): boolean {
     }
   }
 
-  const curIds = matchStore.user_list.map((p) => p.id);
-  const sameSet =
-    curIds.length === cloudIds.length && cloudIds.every((id) => curIds.includes(id));
+  const curIds = matchStore.user_list.map((p) => normStorePlayerId(p));
+  const sameSet = curIds.length === cloudIds.length && cloudIds.every((id) => curIds.includes(id));
   if (sameSet && !cloudIds.every((id, i) => id === curIds[i])) {
     matchStore.reorderPlayersByIds(cloudIds);
     changed = true;
@@ -2732,7 +2763,7 @@ function rememberCloudRevision(rev: MatchCloudRevision | null | undefined, cm?: 
 /** 从云端拉取：头像/昵称、新球友、成绩（最后录入为准） */
 async function syncMatchFromCloud(
   source: 'show' | 'poll' | 'pull',
-  opts?: { gentle?: boolean },
+  opts?: { gentle?: boolean; skipRosterMerge?: boolean },
 ) {
   const mid = matchId.value;
   if (!mid || !currentMatch.value) return;
@@ -2764,24 +2795,29 @@ async function syncMatchFromCloud(
     const rulesMeta = mergePkRulesAndMetaFromCloud(cm);
     changed = rulesMeta.pk || rulesMeta.meta || changed;
 
+    const cloudSig = cloudRosterIdsSig(cm);
+    const localSig = localRosterIdsSig();
     const rosterStable =
       source === 'poll' &&
-      cloudRosterIdsSig(cm) === localRosterIdsSig() &&
-      localRosterIdsSig().length > 0;
-    const rosterChanged = cloudRosterIdsSig(cm) !== localRosterIdsSig();
+      rosterSigSamePlayerSet(cloudSig, localSig) &&
+      localSig.length > 0;
+    const rosterChanged = !rosterSigSamePlayerSet(cloudSig, localSig);
     const gentle = opts?.gentle === true;
+    const skipRosterMerge = opts?.skipRosterMerge === true;
 
     seedRosterAvatarDisplayFromMatchDoc(cm as Record<string, unknown>);
 
-    if (!gentle && !rosterStable) {
+    if (!skipRosterMerge && !gentle && !rosterStable) {
       changed = applyRosterCosmeticsFromCloud(cm) || changed;
       newPlayers = mergeCloudRosterIntoScorecard(cm) || newPlayers;
       changed = newPlayers || changed;
       changed = applyRosterCosmeticsFromCloud(cm) || changed;
-    } else if (rosterChanged) {
+    } else if (!skipRosterMerge && rosterChanged) {
       changed = applyRosterCosmeticsFromCloud(cm) || changed;
       newPlayers = mergeCloudRosterIntoScorecard(cm) || newPlayers;
       changed = newPlayers || changed;
+      changed = applyRosterCosmeticsFromCloud(cm) || changed;
+    } else if (gentle || skipRosterMerge) {
       changed = applyRosterCosmeticsFromCloud(cm) || changed;
     }
     scoreUpdate = mergeHoleScoresFromCloud(cm) || scoreUpdate;
@@ -2857,6 +2893,7 @@ onShow(() => {
   if (scorecardBootstrapInFlight) return;
   const mid = String(matchId.value || '').trim();
   if (!mid || !currentMatch.value) return;
+  if (Date.now() - scorecardBootstrapFinishedAt < 4000) return;
   void syncMatchFromCloud('show', { gentle: true });
 });
 
@@ -2913,6 +2950,7 @@ watch(showQRCodeModal, (v) => {
 
 const players = computed(() => {
   if (matchStore.user_list.length > 0) return matchStore.user_list;
+  if (bootstrapPreviewRoster.value.length > 0) return bootstrapPreviewRoster.value;
   return [{
     id: userStore.openId || 'self',
     nickname: userStore.profile.nickname || '我',

@@ -3,7 +3,7 @@
  */
 
 import { batchResolveCloudFileIds, isWxCloudFileId } from './mpCloudFileUrl';
-import { hydratePlayerAvatarsInMatchList, pickAvatarSrcForDisplay } from './mpAvatarSrc';
+import { hydratePlayerAvatarsInMatchList, avatarUrlForDisplayOrEmpty, pickAvatarSrcForDisplay } from './mpAvatarSrc';
 import { hydrateMatchListRostersFromUserProfiles } from './mpMatchListRosterHydrate';
 import { getCachedAvatarDisplay, setCachedAvatarDisplay } from './avatarDisplayCache';
 import {
@@ -102,7 +102,7 @@ export async function buildMatchListAvatarDisplayMap(list: unknown[]): Promise<R
 
 /** 展示层：https（含 getTempFileURL 临时链）可用；cloud:// 需先 resolve */
 function pickDisplayAvatarSrc(raw: unknown): string {
-  return pickAvatarSrcForDisplay(raw);
+  return avatarUrlForDisplayOrEmpty(raw) || pickAvatarSrcForDisplay(raw);
 }
 
 /** openId -> 可展示的 https 头像（不写回 matches / users） */

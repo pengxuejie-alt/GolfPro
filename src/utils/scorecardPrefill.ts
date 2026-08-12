@@ -3,11 +3,17 @@
  */
 
 import { resolvePlayerOpenId } from './fetchUserProfilesForOpenIds';
-import { pickAvatarSrcForDisplay } from './mpAvatarSrc';
+import { avatarUrlForDisplayOrEmpty } from './mpAvatarSrc';
 import { setCachedAvatarDisplay } from './avatarDisplayCache';
 
 const KEY_PREFIX = 'sc_prefill_v1_';
 const MAX_AGE_MS = 5 * 60 * 1000;
+
+export interface PrefillRosterPlayer {
+  id: string;
+  nickname: string;
+  avatar: string;
+}
 
 export interface ScorecardPrefillPayload {
   course_name?: string;
@@ -16,6 +22,15 @@ export interface ScorecardPrefillPayload {
   avatarsByOpenId: Record<string, string>;
   openIds: string[];
   rosterCount: number;
+  /** 首页已展示的完整 roster，进计分页首帧即可渲染 */
+  rosterPreview: PrefillRosterPlayer[];
+}
+
+function pickRosterNickname(raw: unknown): string {
+  if (!raw || typeof raw !== 'object') return '球友';
+  const o = raw as Record<string, unknown>;
+  const nick = o.nickname ?? o.nickName;
+  return nick != null && String(nick).trim() !== '' ? String(nick).trim() : '球友';
 }
 
 export function stashScorecardPrefillFromIndex(
@@ -26,28 +41,29 @@ export function stashScorecardPrefillFromIndex(
   if (!mid) return;
 
   const avatarsByOpenId: Record<string, string> = {};
+  const rosterPreview: PrefillRosterPlayer[] = [];
+  const seen = new Set<string>();
+
   for (const roster of [match.user_list, match.players]) {
     if (!Array.isArray(roster)) continue;
     for (const p of roster) {
       const pid = resolvePlayerOpenId(p);
-      if (!pid) continue;
+      if (!pid || seen.has(pid)) continue;
+      seen.add(pid);
       const fromMap = matchAvatarDisplayMap[`${mid}:${pid}`];
       const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
       const raw = fromMap || String(o.avatar ?? o.avatarUrl ?? '').trim();
-      const av = pickAvatarSrcForDisplay(raw);
+      const av = avatarUrlForDisplayOrEmpty(raw);
       if (av) avatarsByOpenId[pid] = av;
+      rosterPreview.push({
+        id: pid,
+        nickname: pickRosterNickname(p),
+        avatar: av || avatarUrlForDisplayOrEmpty(o.avatar ?? o.avatarUrl),
+      });
     }
   }
 
-  const openIds: string[] = [];
-  for (const roster of [match.user_list, match.players]) {
-    if (!Array.isArray(roster)) continue;
-    for (const p of roster) {
-      const pid = resolvePlayerOpenId(p);
-      if (pid && !openIds.includes(pid)) openIds.push(pid);
-    }
-  }
-
+  const openIds = rosterPreview.map((r) => r.id);
   const course = String(match.course_name ?? match.courseName ?? '').trim();
   const payload = {
     course_name: course || undefined,
@@ -56,6 +72,7 @@ export function stashScorecardPrefillFromIndex(
     avatarsByOpenId,
     openIds,
     rosterCount: openIds.length,
+    rosterPreview,
     at: Date.now(),
   };
 
@@ -79,6 +96,16 @@ export function consumeScorecardPrefill(mid: string): ScorecardPrefillPayload | 
     if (at > 0 && Date.now() - at > MAX_AGE_MS) return null;
     const avatarsByOpenId =
       (parsed as { avatarsByOpenId?: Record<string, string> }).avatarsByOpenId ?? {};
+    const rosterPreviewRaw = (parsed as { rosterPreview?: PrefillRosterPlayer[] }).rosterPreview;
+    const rosterPreview = Array.isArray(rosterPreviewRaw)
+      ? rosterPreviewRaw
+          .map((row) => ({
+            id: String(row?.id ?? '').trim(),
+            nickname: String(row?.nickname ?? '球友').trim() || '球友',
+            avatar: avatarUrlForDisplayOrEmpty(row?.avatar),
+          }))
+          .filter((row) => row.id)
+      : [];
     return {
       course_name: (parsed as { course_name?: string }).course_name,
       courseName: (parsed as { courseName?: string }).courseName,
@@ -87,8 +114,9 @@ export function consumeScorecardPrefill(mid: string): ScorecardPrefillPayload | 
         avatarsByOpenId && typeof avatarsByOpenId === 'object' ? avatarsByOpenId : {},
       openIds: Array.isArray((parsed as { openIds?: string[] }).openIds)
         ? (parsed as { openIds: string[] }).openIds
-        : [],
-      rosterCount: Number((parsed as { rosterCount?: number }).rosterCount || 0),
+        : rosterPreview.map((r) => r.id),
+      rosterCount: Number((parsed as { rosterCount?: number }).rosterCount || rosterPreview.length),
+      rosterPreview,
     };
   } catch {
     return null;
@@ -110,10 +138,17 @@ export function applyScorecardPrefillToDisplay(
 
   const patch: Record<string, string> = {};
   for (const [oid, av] of Object.entries(prefill.avatarsByOpenId)) {
-    const display = pickAvatarSrcForDisplay(av);
+    const display = avatarUrlForDisplayOrEmpty(av);
     if (oid && display) {
       patch[oid] = display;
       setCachedAvatarDisplay(oid, display);
+    }
+  }
+  for (const row of prefill.rosterPreview ?? []) {
+    const display = avatarUrlForDisplayOrEmpty(row.avatar);
+    if (row.id && display && !patch[row.id]) {
+      patch[row.id] = display;
+      setCachedAvatarDisplay(row.id, display);
     }
   }
   if (Object.keys(patch).length) {
