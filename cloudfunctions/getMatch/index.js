@@ -2,7 +2,7 @@ const cloud = require('wx-server-sdk');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 const { findMatchDocsByMid, rosterLen } = require('./matchCanonical');
-const { enrichMatchRosterAvatars } = require('../common/rosterAvatarEnrich');
+const { enrichMatchRosterAvatars } = require('./rosterAvatarEnrich');
 
 function parseUpdatedAtMs(v) {
   if (v == null) return 0;

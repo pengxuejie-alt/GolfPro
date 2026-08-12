@@ -36,7 +36,9 @@ npm run dev:mp-weixin
 |--------|------------|
 | `getUserProfiles` | 批量查 users/players 头像、服务端换链 |
 | `resolveAvatarUrls` | roster 上残留 cloud:// 批量换 https |
-| `createMatch` | roster 字段结构（id/openId/avatar） |
+| `getMatch` | roster enrich + matchCanonical；**必须**含目录内 `rosterAvatarEnrich.js` |
+| `listMyMatches` | 同上 |
+| `joinMatch` | 同上 |
 | `login` | 登录/openId 逻辑 |
 
 云环境 ID 见 `src/utils/db.js`，须与开发者工具云开发环境一致。

@@ -6,7 +6,7 @@
 import { db } from './db.js';
 import { pickAvatarUrlFromUserRow } from './selfAvatarResolve';
 import { batchResolveCloudFileIds, isWxCloudFileId } from './mpCloudFileUrl';
-import { looksLikeExpiredProneTencentTempHttps, pickAvatarSrcForDisplay } from './mpAvatarSrc';
+import { pickAvatarSrcForDisplay } from './mpAvatarSrc';
 
 export function isLikelyWeChatOpenId(s: unknown): boolean {
   const t = String(s ?? '').trim();
@@ -146,7 +146,7 @@ async function resolveProfileMapAvatarsForDisplay(map: Map<string, UserProfileRo
     const av = String(prof.avatarUrl || '').trim();
     if (!av) continue;
     if (isWxCloudFileId(av)) cloudIds.add(av);
-    else if (looksLikeExpiredProneTencentTempHttps(av)) prof.avatarUrl = '';
+    // 会话内 getUserProfiles 刚换出的 tcb 临时 https 可直接展示，勿在此处 strip
   }
   if (!cloudIds.size) return;
 
@@ -189,7 +189,8 @@ export async function fetchUserProfilesForOpenIds(
 
   const stillMissing = uniq.filter((id) => {
     const av = map.get(id)?.avatarUrl;
-    return !av || !pickAvatarSrcForDisplay(av);
+    if (!av || !String(av).trim()) return true;
+    return !pickAvatarSrcForDisplay(av);
   });
   if (stillMissing.length > 0) {
     console.warn(
