@@ -2131,6 +2131,31 @@ const getRuleSummary = (rule: PKRule) => {
   return parts.join('/');
 };
 
+const playerNameById = (id: string) => {
+  const n = String(players.value.find((p) => p.id === id)?.nickname || '').trim();
+  return n || '未知';
+};
+
+/** PK 规则选择器用：写清玩法 + 谁跟谁，避免「挂洞1/2/3」无法区分 */
+const getPKRuleTitle = (rule: PKRule) => {
+  const typeName = String(rule.name || '').trim() || 'PK';
+  const names = (rule.player_ids || []).map(playerNameById);
+  const who =
+    names.length === 2 ? `${names[0]} vs ${names[1]}` : names.length > 0 ? names.join('、') : '';
+  const conf = rule.config || {};
+  const extras: string[] = [];
+  if (rule.type === 'holes') {
+    extras.push(getHolesRuleHandicapText(rule));
+  } else if (rule.type === 'strokes') {
+    extras.push(getHandicapText(rule.handicap_config, false));
+  } else if (rule.type === 'landlord') {
+    extras.push(String(conf.landlord_type || conf.category || ''));
+  } else if (rule.type === 'tiger') {
+    extras.push(String(conf.category || conf.compare_type || ''));
+  }
+  return [typeName, extras.filter(Boolean).join(' '), who].filter(Boolean).join(' ');
+};
+
 // Tiger Logic Functions
 const toggleHole = (holeNum: number) => {
   const index = currentConfigRule.value.valid_holes.indexOf(holeNum);
@@ -3060,23 +3085,9 @@ const getHoleProfit = (pid: string, holeIndex: number) => {
 };
 
 const pkRuleOptions = computed(() => {
-  const rules = matchStore.activeRules;
-  const counts = new Map<string, number>();
-  for (const r of rules) {
-    const k = String(r.name || r.type);
-    counts.set(k, (counts.get(k) || 0) + 1);
-  }
-  const seen = new Map<string, number>();
   const opts: { id: string; label: string }[] = [{ id: 'all', label: '得分汇总' }];
-  for (const r of rules) {
-    const k = String(r.name || r.type);
-    let label = k;
-    if ((counts.get(k) || 0) > 1) {
-      const n = (seen.get(k) || 0) + 1;
-      seen.set(k, n);
-      label = `${k}${n}`;
-    }
-    opts.push({ id: r.id, label });
+  for (const r of matchStore.activeRules) {
+    opts.push({ id: r.id, label: getPKRuleTitle(r) });
   }
   return opts;
 });
@@ -3741,7 +3752,7 @@ const posterPreviewSrc = ref('');
       </button>
       <view
         v-if="matchStore.activeRules.length > 0"
-        class="scorecard-seg-btn scorecard-pk-filter-chip px-3 py-1.5 bg-amber-50 border border-amber-200 text-xs font-bold text-amber-800 active:opacity-80 flex items-center gap-1 max-w-[11rem]"
+        class="scorecard-seg-btn scorecard-pk-filter-chip px-3 py-1.5 bg-amber-50 border border-amber-200 text-xs font-bold text-amber-800 active:opacity-80 flex items-center gap-1 max-w-[16rem]"
         @tap.stop="openPKRuleSheet"
       >
         <text class="truncate">{{ selectedPKRuleLabel }}</text>
@@ -6090,9 +6101,13 @@ const posterPreviewSrc = ref('');
   background: #ecfdf5;
 }
 .scorecard-pk-rule-sheet-item-text {
-  font-size: 30rpx;
+  flex: 1;
+  min-width: 0;
+  font-size: 28rpx;
   font-weight: 700;
   color: #0f172a;
+  line-height: 1.4;
+  white-space: normal;
 }
 .scorecard-pk-rule-sheet-cancel {
   margin-top: 12rpx;
