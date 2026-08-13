@@ -61,6 +61,12 @@ const isDesignateLandlord = computed(
   () => config.value.landlord_type === '指定地主' || config.value.landlord_type === '固定地主'
 );
 
+const flowLandlordHint = computed(() =>
+  config.value.category === '斗第一名'
+    ? '之后各洞由上一洞第一名当地主'
+    : '之后各洞由上一洞第二名当地主'
+);
+
 const drawLandlord = () => {
   const ids = config.value.selected_player_ids;
   if (ids.length !== 3) {
@@ -162,7 +168,7 @@ const handleSave = async () => {
     return;
   }
   if (isDesignateLandlord.value && !config.value.fixed_landlord_id) {
-    alert('请指定地主');
+    alert('请指定出发洞地主');
     return;
   }
   if (!isDesignateLandlord.value) {
@@ -170,10 +176,13 @@ const handleSave = async () => {
       if (config.value.selected_player_ids.length === 3) {
         drawLandlord();
       } else {
-        alert('请先抽地主');
+        alert('请先抽出发洞地主');
         return;
       }
     }
+    config.value.fixed_landlord_id = '';
+  } else {
+    config.value.drawn_landlord_id = config.value.fixed_landlord_id;
   }
   if (!config.value.pk_good && !config.value.pk_bad && !config.value.pk_avg) {
     alert('请至少选择一项计分维度');
@@ -277,7 +286,7 @@ const pkDimCount = computed(
         <div @click="showModal = 'landlord_type'" class="flex items-center justify-between py-2.5 border-b border-slate-100 group active:bg-emerald-50/50 px-2 rounded-b-2xl transition-colors cursor-pointer">
           <div class="flex items-center gap-3">
             <span class="text-lg font-bold text-slate-500">Σ</span>
-            <span class="text-sm font-bold text-slate-600">选地主</span>
+            <span class="text-sm font-bold text-slate-600">选出发洞地主</span>
           </div>
           <div class="flex items-center gap-2">
             <span class="text-sm font-bold text-slate-900">{{ config.landlord_type }}</span>
@@ -309,7 +318,7 @@ const pkDimCount = computed(
       <!-- 抽地主 / 指定地主 -->
       <div v-if="!isDesignateLandlord" class="bg-white border border-slate-100 rounded-2xl p-3 mb-2 shadow-sm">
         <div class="flex justify-between items-center mb-2">
-          <h3 class="text-xs font-bold text-slate-500">抽地主（第一洞地主，之后按成绩流动）</h3>
+          <h3 class="text-xs font-bold text-slate-500">抽取出发洞地主（{{ flowLandlordHint }}）</h3>
           <button
             type="button"
             @click="drawLandlord"
@@ -331,11 +340,12 @@ const pkDimCount = computed(
             <span class="text-xs font-bold" :class="config.drawn_landlord_id === player.id ? 'text-slate-900' : 'text-slate-500'">{{ player.nickname }}</span>
           </div>
         </div>
-        <p v-if="!config.drawn_landlord_id" class="text-[11px] text-amber-600 mt-2">请点「抽一下」随机选定第一洞地主</p>
+        <p v-if="!config.drawn_landlord_id" class="text-[11px] text-amber-600 mt-2">请点「抽一下」随机选定出发洞地主</p>
+        <p v-else class="text-[11px] text-slate-500 mt-2">{{ flowLandlordHint }}</p>
       </div>
 
       <div v-if="isDesignateLandlord" class="bg-white border border-slate-100 rounded-2xl p-3 mb-2 shadow-sm animate-in fade-in slide-in-from-top-2">
-        <h3 class="text-xs font-bold text-slate-500 mb-2">指定地主（整场不换人）</h3>
+        <h3 class="text-xs font-bold text-slate-500 mb-2">指定出发洞地主（{{ flowLandlordHint }}）</h3>
         <div class="flex gap-3">
           <div v-for="player in selectedPlayers" :key="player.id" 
                @click="config.fixed_landlord_id = player.id"
@@ -350,6 +360,7 @@ const pkDimCount = computed(
             <span class="text-xs font-bold" :class="config.fixed_landlord_id === player.id ? 'text-slate-900' : 'text-slate-500'">{{ player.nickname }}</span>
           </div>
         </div>
+        <p class="text-[11px] text-slate-500 mt-2">{{ flowLandlordHint }}</p>
       </div>
 
       <!-- Scoring Section -->

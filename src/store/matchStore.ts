@@ -386,13 +386,12 @@ export const useMatchStore = defineStore('match', {
       return { holeProfit: finalHoleProfit, nextCarryover };
     },
 
-    /** 指定/固定地主（含固定老虎）：整场不换人 */
+    /** 打老虎「固定老虎」整场不换人。斗地主的指定/抽地主只定出发洞，之后仍流动。 */
     isFixedLandlord(rule: PKRule): boolean {
       const config = rule.config || {};
+      if (rule.type !== 'tiger') return false;
       const t = String(config.landlord_type || '');
-      if (t === '指定地主' || t === '固定地主') return true;
-      if (rule.type === 'tiger' && config.category === '固定老虎') return true;
-      return false;
+      return config.category === '固定老虎' || t === '固定地主' || t === '指定地主';
     },
 
     getLandlordIndex(holeIndex: number, rule: PKRule): number {
@@ -407,7 +406,7 @@ export const useMatchStore = defineStore('match', {
         return this.user_list.findIndex(p => p.id === id);
       }
 
-      // 抽地主 / 流动地主：第一洞用地主（抽出或名单首位），之后按上一洞成绩流动
+      // 斗地主：出发洞用地主（抽取或指定），之后按上一洞名次流动
       if (this.playOrderPosition(rule, holeIndex) === 0) {
         const firstId = config.drawn_landlord_id || config.fixed_landlord_id || pIds[0];
         return this.user_list.findIndex(p => p.id === firstId);

@@ -2114,7 +2114,15 @@ const getRuleSummary = (rule: PKRule) => {
     }
   } else if (rule.type === 'landlord' || rule.type === 'tiger') {
     parts.push(rule.type === 'landlord' ? '斗地主' : '打老虎');
-    parts.push(conf.landlord_type || conf.category || '抽地主');
+    if (rule.type === 'landlord') {
+      const startMode =
+        conf.landlord_type === '指定地主' || conf.landlord_type === '固定地主'
+          ? '出发洞指定'
+          : '出发洞抽取';
+      parts.push(startMode);
+    } else {
+      parts.push(conf.landlord_type || conf.category || '抽地主');
+    }
     pushStartingHoleIfSet();
     if (rule.type === 'landlord') {
       const pkParts: string[] = [];
@@ -2149,7 +2157,11 @@ const getPKRuleTitle = (rule: PKRule) => {
   } else if (rule.type === 'strokes') {
     extras.push(getHandicapText(rule.handicap_config, false));
   } else if (rule.type === 'landlord') {
-    extras.push(String(conf.landlord_type || conf.category || ''));
+    extras.push(
+      conf.landlord_type === '指定地主' || conf.landlord_type === '固定地主'
+        ? '出发洞指定'
+        : '出发洞抽取'
+    );
   } else if (rule.type === 'tiger') {
     extras.push(String(conf.category || conf.compare_type || ''));
   }
