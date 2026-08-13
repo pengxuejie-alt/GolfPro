@@ -556,8 +556,8 @@ export const useMatchStore = defineStore('match', {
     },
 
     /**
-     * 斗地主/打老虎「奖励」：配置文案是「鸟2分/鹰5分」，加在头尾总杆上，不是再乘一层。
-     * 例：3（打头+打尾+总杆）+ 2（鸟）= 5，再由顶洞加倍含奖励 ×2。
+     * 鸟/鹰/HIO 替换基数（与比洞赛 1→2 一致），不是在头尾总杆上再加分。
+     * 例：打头+打尾+总杆=3，鸟则每单位 1→2，洞分 3×2=6，再由顶洞加倍含奖励 ×2。
      */
     getRewardBonus(rel: number, rewardConfig: string): number {
       if (rel >= 0) return 0;
@@ -797,21 +797,19 @@ export const useMatchStore = defineStore('match', {
 
         let holeProfit = pkCount * (rule.base_score || 1);
 
-        // 奖励加分（鸟2/鹰5/双鹰10），不是把头尾总杆再乘鸟倍数
+        // 奖励：鸟2/鹰5 为基数替换（1→2），不是 3+2。两农民对称分摊。
         const lRel = lScore - par;
         const pRels = pScores.map(s => s - par);
         const rewardConfig = config.reward;
 
-        let rewardBonus = 0;
+        let multiplier = 1;
         if (pkCount > 0) {
-          rewardBonus = this.getRewardBonus(lRel, rewardConfig);
+          multiplier = this.getMultiplier(lRel, rewardConfig);
         } else if (pkCount < 0) {
           const bestPRel = Math.min(...pRels);
-          rewardBonus = this.getRewardBonus(bestPRel, rewardConfig);
+          multiplier = this.getMultiplier(bestPRel, rewardConfig);
         }
-        if (rewardBonus !== 0) {
-          holeProfit += pkCount > 0 ? rewardBonus : -rewardBonus;
-        }
+        holeProfit *= multiplier;
 
         // Tie-hole (Carryover)
         const winnerRel = pkCount > 0 ? lRel : Math.min(...pRels);
