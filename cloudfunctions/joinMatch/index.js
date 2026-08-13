@@ -84,7 +84,11 @@ exports.main = async (event) => {
   const matchId = event?.match_id != null ? String(event.match_id).trim() : '';
   const nickNameRaw = event?.nickName != null ? String(event.nickName).trim() : '';
   const avatarUrl = event?.avatarUrl != null ? String(event.avatarUrl).trim() : '';
-  const handicap = event?.handicap != null ? Number(event.handicap) : 0;
+  const handicapRaw = event?.handicap;
+  const handicap =
+    handicapRaw != null && handicapRaw !== '' && Number.isFinite(Number(handicapRaw))
+      ? Number(handicapRaw)
+      : null;
 
   if (!matchId) {
     return { success: false, error: 'missing match_id' };
@@ -129,7 +133,7 @@ exports.main = async (event) => {
       nickname: nickName,
       avatarUrl,
       avatar: avatarUrl,
-      handicap: Number.isFinite(handicap) ? handicap : 0,
+      handicap: handicap != null && Number.isFinite(handicap) ? handicap : null,
     });
 
     const scores = Array.isArray(docRef.scores) ? JSON.parse(JSON.stringify(docRef.scores)) : [];
@@ -183,7 +187,7 @@ exports.main = async (event) => {
             openid: openId,
             nickName,
             avatarUrl,
-            handicap: Number.isFinite(handicap) ? handicap : 0,
+            handicap: handicap != null && Number.isFinite(handicap) ? handicap : null,
             gender: 0,
             city: '',
             updated_at: db.serverDate(),
@@ -193,6 +197,51 @@ exports.main = async (event) => {
       }
     } catch (e) {
       console.warn('[joinMatch] users upsert', e);
+    }
+
+    // 加入即写入历史同组（friends），不等到完赛
+    try {
+      const mid = docRef.match_id != null ? String(docRef.match_id).trim() : matchId;
+      const friendOps = [];
+      for (const p of players) {
+        const fId = playerKey(p);
+        if (!fId || fId === openId) continue;
+        friendOps.push(
+          db.collection('friends').add({
+            data: {
+              _openid: openId,
+              my_openid: openId,
+              friend_openid: fId,
+              nickName: p.nickName || p.nickname || '',
+              avatarUrl: p.avatarUrl || p.avatar || '',
+              last_match_id: mid,
+              last_match_at: db.serverDate(),
+              updated_at: db.serverDate(),
+              created_at: db.serverDate(),
+            },
+          }),
+        );
+        friendOps.push(
+          db.collection('friends').add({
+            data: {
+              _openid: fId,
+              my_openid: fId,
+              friend_openid: openId,
+              nickName: nickName,
+              avatarUrl: avatarUrl,
+              last_match_id: mid,
+              last_match_at: db.serverDate(),
+              updated_at: db.serverDate(),
+              created_at: db.serverDate(),
+            },
+          }),
+        );
+      }
+      if (friendOps.length) {
+        await Promise.allSettled(friendOps);
+      }
+    } catch (e) {
+      console.warn('[joinMatch] friends cascade', e);
     }
 
     const updatedSnap = await db.collection('matches').doc(docId).get();

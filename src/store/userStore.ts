@@ -4,7 +4,8 @@ export interface UserProfile {
   nickname: string;
   avatar: string;
   gender: 'male' | 'female';
-  handicap: number;
+  /** null = 尚无完赛/差点记录，计分卡展示 -- */
+  handicap: number | null;
 }
 
 export interface AuthResult {
@@ -26,7 +27,7 @@ export const useUserStore = defineStore('user', {
       nickname: '',
       avatar: '',
       gender: 'male' as const,
-      handicap: 12.5,
+      handicap: null,
     } as UserProfile,
     openId: '' as string,
     /** users 文档 _id，对应 db.collection('users').doc(...) */

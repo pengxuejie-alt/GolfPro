@@ -766,7 +766,7 @@ function buildJoiningUserFromProfile(): {
     id: openId,
     nickname: nick || defaultJoinNickname(openId),
     avatar: userStore.profile.avatar || '',
-    handicap: userStore.profile.handicap ?? 0,
+    handicap: userStore.profile.handicap,
   };
 }
 
@@ -786,7 +786,7 @@ function rosterRowToDisplayUser(p: any): {
     id,
     nickname: nick || defaultJoinNickname(id),
     avatar: avatar != null ? String(avatar).trim() : '',
-    handicap: p.handicap ?? 0,
+    handicap: p.handicap != null ? p.handicap : null,
   };
 }
 
@@ -829,10 +829,10 @@ async function buildInviterUserForModal(match?: any | null): Promise<{
       id: inviterId,
       nickname: prof?.nickName || defaultJoinNickname(inviterId),
       avatar: displayAv || prof?.avatarUrl || '',
-      handicap: 0,
+      handicap: null,
     };
   }
-  return { id: 'host', nickname: '球友', avatar: '', handicap: 0 };
+  return { id: 'host', nickname: '球友', avatar: '', handicap: null };
 }
 
 async function openJoinChoiceModal(match?: any | null) {
@@ -1056,7 +1056,7 @@ async function confirmProfileGateAndContinue() {
         id: userStore.openId,
         nickname: nick,
         avatar: joinAvatar,
-        handicap: userStore.profile.handicap ?? 0,
+        handicap: userStore.profile.handicap,
       };
       await executeJoinMatch();
     } else {
@@ -1237,7 +1237,7 @@ async function bootstrapScorecardPage() {
       id: userStore.openId || `host_${Date.now()}`,
       nickname: userStore.profile.nickname || '我',
       avatar: userStore.profile.avatar || '',
-      handicap: userStore.profile.handicap || 0,
+      handicap: userStore.profile.handicap,
       role: '房主',
     };
     match.user_list = [me];
@@ -1314,23 +1314,7 @@ watch(
 );
 
 onMounted(async () => {
-  if (!enteredViaInvite.value) {
-    const allMatches = await MatchManager.getMatchList();
-    const friendsMap = new Map();
-
-    const selfId = userStore.openId || '';
-    allMatches.forEach((m) => {
-      const roster = m.user_list || m.players || [];
-      roster.forEach((u: any) => {
-        const uid = u.id || u.uid || u.openId;
-        if (uid && uid !== selfId && !String(uid).startsWith('temp_') && !String(uid).startsWith('virtual')) {
-          friendsMap.set(String(uid), { ...u, id: String(uid), nickname: u.nickname || u.nickName || '球友' });
-        }
-      });
-    });
-
-    historyFriends.value = Array.from(friendsMap.values());
-  }
+  await loadHistoryFriends();
 
   /** 兜底：极少数环境下 watch 未及时触发首次加载 */
   await nextTick();
@@ -1494,11 +1478,49 @@ const confirmDeletePlayer = () => {
 
 const historyFriends = ref<any[]>([]);
 
+function isHistoryFriendCandidateId(uid: string): boolean {
+  if (!uid) return false;
+  const s = String(uid);
+  return !s.startsWith('temp_') && !s.startsWith('virtual') && !s.startsWith('anon_') && !s.startsWith('host_');
+}
+
+async function loadHistoryFriends() {
+  const friendsMap = new Map<string, any>();
+  const selfId = userStore.openId || '';
+
+  const ingestRoster = (roster: unknown[]) => {
+    roster.forEach((u: any) => {
+      const uid = String(u?.id || u?.uid || u?.openId || u?.openid || '').trim();
+      if (!uid || uid === selfId || !isHistoryFriendCandidateId(uid)) return;
+      friendsMap.set(uid, {
+        ...u,
+        id: uid,
+        nickname: u.nickname || u.nickName || '球友',
+        avatar: u.avatar || u.avatarUrl || '',
+        handicap: u.handicap != null ? u.handicap : null,
+      });
+    });
+  };
+
+  if (matchStore.user_list.length > 0) {
+    ingestRoster(matchStore.user_list as unknown[]);
+  }
+
+  const allMatches = await MatchManager.getMatchList();
+  allMatches.forEach((m) => {
+    const roster = m.user_list || m.players || [];
+    if (Array.isArray(roster)) ingestRoster(roster);
+  });
+
+  historyFriends.value = Array.from(friendsMap.values());
+}
+
 const handleAddPlayerOption = (optId: string) => {
   if (optId === 'virtual') {
     showVirtualPlayerPanel.value = true;
     showAddPlayerModal.value = false;
   } else if (optId === 'history') {
+    void loadHistoryFriends();
     showHistoryFriendsModal.value = true;
     showAddPlayerModal.value = false;
   } else if (optId === 'wechat') {
@@ -1530,7 +1552,7 @@ async function executeJoinMatch(): Promise<boolean> {
       match_id: matchId.value,
       nickName: joiningUser.value.nickname || defaultJoinNickname(userStore.openId || ''),
       avatarUrl: joiningUser.value.avatar || '',
-      handicap: joiningUser.value.handicap ?? 0,
+      handicap: joiningUser.value.handicap != null ? joiningUser.value.handicap : undefined,
     });
     uni.hideLoading();
     if (!res?.success || !res.match) {
@@ -1551,6 +1573,7 @@ async function executeJoinMatch(): Promise<boolean> {
     refreshSavedRuleAndMetaFingerprints();
     await MatchManager.upsertLocalMatch(m);
     await hydrateTeammatesFromUsersCollection(m as Record<string, unknown>);
+    void loadHistoryFriends();
     void hydrateRosterAvatarDisplay(true);
     showJoinChoiceModal.value = false;
     joiningUser.value = null;
@@ -2006,6 +2029,20 @@ const getHandicapText = (config: any, isHoles: boolean = false) => {
   return `${config.type}让1`;
 };
 
+/** 比洞赛让杆/让洞：读 handicap_type + par 让杆，而非 strokes 用的 handicap_config */
+const getHolesRuleHandicapText = (rule: PKRule) => {
+  if (rule.handicap_type === 'holes' && (rule.handicap_holes_count || 0) > 0) {
+    return `让${rule.handicap_holes_count}洞`;
+  }
+  if (rule.handicap_type === 'strokes' && rule.handicap_par_strokes) {
+    const { par3 = 0, par4 = 0, par5 = 0 } = rule.handicap_par_strokes;
+    if (par3 > 0 || par4 > 0 || par5 > 0) {
+      return `让杆 ${par3}/${par4}/${par5}`;
+    }
+  }
+  return '平打';
+};
+
 const getRuleSummary = (rule: PKRule) => {
   const parts = [];
   const conf = rule.config || {};
@@ -2043,7 +2080,9 @@ const getRuleSummary = (rule: PKRule) => {
     pushStartingHoleIfSet();
     
     // Handicap
-    const hcpText = getHandicapText(rule.handicap_config, rule.type === 'holes');
+    const hcpText = rule.type === 'holes'
+      ? getHolesRuleHandicapText(rule)
+      : getHandicapText(rule.handicap_config, rule.type === 'holes');
     parts.push(hcpText);
     
     // Players
@@ -2956,7 +2995,7 @@ const players = computed(() => {
     id: userStore.openId || 'self',
     nickname: userStore.profile.nickname || '我',
     avatar: userStore.profile.avatar || '',
-    handicap: userStore.profile.handicap || 0,
+    handicap: userStore.profile.handicap,
   }];
 });
 
@@ -3500,8 +3539,12 @@ const getScoreShapeClasses = (pid: string, holeIndex: number) => {
   return golfScoreCellMarkClasses(score, par);
 };
 
-const formatPlayerHandicapDisplay = (h: number | null | undefined) =>
-  h === null || h === undefined ? '' : String(h);
+const formatPlayerHandicapDisplay = (h: number | null | undefined) => {
+  if (h === null || h === undefined) return '--';
+  // 旧版 userStore 默认占位 12.5，无真实完赛记录时不展示
+  if (h === 12.5) return '--';
+  return String(h);
+};
 
 const isLandmineExploded = (holeIndex: number) => {
   const holeNum = holeIndex + 1;
@@ -5215,17 +5258,17 @@ const posterPreviewSrc = ref('');
     </div>
 
     <!-- Total Handicap Modal (for 8421) -->
-    <div v-if="showTotalHandicapModal" class="fixed inset-0 z-[170] flex items-center justify-center bg-black/40 backdrop-blur-sm px-6">
-      <div class="w-full max-w-xs bg-white rounded-3xl overflow-hidden border border-slate-200 shadow-xl">
+    <div v-if="showTotalHandicapModal" class="fixed inset-0 z-[170] flex items-center justify-center bg-black/40 backdrop-blur-sm px-6" @click.self="showTotalHandicapModal = false">
+      <div class="w-full max-w-xs bg-white rounded-3xl overflow-hidden border border-slate-200 shadow-xl" @click.stop>
         <div class="p-5">
           <h3 class="text-lg font-bold mb-5 text-center text-slate-900">设置总分让分</h3>
           <div class="flex items-center justify-center gap-6 mb-6">
-            <button type="button" @click="currentConfigRule && currentConfigRule.handicap_config && (currentConfigRule.handicap_config.value = Math.max(0, currentConfigRule.handicap_config.value - 1))" 
+            <button type="button" @click.stop="currentConfigRule && currentConfigRule.handicap_config && (currentConfigRule.handicap_config.value = Math.max(0, currentConfigRule.handicap_config.value - 1))" 
                     class="w-12 h-12 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center active:scale-95 transition-all">
               <view class="scorecard-uni-ico-slot"><uni-icons type="minus" :size="24" color="#334155" /></view>
             </button>
             <span class="text-3xl font-black w-16 text-center text-[#15803d] tabular-nums">{{ currentConfigRule?.handicap_config?.value || 0 }}</span>
-            <button type="button" @click="currentConfigRule && currentConfigRule.handicap_config && (currentConfigRule.handicap_config.value += 1)" 
+            <button type="button" @click.stop="currentConfigRule && currentConfigRule.handicap_config && (currentConfigRule.handicap_config.value += 1)" 
                     class="w-12 h-12 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center active:scale-95 transition-all">
               <view class="scorecard-uni-ico-slot"><uni-icons type="plus" :size="24" color="#334155" /></view>
             </button>
@@ -5239,7 +5282,7 @@ const posterPreviewSrc = ref('');
 
     <!-- Par-specific Handicap Modal -->
     <div v-if="showParHandicapModal" class="fixed inset-0 z-[170] flex items-center justify-center bg-black/40 backdrop-blur-sm px-6" @click.self="showParHandicapModal = false">
-      <div class="w-full max-w-xs bg-white rounded-3xl overflow-hidden border border-slate-200 shadow-xl">
+      <div class="w-full max-w-xs bg-white rounded-3xl overflow-hidden border border-slate-200 shadow-xl" @click.stop>
         <div class="p-5">
           <div class="flex items-center justify-between mb-5">
             <h3 class="text-lg font-bold text-slate-900">设置让杆</h3>
@@ -5251,12 +5294,12 @@ const posterPreviewSrc = ref('');
             <div v-for="par in [3, 4, 5]" :key="par" class="flex items-center justify-between text-slate-900">
               <span class="text-sm font-bold">Par {{ par }} 让杆</span>
               <div class="flex items-center gap-3">
-                <button type="button" @click="currentConfigRule.handicap_par_strokes[`par${par}`] = Math.max(0, currentConfigRule.handicap_par_strokes[`par${par}`] - 0.5)" 
+                <button type="button" @click.stop="currentConfigRule.handicap_par_strokes[`par${par}`] = Math.max(0, currentConfigRule.handicap_par_strokes[`par${par}`] - 0.5)" 
                         class="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
                   <view class="scorecard-uni-ico-slot scorecard-uni-ico-slot--sm"><uni-icons type="minus" :size="20" color="#334155" /></view>
                 </button>
                 <span class="text-lg font-bold w-10 text-center text-[#15803d] tabular-nums">{{ currentConfigRule.handicap_par_strokes[`par${par}`] }}</span>
-                <button type="button" @click="currentConfigRule.handicap_par_strokes[`par${par}`] += 0.5" 
+                <button type="button" @click.stop="currentConfigRule.handicap_par_strokes[`par${par}`] += 0.5" 
                         class="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
                   <view class="scorecard-uni-ico-slot scorecard-uni-ico-slot--sm"><uni-icons type="plus" :size="20" color="#334155" /></view>
                 </button>
@@ -5290,7 +5333,7 @@ const posterPreviewSrc = ref('');
 
     <!-- Hole-based Handicap Modal -->
     <div v-if="showHoleHandicapModal" class="fixed inset-0 z-[170] flex items-center justify-center bg-black/40 backdrop-blur-sm px-6" @click.self="showHoleHandicapModal = false">
-      <div class="w-full max-w-xs bg-white rounded-3xl overflow-hidden border border-slate-200 shadow-xl">
+      <div class="w-full max-w-xs bg-white rounded-3xl overflow-hidden border border-slate-200 shadow-xl" @click.stop>
         <div class="p-5 text-center">
           <div class="flex items-start justify-between gap-3 mb-1 text-left">
             <h3 class="text-lg font-bold text-slate-900 leading-snug">设置让洞</h3>
@@ -5301,11 +5344,11 @@ const posterPreviewSrc = ref('');
           <p class="text-xs text-slate-600 mb-5 text-left">输入让洞数量</p>
           
           <div class="flex items-center justify-center gap-6 mb-6">
-            <button type="button" @click="currentConfigRule.handicap_holes_count = Math.max(0, currentConfigRule.handicap_holes_count - 1)" class="w-12 h-12 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
+            <button type="button" @click.stop="currentConfigRule.handicap_holes_count = Math.max(0, currentConfigRule.handicap_holes_count - 1)" class="w-12 h-12 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
               <view class="scorecard-uni-ico-slot"><uni-icons type="minus" :size="24" color="#334155" /></view>
             </button>
             <span class="text-4xl font-black text-[#15803d] tabular-nums">{{ currentConfigRule.handicap_holes_count }}</span>
-            <button type="button" @click="currentConfigRule.handicap_holes_count++" class="w-12 h-12 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
+            <button type="button" @click.stop="currentConfigRule.handicap_holes_count++" class="w-12 h-12 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
               <view class="scorecard-uni-ico-slot"><uni-icons type="plus" :size="24" color="#334155" /></view>
             </button>
           </div>

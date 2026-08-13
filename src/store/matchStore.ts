@@ -1032,14 +1032,14 @@ export const useMatchStore = defineStore('match', {
           }
           if (roundStart && carryover > 0) collectAmount = 0;
           nextCarryover = carryover - collectAmount;
-          diff = winA * baseVal + winA * collectAmount * baseVal;
-
-          if (rule.reward_config) {
-            const rewardA = this.getRewardValue(relA, rule.reward_config);
-            const rewardB = this.getRewardValue(relB, rule.reward_config);
-            if (winA > 0) diff += rewardA * baseVal;
-            else diff -= rewardB * baseVal;
+          // 奖励分（鸟/鹰/HIO）为赢洞总分，不再叠加 baseVal，避免 +1
+          let holeWinVal = baseVal;
+          if (rule.reward_config && winA !== 0) {
+            const winnerRel = winA > 0 ? relA : relB;
+            const reward = this.getRewardValue(winnerRel, rule.reward_config);
+            if (reward > 0) holeWinVal = reward;
           }
+          diff = winA * holeWinVal + winA * collectAmount * baseVal;
         }
 
         if (rule.landmines && rule.landmines.assignedHoles.includes(holeIndex + 1)) {
