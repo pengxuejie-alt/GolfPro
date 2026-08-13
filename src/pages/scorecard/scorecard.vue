@@ -1953,6 +1953,7 @@ const selectRuleForConfig = (rule: any) => {
       valid_holes: Array.from({ length: 18 }, (_, i) => i + 1),
       deduction_type: 'progressive',
       deduction_par3_plus3: false,
+      tie_hole: '顶平过',
       tie_type: 'none',
       collect_tie_type: 'par_1_birdie_2_eagle_all',
       starting_hole: rule.starting_hole ?? 1,
@@ -2112,6 +2113,10 @@ const getRuleSummary = (rule: PKRule) => {
     if (rule.deduction_type && rule.deduction_type !== 'none') {
       parts.push('扣分');
     }
+    parts.push(tieHoleLabel(rule));
+    const ct8421 = rule.collect_tie_type;
+    if (ct8421 === 'par_1_birdie_2_eagle_all') parts.push('帕收1/鸟收2/鹰全收');
+    else if (ct8421 === 'all') parts.push('全收');
   } else if (rule.type === 'landlord' || rule.type === 'tiger') {
     parts.push(rule.type === 'landlord' ? '斗地主' : '打老虎');
     if (rule.type === 'landlord') {
@@ -2269,6 +2274,7 @@ const confirmAddRule = () => {
       participant_count: currentConfigRule.value.participant_count,
       player_ids: (currentConfigRule.value.player_ids || []).slice(0, currentConfigRule.value.participant_count),
       reward_config: currentConfigRule.value.reward_config,
+      tie_hole: currentConfigRule.value.tie_hole || tieHoleLabel(currentConfigRule.value),
       tie_type: currentConfigRule.value.tie_type,
       collect_tie_type: currentConfigRule.value.collect_tie_type,
       deduction_type: currentConfigRule.value.deduction_type,

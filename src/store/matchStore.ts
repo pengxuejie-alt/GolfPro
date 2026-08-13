@@ -5,6 +5,7 @@ import { resolvePlayerOpenId } from '@/utils/fetchUserProfilesForOpenIds';
 import {
   applyTieHoleAdjustments,
   computeCarryoverCollectAmount,
+  isMultiplierTieHole,
   resolveTieHole,
 } from '@/utils/pkTieHole';
 
@@ -687,45 +688,40 @@ export const useMatchStore = defineStore('match', {
               }
             }
 
-        if (collectAmount > 0) {
-          const th = resolveTieHole(rule);
-          if (isMultiplierTieHole(th)) {
-            // 加倍/连续翻倍：只对本洞 8421 得分做倍数，不把挂平本金加进去再乘
-            const winP = ruleProfits[winnerIdx];
-            const sign = winP >= 0 ? 1 : -1;
-            const adjusted = applyTieHoleAdjustments(winP, sign, collectAmount, th, base);
-            if (th === '加倍（不含奖励）') {
-              const delta = adjusted - winP;
-              ruleProfits[winnerIdx] = adjusted;
-              const others = playerCount - 1;
-              if (others > 0) {
+            if (collectAmount > 0) {
+              const th = resolveTieHole(rule);
+              if (isMultiplierTieHole(th)) {
+                if (th === '加倍（不含奖励）') {
+                  // 多收 1 倍基数（不含 8421 梯分/奖励），零和；不要先加 collect 再乘
+                  const extraBase = base;
+                  ruleProfits[winnerIdx] += extraBase * (playerCount - 1);
+                  for (let m = 0; m < playerCount; m++) {
+                    if (m !== winnerIdx) ruleProfits[m] -= extraBase;
+                  }
+                } else {
+                  // 加倍（含奖励）/ 连续翻倍：只对本洞 8421 得分做倍数
+                  const scale = th === '连续翻倍' ? Math.pow(2, collectAmount) : 2;
+                  ruleProfits = ruleProfits.map((p) => p * scale);
+                }
+              } else {
+                const collectValue = collectAmount * base;
+                ruleProfits[winnerIdx] += collectValue * (playerCount - 1);
                 for (let m = 0; m < playerCount; m++) {
-                  if (m !== winnerIdx) ruleProfits[m] -= delta / others;
+                  if (m !== winnerIdx) ruleProfits[m] -= collectValue;
+                }
+                if (th.startsWith('下洞加') && th !== '下洞不加分') {
+                  const n = parseInt(th.replace('下洞加', '').replace('分', ''), 10) || 0;
+                  const extra = n * collectAmount;
+                  if (extra !== 0) {
+                    ruleProfits[winnerIdx] += extra * (playerCount - 1);
+                    for (let m = 0; m < playerCount; m++) {
+                      if (m !== winnerIdx) ruleProfits[m] -= extra;
+                    }
+                  }
                 }
               }
+              nextCarryover = carryover - collectAmount;
             } else {
-              const scale = winP !== 0 ? adjusted / winP : (th === '连续翻倍' ? Math.pow(2, collectAmount) : 2);
-              ruleProfits = ruleProfits.map((p) => p * scale);
-            }
-          } else {
-            const collectValue = collectAmount * base;
-            ruleProfits[winnerIdx] += collectValue * (playerCount - 1);
-            for (let m = 0; m < playerCount; m++) {
-              if (m !== winnerIdx) ruleProfits[m] -= collectValue;
-            }
-            if (th.startsWith('下洞加')) {
-              const n = parseInt(th.replace('下洞加', '').replace('分', ''), 10) || 0;
-              const extra = n * collectAmount;
-              if (extra !== 0) {
-                ruleProfits[winnerIdx] += extra * (playerCount - 1);
-                for (let m = 0; m < playerCount; m++) {
-                  if (m !== winnerIdx) ruleProfits[m] -= extra;
-                }
-              }
-            }
-          }
-          nextCarryover = carryover - collectAmount;
-        } else {
               nextCarryover = carryover;
             }
           }
@@ -1068,8 +1064,7 @@ export const useMatchStore = defineStore('match', {
           }
           const th = resolveTieHole(rule);
           // 加倍/连续翻倍：上一洞以倍率计入本洞，不再先加 collect×基数再乘，否则 1 洞顶洞会变成 ×4
-          const addCollectedBase =
-            th !== '加倍（含奖励）' && th !== '加倍（不含奖励）' && th !== '连续翻倍';
+          const addCollectedBase = !isMultiplierTieHole(th);
           let signedProfit = winA * holeWinVal + (addCollectedBase ? winA * collectAmount * baseVal : 0);
           if (collectAmount > 0) {
             signedProfit = applyTieHoleAdjustments(

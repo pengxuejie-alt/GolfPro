@@ -29,6 +29,12 @@ export function resolveTieHole(rule: { tie_hole?: string; tie_type?: string } | 
   return '顶平过';
 }
 
+/** 加倍类顶洞：对本洞得分做倍数，不要先把挂平本金加进去再乘 */
+export function isMultiplierTieHole(tieHole: string | null | undefined): boolean {
+  const th = String(tieHole || '').trim();
+  return th === '加倍（含奖励）' || th === '加倍（不含奖励）' || th === '连续翻倍';
+}
+
 export function computeCarryoverCollectAmount(
   carryover: number,
   winnerRel: number,
