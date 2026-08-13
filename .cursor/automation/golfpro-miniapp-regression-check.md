@@ -49,7 +49,22 @@ npm run lint
 
 **人工验证**：首页同组 3 人头像 → 点进计分页 **首次**即 3 人 3 头像，无 1–2 秒闪空白。
 
-## 5. 报告模板
+## 5. 表单 input 布局防回归
+
+改 `src/app-mp.css` 或带 `input` 的页面时，检查脚本会验证：
+
+| 反模式 | 后果 | 正确做法 |
+|--------|------|----------|
+| `mp-safe-input-*` 的 `min-height` < `line-height` + 上下 padding | 占位符/文字上下被裁切 | 保持 `app-mp.css` 中 flex=80rpx、inline=64rpx、full=112rpx |
+| 前缀图标 + input 仅依赖 `gap` | 微信 input 常忽略 flex gap，文字压住图标 | 用 `.mp-input-prefix-row` 或绝对定位图标 + input `pl-12` |
+| `mp-safe-input-*` 叠 `py-0` / `py-1` | 破坏竖直安全区内边距 | 只用 mp-safe-input 自带 padding |
+| 表单行无 `items-center` | 标签与 input 纵向不齐 | 行容器 `flex items-center` |
+
+**涉及页面**：`CreateMatch.vue`（比赛名称）、`scorecard.vue`（添加球手）、`SelectPlayer.vue`、`Players.vue`、`CreateMatchCoursePicker.vue`。
+
+**人工验证**：发布球局 → 比赛名称行文字垂直居中无裁切；计分页 → 添加球手 → placeholder 不与左侧图标重叠。
+
+## 6. 报告模板
 
 Automation 结束时应输出：
 
@@ -58,6 +73,7 @@ Automation 结束时应输出：
 - check:miniapp-regression: PASS/FAIL
 - lint: PASS/FAIL/SKIP
 - auto-fix: 无 / 已 sync cloud common
+- UI layout: mp-safe-input 高度 / mp-input-prefix-row（见脚本输出）
 - 需手动部署云函数: getMatch, listMyMatches, joinMatch, …
 - manifest 版本: x.y.z
 ```

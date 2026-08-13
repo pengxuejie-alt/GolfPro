@@ -52,12 +52,13 @@ textarea {
 
 /**
  * 列表行内、flex 中的文本 input：保证行高与上下内边距（外层建议 min-h-[96rpx] items-center）
+ * min-height 须 ≥ line-height + 上下 padding（border-box），否则真机占位符/文字会被裁切。
  */
 .mp-safe-input-flex {
   box-sizing: border-box;
   font-size: 28rpx;
   line-height: 48rpx !important;
-  min-height: 48rpx;
+  min-height: 80rpx;
   padding-top: 16rpx !important;
   padding-bottom: 16rpx !important;
 }
@@ -66,9 +67,22 @@ textarea {
 .mp-safe-input-inline {
   box-sizing: border-box;
   line-height: 44rpx !important;
-  min-height: 44rpx;
+  min-height: 64rpx;
   padding-top: 10rpx !important;
   padding-bottom: 10rpx !important;
+}
+
+/**
+ * flex 行内左侧图标 + input：微信原生 input 常忽略 flex gap，须给图标留 margin
+ */
+.mp-input-prefix-row {
+  display: flex;
+  align-items: center;
+}
+.mp-input-prefix-row > .scorecard-uni-ico-slot,
+.mp-input-prefix-row > uni-icons {
+  flex-shrink: 0;
+  margin-right: 12rpx;
 }
 
 button {

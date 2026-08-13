@@ -4680,10 +4680,10 @@ const posterPreviewSrc = ref('');
         <!-- Quick Add Panel -->
         <div class="p-4 bg-slate-50 border-b border-slate-100">
           <div class="flex items-center gap-2">
-            <div class="flex-1 bg-white rounded-xl border border-slate-200 px-3 min-h-[104rpx] flex items-center focus-within:border-[#07C160] transition-colors">
+            <div class="mp-input-prefix-row flex-1 bg-white rounded-xl border border-slate-200 px-3 min-h-[104rpx] focus-within:border-[#07C160] transition-colors">
               <view class="scorecard-uni-ico-slot scorecard-uni-ico-slot--sm"><uni-icons type="personadd" :size="18" color="#94a3b8" /></view>
               <input v-model="quickAddName" type="text" placeholder="输入昵称快速添加虚拟球手" 
-                     class="mp-safe-input-flex flex-1 bg-transparent outline-none text-slate-800 text-sm" 
+                     class="mp-safe-input-flex flex-1 min-w-0 bg-transparent outline-none text-slate-800 text-sm" 
                      @keyup.enter="handleQuickAdd" />
             </div>
             <button @click="handleQuickAdd"

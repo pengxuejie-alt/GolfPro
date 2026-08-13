@@ -326,7 +326,7 @@ const onShare = () => {
 
     <!-- Search Section -->
     <div class="p-4 bg-white">
-      <div class="flex items-center gap-3 bg-slate-100 rounded-full px-4 min-h-[112rpx] py-1">
+      <div class="mp-input-prefix-row bg-slate-100 rounded-full px-4 min-h-[112rpx]">
         <uni-icons type="search" :size="16" color="#94a3b8" />
         <input type="text" :placeholder="T.search_placeholder" class="mp-safe-input-flex flex-1 min-w-0 bg-transparent text-sm outline-none" />
         <view @click="onScanCode" class="p-1 rounded-full shrink-0">
@@ -346,8 +346,8 @@ const onShare = () => {
     <!-- Quick Add Panel -->
     <div class="px-4 py-3 border-b border-slate-100 bg-slate-50">
       <div class="flex items-center gap-2">
-        <div class="flex-1 bg-white rounded-xl border border-slate-200 px-3 min-h-[112rpx] flex items-center shadow-sm focus-within:border-red-500 transition-colors">
-          <uni-icons type="personadd" :size="16" color="#94a3b8" class="mr-2 shrink-0" />
+        <div class="mp-input-prefix-row flex-1 bg-white rounded-xl border border-slate-200 px-3 min-h-[112rpx] shadow-sm focus-within:border-red-500 transition-colors">
+          <uni-icons type="personadd" :size="16" color="#94a3b8" />
           <input v-model="quickAddName" type="text" placeholder="快速添加虚拟球友(支持逗号分隔多个)" 
                  class="mp-safe-input-flex flex-1 min-w-0 bg-transparent text-sm outline-none" 
                  @keyup.enter="quickAddPlayer" />

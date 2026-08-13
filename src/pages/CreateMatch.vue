@@ -472,7 +472,7 @@ const handleStart = async () => {
             <input 
               v-model="matchName"
               type="text"
-              class="mp-safe-input-inline text-sm font-bold text-slate-900 bg-transparent border-none text-right focus:outline-none focus:ring-0 py-1 min-w-0 flex-1"
+              class="mp-safe-input-inline text-sm font-bold text-slate-900 bg-transparent border-none text-right focus:outline-none focus:ring-0 min-w-0 flex-1"
               placeholder="请输入比赛名称"
               @input="matchNameTouched = true"
             />

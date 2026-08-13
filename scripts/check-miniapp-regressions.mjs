@@ -136,6 +136,88 @@ if (!prefill) {
   fail('缺少 src/utils/scorecardPrefill.ts');
 }
 
+// --- 小程序 input 布局防回归（占位符裁切 / 前缀图标重叠）---
+const appMpCss = readText('src/app-mp.css') || '';
+
+function parseRpxFromBlock(block, prop) {
+  const m = block.match(new RegExp(`${prop}:\\s*([\\d.]+)rpx`));
+  return m ? parseFloat(m[1]) : null;
+}
+
+function parseMpSafeInputMetrics(className) {
+  const re = new RegExp(`\\.${className}\\s*\\{([^}]+)\\}`, 's');
+  const m = appMpCss.match(re);
+  if (!m) return null;
+  const block = m[1];
+  return {
+    lineHeight: parseRpxFromBlock(block, 'line-height'),
+    minHeight: parseRpxFromBlock(block, 'min-height'),
+    paddingTop: parseRpxFromBlock(block, 'padding-top') || 0,
+    paddingBottom: parseRpxFromBlock(block, 'padding-bottom') || 0,
+  };
+}
+
+for (const cls of ['mp-safe-input-flex', 'mp-safe-input-inline', 'mp-safe-input-full']) {
+  const v = parseMpSafeInputMetrics(cls);
+  if (!v || v.lineHeight == null || v.minHeight == null) {
+    fail(`${cls} 缺少 line-height/min-height（见 src/app-mp.css）`);
+    continue;
+  }
+  const pad = v.paddingTop + v.paddingBottom;
+  if (v.minHeight < v.lineHeight + pad) {
+    fail(
+      `${cls} min-height(${v.minHeight}rpx) < line-height(${v.lineHeight}rpx)+padding(${pad}rpx)，` +
+        '微信真机会裁切 placeholder/输入文字'
+    );
+  } else {
+    ok(`${cls} 高度 ≥ line-height + padding`);
+  }
+}
+
+if (!appMpCss.includes('.mp-input-prefix-row')) {
+  fail('app-mp.css 缺少 .mp-input-prefix-row（前缀图标 + input 须留 margin，微信常忽略 flex gap）');
+} else {
+  ok('mp-input-prefix-row');
+}
+
+const UI_INPUT_FILES = [
+  'src/pages/CreateMatch.vue',
+  'src/pages/scorecard/scorecard.vue',
+  'src/pages/SelectPlayer.vue',
+  'src/pages/Players.vue',
+  'src/components/CreateMatchCoursePicker.vue',
+];
+
+for (const rel of UI_INPUT_FILES) {
+  const text = readText(rel);
+  if (!text) continue;
+
+  if (/\bmp-safe-input-(?:flex|inline|full)\b[^"']*\bpy-[01]\b/.test(text)) {
+    fail(`${rel}：mp-safe-input-* 与 py-0/py-1 叠用会干扰竖直安全区，应移除 py-*`);
+  }
+
+  if (rel === 'src/pages/scorecard/scorecard.vue') {
+    if (
+      text.includes('输入昵称快速添加虚拟球手') &&
+      !text.includes('mp-input-prefix-row') &&
+      !/personadd[\s\S]{0,120}mr-/.test(text)
+    ) {
+      fail('scorecard 添加球手 input 缺少 mp-input-prefix-row 或图标 mr-*，易与 placeholder 重叠');
+    }
+  }
+
+  if (rel === 'src/pages/CreateMatch.vue') {
+    if (text.includes('mp-safe-input-inline') && text.includes('py-1')) {
+      fail('CreateMatch 比赛名称 input 仍含 py-1，与 mp-safe-input-inline 冲突');
+    }
+  }
+}
+
+console.info('[check:miniapp-regression] UI layout patterns documented:');
+console.info('  - mp-safe-input-*: min-height must cover line-height + vertical padding (border-box)');
+console.info('  - prefix icon + input: use mp-input-prefix-row or absolute icon + pl-12 on input');
+console.info('  - form rows with input: parent flex items-center; avoid py-0/py-1 on mp-safe-input-*');
+
 // --- 安全 auto-fix ---
 if (fix && errors.some((e) => e.includes('rosterAvatarEnrich') || e.includes('sync-cloud'))) {
   const r = spawnSync(process.execPath, ['scripts/sync-cloud-matchCanonical.mjs'], {
