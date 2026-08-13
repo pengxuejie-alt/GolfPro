@@ -4,6 +4,7 @@
 
 import { matchListSortTimeMs } from './matchKickoff';
 import { normalizeMatchHoleScoresForClient } from './matchHoleScoresNormalize';
+import { debugInfo } from './mpDebugLog';
 
 /** 写入/单条查询等非列表接口的超时（毫秒） */
 const CLOUD_TIMEOUT_MS = 15000;
@@ -69,12 +70,12 @@ function ensureCloudInitDeferred() {
         if (hasWxCloud() && !cloudInitCalled) {
           cloudInitCalled = true;
           const trace = cloudInitTraceUser();
-          console.info('[db.init] wx.cloud.init', CLOUD_ENV_ID, trace ? '(traceUser)' : '(traceUser off DEV)');
+          debugInfo('[db.init] wx.cloud.init', CLOUD_ENV_ID, trace ? '(traceUser)' : '(traceUser off DEV)');
           wx.cloud.init({
             env: CLOUD_ENV_ID,
             traceUser: trace,
             success: () => {
-              console.info('[db.init] wx.cloud.init ok', CLOUD_ENV_ID);
+              debugInfo('[db.init] wx.cloud.init ok', CLOUD_ENV_ID);
             },
             fail: (err) => {
               console.warn('[db.init] wx.cloud.init fail', err);
@@ -165,10 +166,10 @@ function callListMyMatchesCloud(limit) {
 async function fetchMatchesListFromCloud(wxdb) {
   const viaFn = await callListMyMatchesCloud(MATCHES_LIST_LIMIT);
   if (viaFn !== null) {
-    console.info('[db] listMyMatches', viaFn.length, '条（含参与者）');
+    debugInfo('[db] listMyMatches', viaFn.length, '条（含参与者）');
     return { data: viaFn, listFnOk: true };
   }
-  console.info('[db] 直连 matches _openid+updated_at (limit', MATCHES_LIST_LIMIT, ')');
+  debugInfo('[db] 直连 matches _openid+updated_at (limit', MATCHES_LIST_LIMIT, ')');
   const direct = await wxdb
     .collection('matches')
     .where({ _openid: '{openid}' })
@@ -596,7 +597,7 @@ export const db = {
       const merged = filterExcludedFromMyMatchesList(mergedRaw);
       if (listFnOk || cloudRows.length > 0) {
         persistMatchListCache(merged);
-        console.info(
+        debugInfo(
           '[db.getMatches] 云端',
           cloudRows.length,
           '条 + 缓存合并 →',

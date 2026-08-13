@@ -46,6 +46,7 @@ import {
   hasWeatherRefreshedThisSession,
   markWeatherRefreshedThisSession,
 } from '@/utils/deviceLocationCache';
+import { debugInfo, debugLog } from '@/utils/mpDebugLog';
 const DEFAULT_AVATAR_URL = mpStaticAbsolute('tab/me.png');
 const SHARE_CARD_POSTER_BG = mpStaticAbsolute('share-card.png');
 
@@ -305,7 +306,7 @@ let privacyModalResolve: ((ok: boolean) => void) | null = null;
 let privacyGateInFlight: Promise<boolean> | null = null;
 
 function getPrivacySettingWxLogged(): Promise<{ needAuthorization: boolean }> {
-  console.log('[index][privacy] getPrivacySetting: step=before_call');
+  debugLog('[index][privacy] getPrivacySetting: step=before_call');
   // #ifdef MP-WEIXIN
   return new Promise((resolve) => {
     try {
@@ -317,25 +318,25 @@ function getPrivacySettingWxLogged(): Promise<{ needAuthorization: boolean }> {
         }) => void;
       };
       if (!gw?.getPrivacySetting) {
-        console.log('[index][privacy] getPrivacySetting: unsupported → no need');
+        debugLog('[index][privacy] getPrivacySetting: unsupported → no need');
         resolve({ needAuthorization: false });
         return;
       }
       gw.getPrivacySetting({
         success: (res) => {
-          console.log('[index][privacy] getPrivacySetting: success_cb', JSON.stringify(res));
+          debugLog('[index][privacy] getPrivacySetting: success_cb', JSON.stringify(res));
           resolve({ needAuthorization: !!res?.needAuthorization });
         },
         fail: (err) => {
-          console.log('[index][privacy] getPrivacySetting: fail_cb', err);
+          debugLog('[index][privacy] getPrivacySetting: fail_cb', err);
           resolve({ needAuthorization: true });
         },
         complete: () => {
-          console.log('[index][privacy] getPrivacySetting: complete_cb');
+          debugLog('[index][privacy] getPrivacySetting: complete_cb');
         },
       });
     } catch (e) {
-      console.log('[index][privacy] getPrivacySetting: exception', e);
+      debugLog('[index][privacy] getPrivacySetting: exception', e);
       resolve({ needAuthorization: true });
     }
   });
@@ -352,29 +353,29 @@ async function gateIndexPrivacyBeforeLogin(): Promise<boolean> {
   // #endif
   // #ifdef MP-WEIXIN
   if (privacyGateInFlight) {
-    console.log('[index][privacy] gate: reuse in-flight');
+    debugLog('[index][privacy] gate: reuse in-flight');
     return privacyGateInFlight;
   }
-  console.log('[index][privacy] gate: start');
+  debugLog('[index][privacy] gate: start');
   const { needAuthorization } = await getPrivacySettingWxLogged();
   if (!needAuthorization) {
-    console.log('[index][privacy] gate: needAuthorization=false');
+    debugLog('[index][privacy] gate: needAuthorization=false');
     return true;
   }
   if (indexPrivacyUserAgreedFlag.value) {
-    console.log('[index][privacy] gate: session flag already agreed');
+    debugLog('[index][privacy] gate: session flag already agreed');
     return true;
   }
   privacyGateInFlight = new Promise<boolean>((resolve) => {
     privacyModalResolve = (ok: boolean) => {
-      console.log('[index][privacy] gate: resolve ok=', ok);
+      debugLog('[index][privacy] gate: resolve ok=', ok);
       showPrivacyModal.value = false;
       privacyModalResolve = null;
       privacyGateInFlight = null;
       if (ok) indexPrivacyUserAgreedFlag.value = true;
       resolve(ok);
     };
-    console.log('[index][privacy] gate: showPrivacyModal=true');
+    debugLog('[index][privacy] gate: showPrivacyModal=true');
     showPrivacyModal.value = true;
   });
   return privacyGateInFlight;
@@ -382,23 +383,23 @@ async function gateIndexPrivacyBeforeLogin(): Promise<boolean> {
 }
 
 function onIndexPrivacyModalAgree(e?: { detail?: { errMsg?: string } }) {
-  console.log('[index][privacy] @agreeprivacyauthorization', JSON.stringify(e?.detail ?? {}));
+  debugLog('[index][privacy] @agreeprivacyauthorization', JSON.stringify(e?.detail ?? {}));
   const msg = e?.detail?.errMsg ?? '';
   if (msg && !String(msg).includes('ok')) {
-    console.log('[index][privacy] agree: non-ok msg, treat as fail');
+    debugLog('[index][privacy] agree: non-ok msg, treat as fail');
     privacyModalResolve?.(false);
     return;
   }
   try {
     emitPrivacyContractAgreed();
   } catch (err) {
-    console.log('[index][privacy] emitPrivacyContractAgreed fail', err);
+    debugLog('[index][privacy] emitPrivacyContractAgreed fail', err);
   }
   privacyModalResolve?.(true);
 }
 
 function onIndexPrivacyModalDisagree() {
-  console.log('[index][privacy] disagree tap');
+  debugLog('[index][privacy] disagree tap');
   privacyModalResolve?.(false);
 }
 
@@ -437,7 +438,7 @@ function openPrivacyContractForIndex() {
 async function bootstrapIndexSession(): Promise<void> {
   let myOpenId = userStore.openId || '';
   if (!myOpenId) {
-    console.log('[index] bootstrapIndexSession calling signInWithWeChat');
+    debugLog('[index] bootstrapIndexSession calling signInWithWeChat');
     try {
       const auth = await signInWithWeChat();
       userStore.applyAuthResult(auth);
@@ -445,9 +446,9 @@ async function bootstrapIndexSession(): Promise<void> {
     } catch (e) {
       console.warn('[index] signInWithWeChat', e);
     }
-    console.log('[index] bootstrapIndexSession signIn finished openId=', myOpenId || '(empty)');
+    debugLog('[index] bootstrapIndexSession signIn finished openId=', myOpenId || '(empty)');
   }
-  console.log('[身份诊断] 当前 OpenID:', myOpenId || '(空，降级 mock 模式)');
+  debugLog('[身份诊断] 当前 OpenID:', myOpenId || '(空，降级 mock 模式)');
   if (myOpenId) {
     const result = await hydrateUserProfileFromCloud(myOpenId, {
       skipAvatarOverwrite: profileAvatarUploadBusy || !!selfAvatarPendingTemp.value,
@@ -458,7 +459,7 @@ async function bootstrapIndexSession(): Promise<void> {
     } else {
       await refreshSelfAvatarDisplay();
     }
-    console.log(
+    debugLog(
       '[诊断] users hydrate',
       result.found ? 'OK' : 'empty',
       result.nickname || '(未设置)',
@@ -470,25 +471,25 @@ async function bootstrapIndexSession(): Promise<void> {
 
 async function openProfileSyncSheet() {
   try {
-    console.log('[index] openProfileSyncSheet step=enter');
+    debugLog('[index] openProfileSyncSheet step=enter');
     await Promise.race([
       db.waitForInit(),
       new Promise<void>((r) => setTimeout(r, 5000)),
     ]);
-    console.log('[index] openProfileSyncSheet step=after_db_wait');
+    debugLog('[index] openProfileSyncSheet step=after_db_wait');
     // #ifdef MP-WEIXIN
     const gateOk = await gateIndexPrivacyBeforeLogin();
-    console.log('[index] openProfileSyncSheet step=after_gate', gateOk);
+    debugLog('[index] openProfileSyncSheet step=after_gate', gateOk);
     if (!gateOk) {
       uni.showToast({ title: '需同意隐私指引后再同步资料', icon: 'none' });
       return;
     }
     if (!userStore.openId) {
-      console.log('[index] openProfileSyncSheet step=before_signIn');
+      debugLog('[index] openProfileSyncSheet step=before_signIn');
       try {
         const auth = await signInWithWeChat();
         userStore.applyAuthResult(auth);
-        console.log('[index] openProfileSyncSheet step=after_signIn', !!(auth?.openId ?? auth));
+        debugLog('[index] openProfileSyncSheet step=after_signIn', !!(auth?.openId ?? auth));
       } catch (e) {
         console.warn('[index] openProfileSyncSheet login', e);
       }
@@ -617,21 +618,21 @@ async function onChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
     return;
   }
   if (profileAvatarUploadBusy) {
-    console.log('[index] onChooseAvatar: skip duplicate while in-flight');
+    debugLog('[index] onChooseAvatar: skip duplicate while in-flight');
     return;
   }
   profileAvatarUploadBusy = true;
   let loadingShown = false;
   try {
     // #ifdef MP-WEIXIN
-    console.log('[index] onChooseAvatar step=gating');
+    debugLog('[index] onChooseAvatar step=gating');
     const gateOk = await gateIndexPrivacyBeforeLogin();
     if (!gateOk) {
-      console.log('[index] onChooseAvatar blocked by gate');
+      debugLog('[index] onChooseAvatar blocked by gate');
       uni.showToast({ title: '请先同意隐私指引', icon: 'none' });
       return;
     }
-    console.log('[index] onChooseAvatar step=start_upload');
+    debugLog('[index] onChooseAvatar step=start_upload');
     // #endif
     authDraftAvatarLocal.value = tempPath;
     selfAvatarPendingTemp.value = tempPath;
@@ -688,21 +689,21 @@ async function onProfileChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
     return;
   }
   if (profileAvatarUploadBusy) {
-    console.log('[index] onProfileChooseAvatar: skip duplicate while in-flight');
+    debugLog('[index] onProfileChooseAvatar: skip duplicate while in-flight');
     return;
   }
   profileAvatarUploadBusy = true;
   let loadingShown = false;
   try {
     // #ifdef MP-WEIXIN
-    console.log('[index] onProfileChooseAvatar step=gating');
+    debugLog('[index] onProfileChooseAvatar step=gating');
     const gateOk = await gateIndexPrivacyBeforeLogin();
     if (!gateOk) {
-      console.log('[index] onProfileChooseAvatar blocked');
+      debugLog('[index] onProfileChooseAvatar blocked');
       uni.showToast({ title: '请先同意隐私指引后再换头像', icon: 'none' });
       return;
     }
-    console.log('[index] onProfileChooseAvatar step=start_upload');
+    debugLog('[index] onProfileChooseAvatar step=start_upload');
     // #endif
     selfAvatarPendingTemp.value = tempPath;
     uni.showLoading({ title: '上传头像中…', mask: true });
@@ -752,10 +753,10 @@ async function onProfileChooseAvatar(e: { detail?: { avatarUrl?: string } }) {
 
 async function onNicknameFocus() {
   // #ifdef MP-WEIXIN
-  console.log('[index] onNicknameFocus step=gating');
+  debugLog('[index] onNicknameFocus step=gating');
   const ok = await gateIndexPrivacyBeforeLogin();
   if (!ok) {
-    console.log('[index] onNicknameFocus blocked');
+    debugLog('[index] onNicknameFocus blocked');
   }
   scrollProfileSheetToSubmit();
   // #endif
@@ -948,7 +949,7 @@ const loadMatches = async (opts?: { showLoading?: boolean }) => {
     const deduped = Array.isArray(list) ? list : [];
     await hydrateIndexMatchAvatars(deduped);
     matches.value = [...deduped];
-    console.info('[index] loadMatches 完成，共', matches.value.length, '条');
+    debugInfo('[index] loadMatches 完成，共', matches.value.length, '条');
     if (matches.value.length === 0) {
       offlineBannerText.value = '暂无比赛 · 可创建新局';
     }
@@ -1043,11 +1044,11 @@ onLoad((options?: Record<string, string | undefined>) => {
       return;
     }
 
-    console.log('[index][privacy] onLoad bootstrap before gate');
+    debugLog('[index][privacy] onLoad bootstrap before gate');
     const gated = await gateIndexPrivacyBeforeLogin();
-    console.log('[index][privacy] onLoad bootstrap after gate', gated);
+    debugLog('[index][privacy] onLoad bootstrap after gate', gated);
     if (!gated) {
-      console.log('[index][privacy] onLoad: deferred signIn until privacy agreed');
+      debugLog('[index][privacy] onLoad: deferred signIn until privacy agreed');
       return;
     }
     // #endif

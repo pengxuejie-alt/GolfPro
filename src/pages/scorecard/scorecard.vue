@@ -48,6 +48,7 @@ import {
   setCachedAvatarDisplay,
 } from '@/utils/avatarDisplayCache';
 import { resolveCloudFileIdToHttps } from '@/utils/mpCloudFileUrl';
+import { debugInfo, debugLog } from '@/utils/mpDebugLog';
 import { hydrateUserProfileFromCloud } from '@/utils/hydrateUserProfileFromCloud';
 import { golfScoreCellMarkClasses, golfHoleMarkKind } from '@/utils/golfScoreShapes';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
@@ -175,7 +176,7 @@ onLoad((query) => {
     void (async () => {
       const need = await getPrivacyNeedAuthorizationAsync();
       if (need) {
-        console.log('[scorecard][privacy] invite landing: show inline modal before cloud');
+        debugLog('[scorecard][privacy] invite landing: show inline modal before cloud');
         const ok = await gatePrivacyBeforeCloud();
         if (!ok) return;
       }
@@ -527,7 +528,7 @@ async function hydrateTeammatesFromUsersCollection(match: Record<string, unknown
       const profiles = await fetchUsersProfilesByOpenIds(ids);
       updated = applyUsersProfilesToRoster(profiles);
       if (updated && profiles.size > 0) {
-        console.info('[scorecard] users 聚合球友头像昵称', {
+        debugInfo('[scorecard] users 聚合球友头像昵称', {
           queried: ids.length,
           merged: profiles.size,
         });
@@ -1198,7 +1199,7 @@ async function bootstrapScorecardPage() {
   if (seq !== scorecardBootstrapSeq) return;
 
   const rawFirst = match?.user_list?.[0] || match?.players?.[0];
-  console.info('[scorecard:diag] loadMatchForScorecard', {
+  debugInfo('[scorecard:diag] loadMatchForScorecard', {
     match_id: match?.match_id,
     topKeys: match ? Object.keys(match) : [],
     user_list_len: match?.user_list?.length,
@@ -1209,7 +1210,7 @@ async function bootstrapScorecardPage() {
     scores_len: (match as any)?.scores?.length,
     hole1_scores: match?.hole_scores?.[0]?.scores,
   });
-  console.log('[scorecard] loaded match:', routeMid, 'user_list:', match?.user_list?.length, 'holes:', match?.hole_scores?.length);
+  debugLog('[scorecard] loaded match:', routeMid, 'user_list:', match?.user_list?.length, 'holes:', match?.hole_scores?.length);
 
   if (!match) {
     if (enteredViaInvite.value) {
@@ -1245,7 +1246,7 @@ async function bootstrapScorecardPage() {
       scores: h.scores && h.scores.length > 0 ? h.scores : [0],
     }));
     await MatchManager.updateMatch(match);
-    console.log('[scorecard] injected host player:', me.nickname);
+    debugLog('[scorecard] injected host player:', me.nickname);
   }
   match = await finalizeMatchKickoffAutoEnd(match);
   if (seq !== scorecardBootstrapSeq) return;
@@ -2776,7 +2777,7 @@ async function syncMatchFromCloud(
       if (rev) {
         const cloudSig = matchRevisionSig(rev);
         if (cloudSig && cloudSig === lastKnownCloudRevisionSig) {
-          console.info('[scorecard] syncMatchFromCloud poll skip unchanged', { mid });
+          debugInfo('[scorecard] syncMatchFromCloud poll skip unchanged', { mid });
           return;
         }
       }
@@ -2867,7 +2868,7 @@ async function syncMatchFromCloud(
         uni.showToast({ title: '已刷新', icon: 'none', duration: 1200 });
       }
     }
-    console.info('[scorecard] syncMatchFromCloud', {
+    debugInfo('[scorecard] syncMatchFromCloud', {
       source,
       mid,
       newPlayers,
@@ -3311,7 +3312,7 @@ async function posterResolveImageForCanvas(sources: string[], label: string): Pr
       });
     });
     if (path) {
-      console.info(`[scorecard] poster ${label} ok`, src, '->', path);
+      debugInfo(`[scorecard] poster ${label} ok`, src, '->', path);
       return path;
     }
     console.warn(`[scorecard] poster ${label} getImageInfo fail`, src);

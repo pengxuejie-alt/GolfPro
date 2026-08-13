@@ -7,6 +7,7 @@ import { db } from './db.js';
 import { pickAvatarUrlFromUserRow } from './selfAvatarResolve';
 import { batchResolveCloudFileIds, isWxCloudFileId } from './mpCloudFileUrl';
 import { avatarUrlForDisplayOrEmpty, isAvatarUrlDisplayable, pickAvatarSrcForDisplay } from './mpAvatarSrc';
+import { debugInfo } from './mpDebugLog';
 
 export function isLikelyWeChatOpenId(s: unknown): boolean {
   const t = String(s ?? '').trim();
@@ -76,7 +77,7 @@ async function callGetUserProfilesCloud(
           if (body?.success === false) {
             console.warn('[fetchUserProfiles] getUserProfiles 返回失败:', body.error || body);
           } else if (body?.meta) {
-            console.info('[fetchUserProfiles] getUserProfiles meta', body.meta);
+            debugInfo('[fetchUserProfiles] getUserProfiles meta', body.meta);
           }
           const profiles = Array.isArray(body?.profiles) ? body.profiles : [];
           for (const raw of profiles) {
@@ -159,10 +160,15 @@ async function resolveProfileMapAvatarsForDisplay(map: Map<string, UserProfileRo
   }
 }
 
-export async function fetchUserProfilesForOpenIds(
-  openIds: string[],
+const FETCH_DEDUPE_MS = 2000;
+let lastFetchKey = '';
+let lastFetchAt = 0;
+let lastFetchPromise: Promise<Map<string, UserProfileRow>> | null = null;
+let lastFetchResult: Map<string, UserProfileRow> | null = null;
+
+async function fetchUserProfilesForOpenIdsInner(
+  uniq: string[],
 ): Promise<Map<string, UserProfileRow>> {
-  const uniq = [...new Set(openIds.map((x) => String(x || '').trim()).filter(isFetchableOpenId))];
   const map = new Map<string, UserProfileRow>();
   if (!uniq.length) return map;
 
@@ -200,6 +206,37 @@ export async function fetchUserProfilesForOpenIds(
   }
 
   return map;
+}
+
+export async function fetchUserProfilesForOpenIds(
+  openIds: string[],
+): Promise<Map<string, UserProfileRow>> {
+  const uniq = [...new Set(openIds.map((x) => String(x || '').trim()).filter(isFetchableOpenId))].sort();
+  if (!uniq.length) return new Map();
+
+  const key = uniq.join('\0');
+  const now = Date.now();
+  if (key === lastFetchKey && now - lastFetchAt < FETCH_DEDUPE_MS) {
+    if (lastFetchPromise) {
+      const cached = await lastFetchPromise;
+      return new Map(cached);
+    }
+    if (lastFetchResult) return new Map(lastFetchResult);
+  }
+
+  lastFetchKey = key;
+  lastFetchAt = now;
+  lastFetchResult = null;
+  lastFetchPromise = fetchUserProfilesForOpenIdsInner(uniq)
+    .then((map) => {
+      lastFetchResult = map;
+      return map;
+    })
+    .finally(() => {
+      lastFetchPromise = null;
+    });
+  const map = await lastFetchPromise;
+  return new Map(map);
 }
 
 export function profileMapToAvatarHttps(map: Map<string, UserProfileRow>): Map<string, string> {
