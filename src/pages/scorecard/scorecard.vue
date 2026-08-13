@@ -3097,16 +3097,30 @@ const getHoleProfit = (pid: string, holeIndex: number) => {
 };
 
 const pkRuleOptions = computed(() => {
-  const opts: { id: string; label: string }[] = [{ id: 'all', label: '得分汇总' }];
+  const opts: { id: string; label: string; title: string; sub: string }[] = [
+    { id: 'all', label: 'PK 得分汇总', title: 'PK 得分汇总', sub: '全部规则合计' },
+  ];
   for (const r of matchStore.activeRules) {
-    opts.push({ id: r.id, label: getPKRuleTitle(r) });
+    const names = (r.player_ids || []).map(playerNameById);
+    const summary = getRuleSummary(r);
+    const title = `${r.name}:${summary}`;
+    opts.push({
+      id: r.id,
+      label: getPKRuleTitle(r),
+      title,
+      sub: names.join(' '),
+    });
   }
   return opts;
 });
 
-const selectedPKRuleLabel = computed(
-  () => pkRuleOptions.value.find((o) => o.id === selectedPKRuleId.value)?.label || '得分汇总'
+const selectedPKRuleOption = computed(
+  () => pkRuleOptions.value.find((o) => o.id === selectedPKRuleId.value) || pkRuleOptions.value[0]
 );
+
+const selectedPKRuleLabel = computed(() => selectedPKRuleOption.value?.label || 'PK 得分汇总');
+
+const selectedPKRuleBanner = computed(() => selectedPKRuleOption.value?.title || 'PK 得分汇总');
 
 const openPKRuleSheet = () => {
   if (matchStore.activeRules.length === 0) return;
@@ -5558,7 +5572,7 @@ const posterPreviewSrc = ref('');
 
     <!-- PK Score Modal -->
     <div v-if="showPKScoreModal" class="scorecard-pk-modal-root fixed inset-0 z-[160] flex flex-col bg-white animate-in slide-in-from-bottom duration-300">
-      <!-- Header：左侧返回，右侧留给规则选择器，避免与胶囊冲突 -->
+      <!-- Header：返回 + 下拉筛选（不用 native picker，模拟器可点） -->
       <div class="px-3 py-3 border-b border-slate-100 flex items-center gap-2 bg-white sticky top-0 z-50 shrink-0">
         <button
           type="button"
@@ -5568,26 +5582,11 @@ const posterPreviewSrc = ref('');
         >
           <view class="scorecard-uni-ico-slot"><uni-icons type="left" :size="22" color="#334155" /></view>
         </button>
-        <text class="flex-1 min-w-0 text-[15px] font-bold text-slate-900">PK得分</text>
-      </div>
-      <scroll-view
-        v-if="pkRuleOptions.length > 1"
-        scroll-x
-        :show-scrollbar="false"
-        class="sc-pk-chip-scroll w-full bg-white border-b border-slate-100"
-      >
-        <view class="sc-pk-chip-row">
-          <view
-            v-for="opt in pkRuleOptions"
-            :key="'pk-chip-' + opt.id"
-            class="sc-pk-chip"
-            :class="selectedPKRuleId === opt.id ? 'sc-pk-chip--on' : 'sc-pk-chip--off'"
-            @tap.stop="selectPKRule(opt.id)"
-          >
-            <text class="sc-pk-chip-text">{{ opt.label }}</text>
-          </view>
+        <view class="sc-pk-drop-banner" @tap.stop="openPKRuleSheet">
+          <text class="sc-pk-drop-banner-text">{{ selectedPKRuleBanner }}</text>
+          <text class="sc-pk-drop-chevron">▾</text>
         </view>
-      </scroll-view>
+      </div>
 
       <!-- Score Table (view-based for WeChat）头像行勿用 sticky，易与 scroll-view 裁剪冲突 -->
       <scroll-view scroll-y class="flex-1 bg-slate-50 min-h-0 sc-pk-scroll" :show-scrollbar="false">
@@ -5625,33 +5624,36 @@ const posterPreviewSrc = ref('');
       </scroll-view>
     </div>
 
-    <!-- PK 规则选择：自定义底栏，避开开发者工具模拟器 native picker 点不开 -->
+    <!-- PK 规则下拉筛选：完整标题 + 对阵名单，避开 native picker -->
     <view
       v-if="showPKRuleSheet"
       class="scorecard-pk-rule-sheet-mask"
       @tap="showPKRuleSheet = false"
     >
       <view class="scorecard-pk-rule-sheet" @tap.stop>
-        <view class="scorecard-pk-rule-sheet-handle" />
-        <text class="scorecard-pk-rule-sheet-title">选择 PK 规则</text>
-        <view
-          v-for="opt in pkRuleOptions"
-          :key="'pk-sheet-' + opt.id"
-          class="scorecard-pk-rule-sheet-item"
-          :class="{ 'scorecard-pk-rule-sheet-item--on': selectedPKRuleId === opt.id }"
-          @tap.stop="selectPKRule(opt.id)"
-        >
-          <text class="scorecard-pk-rule-sheet-item-text">{{ opt.label }}</text>
-          <uni-icons
-            v-if="selectedPKRuleId === opt.id"
-            type="checkmarkempty"
-            :size="20"
-            color="#15803d"
-          />
+        <view class="scorecard-pk-rule-sheet-head">
+          <text class="scorecard-pk-rule-sheet-head-text">PK 得分汇总</text>
         </view>
-        <view class="scorecard-pk-rule-sheet-cancel" @tap.stop="showPKRuleSheet = false">
-          <text class="scorecard-pk-rule-sheet-cancel-text">取消</text>
-        </view>
+        <scroll-view scroll-y class="scorecard-pk-rule-sheet-scroll" :show-scrollbar="false">
+          <view
+            v-for="opt in pkRuleOptions"
+            :key="'pk-sheet-' + opt.id"
+            class="scorecard-pk-rule-sheet-item"
+            :class="{ 'scorecard-pk-rule-sheet-item--on': selectedPKRuleId === opt.id }"
+            @tap.stop="selectPKRule(opt.id)"
+          >
+            <view class="scorecard-pk-rule-sheet-item-main">
+              <text class="scorecard-pk-rule-sheet-item-text">{{ opt.title }}</text>
+              <text v-if="opt.sub" class="scorecard-pk-rule-sheet-item-sub">{{ opt.sub }}</text>
+            </view>
+            <uni-icons
+              v-if="selectedPKRuleId === opt.id"
+              type="checkmarkempty"
+              :size="20"
+              color="#2563eb"
+            />
+          </view>
+        </scroll-view>
       </view>
     </view>
     <!-- Share Modal -->
@@ -6023,117 +6025,108 @@ const posterPreviewSrc = ref('');
   padding-top: 24rpx;
   box-sizing: border-box;
 }
-.sc-pk-chip-scroll {
-  width: 100%;
-  flex-shrink: 0;
-  white-space: nowrap;
+.sc-pk-drop-banner {
+  flex: 1;
+  min-width: 0;
+  background: #2563eb;
+  border-radius: 16rpx;
+  padding: 16rpx 20rpx 12rpx;
   box-sizing: border-box;
-}
-.sc-pk-chip-row {
-  display: inline-flex;
-  flex-direction: row;
-  align-items: center;
-  padding: 12rpx 24rpx 16rpx;
-  gap: 12rpx;
-  box-sizing: border-box;
-}
-.sc-pk-chip {
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-  height: 56rpx;
-  padding: 0 24rpx;
-  border-radius: 999rpx;
-  box-sizing: border-box;
 }
-.sc-pk-chip--on {
-  background-color: #07c160;
-}
-.sc-pk-chip--off {
-  background-color: #f1f5f9;
-}
-.sc-pk-chip-text {
-  font-size: 24rpx;
-  font-weight: 700;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-.sc-pk-chip--on .sc-pk-chip-text {
+.sc-pk-drop-banner-text {
+  width: 100%;
   color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: center;
+  white-space: normal;
+  word-break: break-all;
 }
-.sc-pk-chip--off .sc-pk-chip-text {
-  color: #475569;
+.sc-pk-drop-chevron {
+  margin-top: 4rpx;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 22rpx;
+  line-height: 1;
 }
 .scorecard-pk-rule-sheet-mask {
   position: fixed;
   inset: 0;
-  z-index: 180;
-  background: rgba(0, 0, 0, 0.45);
+  z-index: 220;
+  background: rgba(15, 23, 42, 0.45);
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
+  padding: 48rpx 32rpx;
+  box-sizing: border-box;
 }
 .scorecard-pk-rule-sheet {
   width: 100%;
-  max-width: 640rpx;
+  max-width: 680rpx;
+  max-height: 75vh;
   background: #ffffff;
-  border-radius: 32rpx 32rpx 0 0;
-  padding: 16rpx 24rpx calc(24rpx + env(safe-area-inset-bottom));
+  border-radius: 20rpx;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   box-sizing: border-box;
 }
-.scorecard-pk-rule-sheet-handle {
-  width: 64rpx;
-  height: 8rpx;
-  border-radius: 999rpx;
-  background: #e2e8f0;
-  margin: 0 auto 20rpx;
+.scorecard-pk-rule-sheet-head {
+  flex-shrink: 0;
+  background: #60a5fa;
+  padding: 22rpx 24rpx;
 }
-.scorecard-pk-rule-sheet-title {
+.scorecard-pk-rule-sheet-head-text {
   display: block;
   text-align: center;
-  font-size: 28rpx;
-  font-weight: 700;
-  color: #0f172a;
-  margin-bottom: 16rpx;
+  color: #ffffff;
+  font-size: 30rpx;
+  font-weight: 800;
+}
+.scorecard-pk-rule-sheet-scroll {
+  flex: 1;
+  min-height: 200rpx;
+  max-height: 62vh;
+  height: 62vh;
 }
 .scorecard-pk-rule-sheet-item {
   display: flex;
   flex-direction: row;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  min-height: 88rpx;
-  padding: 0 16rpx;
-  border-radius: 16rpx;
-  margin-bottom: 8rpx;
-  background: #f8fafc;
+  gap: 16rpx;
+  padding: 20rpx 24rpx;
+  border-bottom: 1rpx solid #f1f5f9;
   box-sizing: border-box;
 }
 .scorecard-pk-rule-sheet-item--on {
-  background: #ecfdf5;
+  background: #eff6ff;
 }
-.scorecard-pk-rule-sheet-item-text {
+.scorecard-pk-rule-sheet-item-main {
   flex: 1;
   min-width: 0;
-  font-size: 28rpx;
+}
+.scorecard-pk-rule-sheet-item-text {
+  display: block;
+  font-size: 26rpx;
   font-weight: 700;
   color: #0f172a;
+  line-height: 1.45;
+  white-space: normal;
+  word-break: break-all;
+}
+.scorecard-pk-rule-sheet-item-sub {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #64748b;
   line-height: 1.4;
   white-space: normal;
-}
-.scorecard-pk-rule-sheet-cancel {
-  margin-top: 12rpx;
-  min-height: 88rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 16rpx;
-  background: #f1f5f9;
-}
-.scorecard-pk-rule-sheet-cancel-text {
-  font-size: 28rpx;
-  font-weight: 600;
-  color: #64748b;
+  word-break: break-all;
 }
 .sc-pk-row--avatars {
   min-height: 0 !important;
@@ -6358,18 +6351,29 @@ const posterPreviewSrc = ref('');
   margin-top: 10rpx;
 }
 .sc-pk-total-text {
-  font-size: 34rpx;
+  display: block;
+  width: 100%;
+  text-align: center;
+  font-size: 32rpx;
   line-height: 1.2;
+  box-sizing: border-box;
 }
 .sc-pk-hole-num {
+  display: block;
+  width: 100%;
+  text-align: center;
   font-size: 28rpx;
   font-weight: 600;
   line-height: 1.25;
 }
 .sc-pk-score-text {
+  display: block;
+  width: 100%;
+  text-align: center;
   font-size: 30rpx;
   line-height: 1.25;
   font-weight: 600;
+  box-sizing: border-box;
 }
 .sc-pk-score-zero {
   color: #cbd5e1 !important;
