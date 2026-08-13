@@ -1035,13 +1035,17 @@ export const useMatchStore = defineStore('match', {
             const reward = this.getRewardValue(winnerRel, rule.reward_config);
             if (reward > 0) holeWinVal = reward;
           }
-          let signedProfit = winA * holeWinVal + winA * collectAmount * baseVal;
+          const th = resolveTieHole(rule);
+          // 加倍/连续翻倍：上一洞以倍率计入本洞，不再先加 collect×基数再乘，否则 1 洞顶洞会变成 ×4
+          const addCollectedBase =
+            th !== '加倍（含奖励）' && th !== '加倍（不含奖励）' && th !== '连续翻倍';
+          let signedProfit = winA * holeWinVal + (addCollectedBase ? winA * collectAmount * baseVal : 0);
           if (collectAmount > 0) {
             signedProfit = applyTieHoleAdjustments(
               signedProfit,
               winA,
               collectAmount,
-              resolveTieHole(rule),
+              th,
               baseVal
             );
           }

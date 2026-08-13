@@ -47,7 +47,8 @@ export function computeCarryoverCollectAmount(
 
 /**
  * 收顶洞后应用顶洞规则（下洞加分 / 加倍 / 连续翻倍）。
- * signedProfit 已含本洞赢分 + 已收顶洞洞数×基数。
+ * 下洞加 N 分：signedProfit 须已含本洞赢分 + 已收顶洞×基数。
+ * 加倍（含奖励）：signedProfit 只含本洞赢分（含鸟鹰奖励），再 ×2，不要先加顶洞基数。
  */
 export function applyTieHoleAdjustments(
   signedProfit: number,
