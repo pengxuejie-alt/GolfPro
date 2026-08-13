@@ -1394,6 +1394,7 @@ const showEditStandard18SectionHint = computed(() => {
 
 const showPKScoreModal = ref(false);
 const selectedPKRuleId = ref<string>('all');
+const showPKRuleSheet = ref(false);
 
 const showHistoryFriendsModal = ref(false);
 const showQRCodeModal = ref(false);
@@ -3058,7 +3059,7 @@ const getHoleProfit = (pid: string, holeIndex: number) => {
   return currentPKProfits.value[holeIndex]?.[pIdx] || 0;
 };
 
-const pkRulePickerRange = computed(() => {
+const pkRuleOptions = computed(() => {
   const rules = matchStore.activeRules;
   const counts = new Map<string, number>();
   for (const r of rules) {
@@ -3066,33 +3067,32 @@ const pkRulePickerRange = computed(() => {
     counts.set(k, (counts.get(k) || 0) + 1);
   }
   const seen = new Map<string, number>();
-  const labels: string[] = ['得分汇总'];
+  const opts: { id: string; label: string }[] = [{ id: 'all', label: '得分汇总' }];
   for (const r of rules) {
     const k = String(r.name || r.type);
+    let label = k;
     if ((counts.get(k) || 0) > 1) {
       const n = (seen.get(k) || 0) + 1;
       seen.set(k, n);
-      labels.push(`${k}${n}`);
-    } else {
-      labels.push(k);
+      label = `${k}${n}`;
     }
+    opts.push({ id: r.id, label });
   }
-  return labels;
+  return opts;
 });
 
-const pkRulePickerValues = computed(() =>
-  ['all', ...matchStore.activeRules.map((r: PKRule) => r.id)] as string[]
+const selectedPKRuleLabel = computed(
+  () => pkRuleOptions.value.find((o) => o.id === selectedPKRuleId.value)?.label || '得分汇总'
 );
 
-const pkRulePickerIndex = computed(() => {
-  const i = pkRulePickerValues.value.indexOf(selectedPKRuleId.value);
-  return i >= 0 ? i : 0;
-});
+const openPKRuleSheet = () => {
+  if (matchStore.activeRules.length === 0) return;
+  showPKRuleSheet.value = true;
+};
 
-const onPkRulePickerChange = (e: { detail: { value: string } }) => {
-  const idx = Number(e.detail.value);
-  const vals = pkRulePickerValues.value;
-  selectedPKRuleId.value = vals[idx] ?? 'all';
+const selectPKRule = (id: string) => {
+  selectedPKRuleId.value = id;
+  showPKRuleSheet.value = false;
 };
 
 const getScoreRelativeText = (pid: string, holeIndex: number) => {
@@ -3739,18 +3739,14 @@ const posterPreviewSrc = ref('');
       >
         生成海报
       </button>
-      <picker
+      <view
         v-if="matchStore.activeRules.length > 0"
-        mode="selector"
-        :range="pkRulePickerRange"
-        :value="pkRulePickerIndex"
-        @change="onPkRulePickerChange"
+        class="scorecard-seg-btn scorecard-pk-filter-chip px-3 py-1.5 bg-amber-50 border border-amber-200 text-xs font-bold text-amber-800 active:opacity-80 flex items-center gap-1 max-w-[11rem]"
+        @tap.stop="openPKRuleSheet"
       >
-        <view class="scorecard-seg-btn scorecard-pk-filter-chip px-3 py-1.5 bg-amber-50 border border-amber-200 text-xs font-bold text-amber-800 active:opacity-80 flex items-center gap-1 max-w-[11rem]">
-          <text class="truncate">{{ pkRulePickerRange[pkRulePickerIndex] }}</text>
-          <text class="shrink-0">▾</text>
-        </view>
-      </picker>
+        <text class="truncate">{{ selectedPKRuleLabel }}</text>
+        <text class="shrink-0">▾</text>
+      </view>
     </div>
 
     <!-- 比赛信息条（轻量替代旧海报区） -->
@@ -5549,22 +5545,26 @@ const posterPreviewSrc = ref('');
         >
           <view class="scorecard-uni-ico-slot"><uni-icons type="left" :size="22" color="#334155" /></view>
         </button>
-        <div class="flex-1 min-w-0 relative">
-          <picker
-            mode="selector"
-            :range="pkRulePickerRange"
-            :value="pkRulePickerIndex"
-            @change="onPkRulePickerChange"
-          >
-            <view class="w-full bg-[#07C160] text-white font-bold py-2.5 px-3 rounded-full text-center text-[15px] shadow-md shadow-green-900/10 flex items-center justify-center pr-9 box-border">
-              <text class="text-white font-bold text-[15px] text-center truncate">{{ pkRulePickerRange[pkRulePickerIndex] }}</text>
-            </view>
-          </picker>
-          <view class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-white">
-            <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
-          </view>
-        </div>
+        <text class="flex-1 min-w-0 text-[15px] font-bold text-slate-900">PK得分</text>
       </div>
+      <scroll-view
+        v-if="pkRuleOptions.length > 1"
+        scroll-x
+        :show-scrollbar="false"
+        class="sc-pk-chip-scroll w-full bg-white border-b border-slate-100"
+      >
+        <view class="sc-pk-chip-row">
+          <view
+            v-for="opt in pkRuleOptions"
+            :key="'pk-chip-' + opt.id"
+            class="sc-pk-chip"
+            :class="selectedPKRuleId === opt.id ? 'sc-pk-chip--on' : 'sc-pk-chip--off'"
+            @tap.stop="selectPKRule(opt.id)"
+          >
+            <text class="sc-pk-chip-text">{{ opt.label }}</text>
+          </view>
+        </view>
+      </scroll-view>
 
       <!-- Score Table (view-based for WeChat）头像行勿用 sticky，易与 scroll-view 裁剪冲突 -->
       <scroll-view scroll-y class="flex-1 bg-slate-50 min-h-0 sc-pk-scroll" :show-scrollbar="false">
@@ -5601,6 +5601,36 @@ const posterPreviewSrc = ref('');
         </view>
       </scroll-view>
     </div>
+
+    <!-- PK 规则选择：自定义底栏，避开开发者工具模拟器 native picker 点不开 -->
+    <view
+      v-if="showPKRuleSheet"
+      class="scorecard-pk-rule-sheet-mask"
+      @tap="showPKRuleSheet = false"
+    >
+      <view class="scorecard-pk-rule-sheet" @tap.stop>
+        <view class="scorecard-pk-rule-sheet-handle" />
+        <text class="scorecard-pk-rule-sheet-title">选择 PK 规则</text>
+        <view
+          v-for="opt in pkRuleOptions"
+          :key="'pk-sheet-' + opt.id"
+          class="scorecard-pk-rule-sheet-item"
+          :class="{ 'scorecard-pk-rule-sheet-item--on': selectedPKRuleId === opt.id }"
+          @tap.stop="selectPKRule(opt.id)"
+        >
+          <text class="scorecard-pk-rule-sheet-item-text">{{ opt.label }}</text>
+          <uni-icons
+            v-if="selectedPKRuleId === opt.id"
+            type="checkmarkempty"
+            :size="20"
+            color="#15803d"
+          />
+        </view>
+        <view class="scorecard-pk-rule-sheet-cancel" @tap.stop="showPKRuleSheet = false">
+          <text class="scorecard-pk-rule-sheet-cancel-text">取消</text>
+        </view>
+      </view>
+    </view>
     <!-- Share Modal -->
     <div v-if="showShareModal" class="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm" @click.self="showShareModal = false">
       <div class="w-full max-w-lg bg-white rounded-t-3xl overflow-hidden animate-in slide-in-from-bottom duration-300">
@@ -5969,6 +5999,114 @@ const posterPreviewSrc = ref('');
 .sc-pk-scroll {
   padding-top: 24rpx;
   box-sizing: border-box;
+}
+.sc-pk-chip-scroll {
+  width: 100%;
+  flex-shrink: 0;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+.sc-pk-chip-row {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 12rpx 24rpx 16rpx;
+  gap: 12rpx;
+  box-sizing: border-box;
+}
+.sc-pk-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  height: 56rpx;
+  padding: 0 24rpx;
+  border-radius: 999rpx;
+  box-sizing: border-box;
+}
+.sc-pk-chip--on {
+  background-color: #07c160;
+}
+.sc-pk-chip--off {
+  background-color: #f1f5f9;
+}
+.sc-pk-chip-text {
+  font-size: 24rpx;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.sc-pk-chip--on .sc-pk-chip-text {
+  color: #ffffff;
+}
+.sc-pk-chip--off .sc-pk-chip-text {
+  color: #475569;
+}
+.scorecard-pk-rule-sheet-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 180;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.scorecard-pk-rule-sheet {
+  width: 100%;
+  max-width: 640rpx;
+  background: #ffffff;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 16rpx 24rpx calc(24rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+.scorecard-pk-rule-sheet-handle {
+  width: 64rpx;
+  height: 8rpx;
+  border-radius: 999rpx;
+  background: #e2e8f0;
+  margin: 0 auto 20rpx;
+}
+.scorecard-pk-rule-sheet-title {
+  display: block;
+  text-align: center;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 16rpx;
+}
+.scorecard-pk-rule-sheet-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 88rpx;
+  padding: 0 16rpx;
+  border-radius: 16rpx;
+  margin-bottom: 8rpx;
+  background: #f8fafc;
+  box-sizing: border-box;
+}
+.scorecard-pk-rule-sheet-item--on {
+  background: #ecfdf5;
+}
+.scorecard-pk-rule-sheet-item-text {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #0f172a;
+}
+.scorecard-pk-rule-sheet-cancel {
+  margin-top: 12rpx;
+  min-height: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16rpx;
+  background: #f1f5f9;
+}
+.scorecard-pk-rule-sheet-cancel-text {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #64748b;
 }
 .sc-pk-row--avatars {
   min-height: 0 !important;
