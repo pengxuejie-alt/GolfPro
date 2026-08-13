@@ -2,6 +2,11 @@ import { defineStore } from 'pinia';
 import { MatchManager } from '@/utils/match_manager';
 import { normalizeMatchHoleScoresForClient } from '@/utils/matchHoleScoresNormalize';
 import { resolvePlayerOpenId } from '@/utils/fetchUserProfilesForOpenIds';
+import {
+  applyTieHoleAdjustments,
+  computeCarryoverCollectAmount,
+  resolveTieHole,
+} from '@/utils/pkTieHole';
 
 /** 防止 cloud/表单混入 string 后 reduce/+= 退化成字符串拼接，避免出现一长串 9 */
 function fin(v: unknown, fallback = 0): number {
@@ -88,7 +93,9 @@ export interface PKRule {
   valid_holes?: number[];
   // Match Play (比洞) specific
   win_condition?: string; // 'lower_strokes' | etc.
-  tie_type?: string; // 'add_one' | 'none'
+  tie_type?: string; // legacy: 'add_one' | 'none' | ...
+  /** 顶洞规则中文选项，如 顶平过 / 下洞加1分 / 加倍（含奖励） */
+  tie_hole?: string;
   collect_tie_type?: string; // 'standard' | etc.
   // New fields for Match Play
   handicap_type?: 'strokes' | 'holes';
@@ -365,27 +372,13 @@ export const useMatchStore = defineStore('match', {
         }
 
         if (collectAmount > 0) {
-          let tieBonus = 0;
-          let tieMultiplier = 1;
-          const th = config?.tie_hole != null ? String(config.tie_hole) : '';
-          const noTieBonus = th === '下洞不加分' || th === '顶平过';
-
-          if (!noTieBonus && th === '下洞加1分') tieBonus = 1 * collectAmount;
-          else if (!noTieBonus && th === '下洞加2分') tieBonus = 2 * collectAmount;
-          else if (!noTieBonus && th === '下洞加3分') tieBonus = 3 * collectAmount;
-          else if (!noTieBonus && th === '加倍（含奖励）') tieMultiplier = 2;
-          else if (!noTieBonus && th === '加倍（不含奖励）') tieMultiplier = 2;
-          else if (!noTieBonus && th === '连续翻倍') tieMultiplier = Math.pow(2, collectAmount);
-
-          if (!noTieBonus && th === '加倍（不含奖励）') {
-            const baseProfit = pkCount * baseScore;
-            const extra = baseProfit * (tieMultiplier - 1);
-            finalHoleProfit += extra;
-          } else {
-            finalHoleProfit *= tieMultiplier;
-          }
-
-          finalHoleProfit += pkCount > 0 ? tieBonus : -tieBonus;
+          finalHoleProfit = applyTieHoleAdjustments(
+            finalHoleProfit,
+            pkCount,
+            collectAmount,
+            resolveTieHole(config),
+            baseScore
+          );
         }
         nextCarryover = carryover - collectAmount;
       }
@@ -1017,29 +1010,32 @@ export const useMatchStore = defineStore('match', {
           nextCarryover = carryover + 1;
           diff = 0;
         } else {
-          let collectAmount = 0;
-          if (carryover > 0) {
-            const winnerRel = winA > 0 ? relA : relB;
-            if (rule.collect_tie_type === 'par_1_birdie_2_eagle_all') {
-              if (winnerRel === 0) collectAmount = Math.min(1, carryover);
-              else if (winnerRel === -1) collectAmount = Math.min(2, carryover);
-              else if (winnerRel <= -2) collectAmount = carryover;
-            } else if (rule.collect_tie_type === 'all') {
-              collectAmount = carryover;
-            } else {
-              collectAmount = carryover;
-            }
-          }
-          if (roundStart && carryover > 0) collectAmount = 0;
+          const winnerRel = winA > 0 ? relA : relB;
+          const skipCollect = roundStart && carryover > 0;
+          const collectAmount = computeCarryoverCollectAmount(
+            carryover,
+            winnerRel,
+            rule.collect_tie_type,
+            skipCollect
+          );
           nextCarryover = carryover - collectAmount;
           // 奖励分（鸟/鹰/HIO）为赢洞总分，不再叠加 baseVal，避免 +1
           let holeWinVal = baseVal;
-          if (rule.reward_config && winA !== 0) {
-            const winnerRel = winA > 0 ? relA : relB;
+          if (rule.reward_config) {
             const reward = this.getRewardValue(winnerRel, rule.reward_config);
             if (reward > 0) holeWinVal = reward;
           }
-          diff = winA * holeWinVal + winA * collectAmount * baseVal;
+          let signedProfit = winA * holeWinVal + winA * collectAmount * baseVal;
+          if (collectAmount > 0) {
+            signedProfit = applyTieHoleAdjustments(
+              signedProfit,
+              winA,
+              collectAmount,
+              resolveTieHole(rule),
+              baseVal
+            );
+          }
+          diff = signedProfit;
         }
 
         if (rule.landmines && rule.landmines.assignedHoles.includes(holeIndex + 1)) {

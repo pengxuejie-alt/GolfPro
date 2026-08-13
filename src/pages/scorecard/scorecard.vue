@@ -48,6 +48,7 @@ import {
   setCachedAvatarDisplay,
 } from '@/utils/avatarDisplayCache';
 import { resolveCloudFileIdToHttps } from '@/utils/mpCloudFileUrl';
+import { HOLES_TIE_HOLE_OPTIONS, tieHoleLabel } from '@/utils/pkTieHole';
 import { debugInfo, debugLog } from '@/utils/mpDebugLog';
 import { hydrateUserProfileFromCloud } from '@/utils/hydrateUserProfileFromCloud';
 import { golfScoreCellMarkClasses, golfHoleMarkKind } from '@/utils/golfScoreShapes';
@@ -1903,6 +1904,7 @@ const selectRuleForConfig = (rule: any) => {
       reward_config: '1',
       valid_holes: Array.from({ length: 18 }, (_, i) => i + 1),
       win_condition: 'lower_strokes',
+      tie_hole: '顶平过',
       tie_type: 'none',
       collect_tie_type: 'par_1_birdie_2_eagle_all',
       handicap_type: 'strokes', // 'strokes' or 'holes'
@@ -1929,6 +1931,7 @@ const selectRuleForConfig = (rule: any) => {
       reward_config: '1',
       valid_holes: Array.from({ length: 18 }, (_, i) => i + 1),
       win_condition: 'lower_strokes',
+      tie_hole: '顶平过',
       tie_type: 'none',
       collect_tie_type: 'par_1_birdie_2_eagle_all',
       handicap_type: 'strokes', // 'strokes' or 'holes'
@@ -2099,6 +2102,13 @@ const getRuleSummary = (rule: PKRule) => {
     if (rule.reward_config === 'hio_10') {
       parts.push('HIO(双鹰)10');
     }
+
+    if (rule.type === 'holes') {
+      parts.push(tieHoleLabel(rule));
+      const ct = rule.collect_tie_type;
+      if (ct === 'par_1_birdie_2_eagle_all') parts.push('帕收1/鸟收2/鹰全收');
+      else if (ct === 'all') parts.push('全收');
+    }
   } else if (rule.type === '8421_1v1') {
     parts.push(`${rule.participant_count || 2}人8421+`);
     pushStartingHoleIfSet();
@@ -2242,6 +2252,7 @@ const confirmAddRule = () => {
       handicap_config: currentConfigRule.value.handicap_config,
       reward_config: currentConfigRule.value.reward_config,
       win_condition: currentConfigRule.value.win_condition,
+      tie_hole: currentConfigRule.value.tie_hole || tieHoleLabel(currentConfigRule.value),
       tie_type: currentConfigRule.value.tie_type,
       collect_tie_type: currentConfigRule.value.collect_tie_type,
       handicap_type: currentConfigRule.value.handicap_type,
@@ -4243,7 +4254,7 @@ const posterPreviewSrc = ref('');
                   <span class="text-sm">顶洞</span>
                 </div>
                 <div class="flex items-center gap-2">
-                  <span class="text-sm text-slate-700">{{ currentConfigRule?.tie_type === 'add_one' ? '下洞加1分' : '下洞不加分' }}</span>
+                  <span class="text-sm text-slate-700">{{ tieHoleLabel(currentConfigRule) }}</span>
                   <view class="scorecard-uni-ico-slot scorecard-uni-ico-slot--sm"><uni-icons type="right" :size="18" color="#475569" /></view>
                 </div>
               </div>
@@ -4569,7 +4580,7 @@ const posterPreviewSrc = ref('');
                     <span class="text-sm font-medium text-slate-800">顶洞</span>
                   </div>
                   <div class="flex items-center gap-2">
-                    <span class="text-sm font-semibold text-slate-700">{{ currentConfigRule?.tie_type === 'add_one' ? '下洞加1分' : '不加分' }}</span>
+                    <span class="text-sm font-semibold text-slate-700">{{ tieHoleLabel(currentConfigRule) }}</span>
                     <view class="scorecard-uni-ico-slot scorecard-uni-ico-slot--sm"><uni-icons type="right" :size="18" color="#475569" /></view>
                   </div>
                 </div>
@@ -5444,18 +5455,14 @@ const posterPreviewSrc = ref('');
             <view class="scorecard-uni-ico-slot"><uni-icons type="closeempty" :size="22" color="#64748b" /></view>
           </button>
         </div>
-        <div class="p-3 space-y-2 pb-10">
-          <button type="button" @click="currentConfigRule && (currentConfigRule.tie_type = 'add_one'); showTieModal = false"
+        <div class="p-3 space-y-2 pb-10 max-h-[70vh] overflow-y-auto">
+          <button v-for="opt in HOLES_TIE_HOLE_OPTIONS" :key="opt"
+                  type="button"
+                  @click="currentConfigRule && (currentConfigRule.tie_hole = opt); showTieModal = false"
                   class="w-full py-3 px-4 rounded-2xl flex items-center justify-between transition-all border"
-                  :class="currentConfigRule?.tie_type === 'add_one' ? 'bg-emerald-50 border-[#15803d]' : 'bg-slate-50 border-slate-200'">
-            <span class="font-bold text-slate-900">下洞加1分</span>
-            <div v-if="currentConfigRule?.tie_type === 'add_one'" class="w-2 h-2 rounded-full bg-[#15803d]"></div>
-          </button>
-          <button type="button" @click="currentConfigRule && (currentConfigRule.tie_type = 'none'); showTieModal = false"
-                  class="w-full py-3 px-4 rounded-2xl flex items-center justify-between transition-all border"
-                  :class="currentConfigRule?.tie_type === 'none' ? 'bg-emerald-50 border-[#15803d]' : 'bg-slate-50 border-slate-200'">
-            <span class="font-bold text-slate-900">不加分</span>
-            <div v-if="currentConfigRule?.tie_type === 'none'" class="w-2 h-2 rounded-full bg-[#15803d]"></div>
+                  :class="tieHoleLabel(currentConfigRule) === opt ? 'bg-emerald-50 border-[#15803d]' : 'bg-slate-50 border-slate-200'">
+            <span class="font-bold text-slate-900">{{ opt }}</span>
+            <div v-if="tieHoleLabel(currentConfigRule) === opt" class="w-2 h-2 rounded-full bg-[#15803d]"></div>
           </button>
         </div>
       </div>
