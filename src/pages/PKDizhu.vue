@@ -23,12 +23,13 @@ const config = ref({
   starting_hole: 1,
   active_holes: Array.from({ length: 18 }, (_, i) => i + 1),
   category: '斗第二名',
-  landlord_type: '流动地主',
+  landlord_type: '抽地主',
   scoring_type: '1/2/3分',
   pk_good: false,
   pk_bad: false,
   pk_avg: true,
   fixed_landlord_id: '',
+  drawn_landlord_id: '',
   selected_player_ids: [] as string[],
   reward: '鸟2/鹰5/HIO(双鹰)10',
   tie_hole: '下洞不加分',
@@ -39,7 +40,7 @@ const config = ref({
 const showModal = ref<string | null>(null);
 const modalOptions = {
   category: ['斗第二名', '斗第一名'],
-  landlord_type: ['流动地主', '固定地主'],
+  landlord_type: ['抽地主', '指定地主'],
   reward: [
     '鸟2/鹰5/HIO(双鹰)10',
     '鸟2/鹰10/HIO(双鹰)20',
@@ -56,9 +57,26 @@ const modalOptions = {
   ]
 };
 
+const isDesignateLandlord = computed(
+  () => config.value.landlord_type === '指定地主' || config.value.landlord_type === '固定地主'
+);
+
+const drawLandlord = () => {
+  const ids = config.value.selected_player_ids;
+  if (ids.length !== 3) {
+    uni.showToast({ title: '请先选满3位参赛者', icon: 'none' });
+    return;
+  }
+  const pick = ids[Math.floor(Math.random() * ids.length)];
+  config.value.drawn_landlord_id = pick;
+};
+
 const selectOption = (key: string, val: string) => {
   (config.value as any)[key] = val;
   showModal.value = null;
+  if (key === 'landlord_type' && val === '抽地主' && config.value.selected_player_ids.length === 3 && !config.value.drawn_landlord_id) {
+    drawLandlord();
+  }
 };
 
 const allPlayers = computed(() => matchStore.user_list);
@@ -81,6 +99,19 @@ onMounted(() => {
       if (sh != null && Number.isFinite(Number(sh))) {
         config.value.starting_hole = Math.min(18, Math.max(1, Math.round(Number(sh))));
       }
+      const t = String(config.value.landlord_type || '');
+      if (t === '固定地主') {
+        config.value.landlord_type = '指定地主';
+      } else if (t === '流动地主' || t === '' || t === '抽地主') {
+        config.value.landlord_type = '抽地主';
+        if (!config.value.drawn_landlord_id) {
+          config.value.drawn_landlord_id =
+            config.value.drawn_landlord_id ||
+            rule.player_ids?.[0] ||
+            config.value.selected_player_ids[0] ||
+            '';
+        }
+      }
       return;
     }
   }
@@ -88,6 +119,13 @@ onMounted(() => {
   // Auto-select first 3 players if none selected
   if (config.value.selected_player_ids.length === 0) {
     config.value.selected_player_ids = allPlayers.value.slice(0, 3).map(p => p.id);
+  }
+  if (
+    !isDesignateLandlord.value &&
+    config.value.selected_player_ids.length === 3 &&
+    !config.value.drawn_landlord_id
+  ) {
+    drawLandlord();
   }
 });
 
@@ -99,10 +137,22 @@ const togglePlayerSelection = (playerId: string) => {
     if (config.value.selected_player_ids.length < 3) {
       config.value.selected_player_ids.push(playerId);
     } else {
-      // Replace last one or just do nothing? Let's replace last one to keep it at 3
       config.value.selected_player_ids.shift();
       config.value.selected_player_ids.push(playerId);
     }
+  }
+  if (!config.value.selected_player_ids.includes(config.value.drawn_landlord_id)) {
+    config.value.drawn_landlord_id = '';
+  }
+  if (!config.value.selected_player_ids.includes(config.value.fixed_landlord_id)) {
+    config.value.fixed_landlord_id = '';
+  }
+  if (
+    !isDesignateLandlord.value &&
+    config.value.selected_player_ids.length === 3 &&
+    !config.value.drawn_landlord_id
+  ) {
+    drawLandlord();
   }
 };
 
@@ -111,9 +161,19 @@ const handleSave = async () => {
     alert('请选择3位参赛者进行斗地主');
     return;
   }
-  if (config.value.landlord_type === '固定地主' && !config.value.fixed_landlord_id) {
-    alert('请指定固定地主');
+  if (isDesignateLandlord.value && !config.value.fixed_landlord_id) {
+    alert('请指定地主');
     return;
+  }
+  if (!isDesignateLandlord.value) {
+    if (!config.value.drawn_landlord_id) {
+      if (config.value.selected_player_ids.length === 3) {
+        drawLandlord();
+      } else {
+        alert('请先抽地主');
+        return;
+      }
+    }
   }
   if (!config.value.pk_good && !config.value.pk_bad && !config.value.pk_avg) {
     alert('请至少选择一项计分维度');
@@ -246,9 +306,36 @@ const pkDimCount = computed(
         </div>
       </div>
 
-      <!-- Fixed Landlord Selection -->
-      <div v-if="config.landlord_type === '固定地主'" class="bg-white border border-slate-100 rounded-2xl p-3 mb-2 shadow-sm animate-in fade-in slide-in-from-top-2">
-        <h3 class="text-xs font-bold text-slate-500 mb-2">指定固定地主</h3>
+      <!-- 抽地主 / 指定地主 -->
+      <div v-if="!isDesignateLandlord" class="bg-white border border-slate-100 rounded-2xl p-3 mb-2 shadow-sm">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="text-xs font-bold text-slate-500">抽地主（第一洞地主，之后按成绩流动）</h3>
+          <button
+            type="button"
+            @click="drawLandlord"
+            class="px-3 py-1 rounded-full text-xs font-bold bg-[#15803d] text-white active:opacity-80"
+          >
+            抽一下
+          </button>
+        </div>
+        <div class="flex gap-3">
+          <div v-for="player in selectedPlayers" :key="'draw-'+player.id"
+               class="flex flex-col items-center gap-1">
+            <div class="relative">
+              <image :src="player.avatar" mode="aspectFill" class="w-10 h-10 rounded-full border-2 transition-all"
+                   :class="config.drawn_landlord_id === player.id ? 'border-[#dc2626] scale-105' : 'border-transparent opacity-50'" />
+              <div v-if="config.drawn_landlord_id === player.id" class="absolute -top-1 -right-1 bg-[#dc2626] rounded-sm px-0.5">
+                <text class="text-[9px] font-black text-white leading-none">地</text>
+              </div>
+            </div>
+            <span class="text-xs font-bold" :class="config.drawn_landlord_id === player.id ? 'text-slate-900' : 'text-slate-500'">{{ player.nickname }}</span>
+          </div>
+        </div>
+        <p v-if="!config.drawn_landlord_id" class="text-[11px] text-amber-600 mt-2">请点「抽一下」随机选定第一洞地主</p>
+      </div>
+
+      <div v-if="isDesignateLandlord" class="bg-white border border-slate-100 rounded-2xl p-3 mb-2 shadow-sm animate-in fade-in slide-in-from-top-2">
+        <h3 class="text-xs font-bold text-slate-500 mb-2">指定地主（整场不换人）</h3>
         <div class="flex gap-3">
           <div v-for="player in selectedPlayers" :key="player.id" 
                @click="config.fixed_landlord_id = player.id"

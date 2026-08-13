@@ -1439,10 +1439,6 @@ const onTapSettings = () => {
 };
 
 const onTapPKScore = () => {
-  if (isInteractionLocked.value) {
-    uni.showToast({ title: '本场为只读', icon: 'none' });
-    return;
-  }
   showPKScoreModal.value = true;
 };
 
@@ -2117,7 +2113,7 @@ const getRuleSummary = (rule: PKRule) => {
     }
   } else if (rule.type === 'landlord' || rule.type === 'tiger') {
     parts.push(rule.type === 'landlord' ? '斗地主' : '打老虎');
-    parts.push(conf.landlord_type || conf.category || '流动地主');
+    parts.push(conf.landlord_type || conf.category || '抽地主');
     pushStartingHoleIfSet();
     if (rule.type === 'landlord') {
       const pkParts: string[] = [];
@@ -3059,19 +3055,27 @@ const getScore = (pid: string, holeIndex: number) => {
 const getHoleProfit = (pid: string, holeIndex: number) => {
   const pIdx = players.value.findIndex(p => p.id === pid);
   if (pIdx === -1) return 0;
-  // Use the new holeProfits getter which handles carryover correctly
-  return matchStore.holeProfits[holeIndex][pIdx] || 0;
-};
-
-const getRuleDisplayName = (rule: any) => {
-  const summary = getRuleSummary(rule);
-  return `${rule.name}：${summary}`;
+  return currentPKProfits.value[holeIndex]?.[pIdx] || 0;
 };
 
 const pkRulePickerRange = computed(() => {
+  const rules = matchStore.activeRules;
+  const counts = new Map<string, number>();
+  for (const r of rules) {
+    const k = String(r.name || r.type);
+    counts.set(k, (counts.get(k) || 0) + 1);
+  }
+  const seen = new Map<string, number>();
   const labels: string[] = ['得分汇总'];
-  for (const r of matchStore.activeRules) {
-    labels.push(getRuleDisplayName(r));
+  for (const r of rules) {
+    const k = String(r.name || r.type);
+    if ((counts.get(k) || 0) > 1) {
+      const n = (seen.get(k) || 0) + 1;
+      seen.set(k, n);
+      labels.push(`${k}${n}`);
+    } else {
+      labels.push(k);
+    }
   }
   return labels;
 });
@@ -3099,11 +3103,7 @@ const getScoreRelativeText = (pid: string, holeIndex: number) => {
   return diff === 0 ? 'E' : (diff > 0 ? `+${diff}` : `${diff}`);
 };
 
-const getPKTotal = (pid: string) => {
-  const pIdx = players.value.findIndex(p => p.id === pid);
-  if (pIdx === -1) return 0;
-  return matchStore.totalProfits[pIdx];
-};
+const getPKTotal = (pid: string) => getPKScoreTotal(pid);
 
 const currentPKProfits = computed(() => {
   if (selectedPKRuleId.value === 'all') {
@@ -3139,8 +3139,7 @@ const getRoleBadgesSplit = (pid: string, holeIndex: number): RoleBadgesSplit => 
   if (landlordRules.length === 0) return out;
 
   for (const rule of landlordRules) {
-    const config = rule.config;
-    if (config?.landlord_type === '流动地主' || config?.category === '流动老虎') {
+    if (!matchStore.isFixedLandlord(rule)) {
       if (holeIndex > 0) {
         const prevHole = matchStore.holeScores[holeIndex - 1];
         if (!prevHole || prevHole.scores.every((s) => s === 0)) continue;
@@ -3740,6 +3739,18 @@ const posterPreviewSrc = ref('');
       >
         生成海报
       </button>
+      <picker
+        v-if="matchStore.activeRules.length > 0"
+        mode="selector"
+        :range="pkRulePickerRange"
+        :value="pkRulePickerIndex"
+        @change="onPkRulePickerChange"
+      >
+        <view class="scorecard-seg-btn scorecard-pk-filter-chip px-3 py-1.5 bg-amber-50 border border-amber-200 text-xs font-bold text-amber-800 active:opacity-80 flex items-center gap-1 max-w-[11rem]">
+          <text class="truncate">{{ pkRulePickerRange[pkRulePickerIndex] }}</text>
+          <text class="shrink-0">▾</text>
+        </view>
+      </picker>
     </div>
 
     <!-- 比赛信息条（轻量替代旧海报区） -->
@@ -3758,7 +3769,7 @@ const posterPreviewSrc = ref('');
          GolfLive 架构：固定球员列 + scroll-view 仅含洞格
          两列行高精确对齐，scroll-view 无手势干扰，丝滑惯性
          ════════════════════════════════════════════════════════ -->
-    <view class="scorecard-table-outer flex-1 min-h-0">
+    <view class="scorecard-table-outer flex-1 min-h-0" :class="{ 'scorecard-table-outer--pk': matchStore.activeRules.length > 0 }">
 
       <!-- ① 固定球员列：在 scroll-view 之外，不参与横向滚动 -->
       <view class="sc-fixed-col">
@@ -3874,9 +3885,14 @@ const posterPreviewSrc = ref('');
                         </view>
                       </template>
                     </view>
-                    <text v-if="getScore(player.id, h.index) && matchStore.activeRules.length > 0" class="sc-profit-text" :class="getHoleProfit(player.id, h.index) >= 0 ? 'text-red-400' : 'text-green-400'">
-                      {{ getHoleProfit(player.id, h.index) > 0 ? '+' : '' }}{{ getHoleProfit(player.id, h.index) }}
-                    </text>
+                    <view
+                      v-if="getScore(player.id, h.index) && matchStore.activeRules.length > 0"
+                      class="sc-profit-wrap"
+                    >
+                      <text class="sc-profit-text" :class="getHoleProfit(player.id, h.index) >= 0 ? 'text-red-400' : 'text-green-400'">
+                        {{ getHoleProfit(player.id, h.index) > 0 ? '+' : '' }}{{ getHoleProfit(player.id, h.index) }}
+                      </text>
+                    </view>
                   </view>
                 </template>
                 <view v-if="isLandmineExploded(h.index)" class="scorecard-landmine-wrap">
@@ -5733,6 +5749,11 @@ const posterPreviewSrc = ref('');
   line-height: 1.35;
 }
 
+.scorecard-pk-filter-chip {
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
 /* ─── 得分卡信息条（替代旧 poster-hero）─── */
 .sc-info-bar {
   display: flex;
@@ -5889,6 +5910,13 @@ const posterPreviewSrc = ref('');
   min-height: 80rpx !important;
 }
 
+.scorecard-table-outer--pk .sc-fixed-player,
+.scorecard-table-outer--pk .hole-row:not(.sc-header),
+.scorecard-table-outer--pk .hole-row:not(.sc-header) .sc-cell {
+  height: 112rpx !important;
+  min-height: 112rpx !important;
+}
+
 /* sc-cell：flex 列，撑满行高 */
 .sc-cell {
   display: flex !important;
@@ -6033,7 +6061,7 @@ const posterPreviewSrc = ref('');
 
 .sc-score-cell {
   position: relative;
-  padding: 8rpx 4rpx 10rpx;
+  padding: 4rpx 2rpx 4rpx;
   box-sizing: border-box;
 }
 
@@ -6051,35 +6079,46 @@ const posterPreviewSrc = ref('');
   overflow: visible;
 }
 
-/** 斗地主「地」/ 打老虎「虎」角标：格口左上角，与杆数圆错开（「地」略宽，留白略增） */
+/** 斗地主「地」/ 打老虎「虎」角标：绝对定位，不挤开杆差与 PK 分 */
 .sc-score-stack--with-badge {
-  padding-top: 10rpx;
-  padding-left: 6rpx;
-  align-items: flex-start;
+  padding-top: 0;
 }
 
 .sc-score-stack--with-badge .scorecard-score-cell-inner {
   align-self: center;
-  margin-top: 8rpx;
+  margin-top: 0;
 }
 
+.sc-score-stack--with-badge .sc-profit-wrap,
 .sc-score-stack--with-badge .sc-profit-text {
   align-self: center;
 }
 
 /** 虎+地同时使用：左右留出角标区 */
 .sc-score-stack--two-badges {
-  padding-right: 6rpx;
+  padding-right: 0;
 }
 
 .sc-summary-val {
   line-height: 1.25;
 }
 
-.sc-profit-text {
-  font-size: 22rpx;
-  line-height: 1;
+.sc-profit-wrap {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-top: 2rpx;
+  box-sizing: border-box;
+}
+
+.sc-profit-text {
+  font-size: 20rpx;
+  line-height: 1.1;
+  margin-top: 0;
+  text-align: center;
+  white-space: nowrap;
+  width: 100%;
 }
 
 .sc-role-badge {

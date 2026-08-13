@@ -386,6 +386,15 @@ export const useMatchStore = defineStore('match', {
       return { holeProfit: finalHoleProfit, nextCarryover };
     },
 
+    /** 指定/固定地主（含固定老虎）：整场不换人 */
+    isFixedLandlord(rule: PKRule): boolean {
+      const config = rule.config || {};
+      const t = String(config.landlord_type || '');
+      if (t === '指定地主' || t === '固定地主') return true;
+      if (rule.type === 'tiger' && config.category === '固定老虎') return true;
+      return false;
+    },
+
     getLandlordIndex(holeIndex: number, rule: PKRule): number {
       const config = rule.config;
       if (!config) return -1;
@@ -393,13 +402,15 @@ export const useMatchStore = defineStore('match', {
       const pIds = rule.player_ids || [];
       if (pIds.length === 0) return -1;
 
-      if (config.landlord_type === '固定地主') {
-        return this.user_list.findIndex(p => p.id === config.fixed_landlord_id);
+      if (this.isFixedLandlord(rule)) {
+        const id = config.fixed_landlord_id || config.tiger_id || '';
+        return this.user_list.findIndex(p => p.id === id);
       }
 
-      // 流动地主：本轮第一洞（按「出发洞」计）默认球手列表第一位为地主
+      // 抽地主 / 流动地主：第一洞用地主（抽出或名单首位），之后按上一洞成绩流动
       if (this.playOrderPosition(rule, holeIndex) === 0) {
-        return this.user_list.findIndex(p => p.id === pIds[0]);
+        const firstId = config.drawn_landlord_id || config.fixed_landlord_id || pIds[0];
+        return this.user_list.findIndex(p => p.id === firstId);
       }
 
       const prevIdx = this.prevHoleInPlayOrder(rule, holeIndex);
