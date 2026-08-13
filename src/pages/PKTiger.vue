@@ -26,11 +26,8 @@ const config = ref({
   compare_type: '比洞',
   tiger_id: '',
   participant_ids: [] as string[],
-  pk_good: true,
-  pk_bad: false,
-  pk_avg: false,
   reward: '鸟2/鹰5/HIO(双鹰)10',
-  tie_hole: '下洞不加分',
+  tie_hole: '下洞加1分',
   collect_tie: '帕收1/鸟收2/鹰全收',
   handicap_receivers: [] as string[],
   is_landmine: false
@@ -46,7 +43,7 @@ const modalOptions = {
     '鸟2/鹰4/HIO(双鹰)28',
     '鸟2/鹰16/HIO(双鹰)32'
   ],
-  tie_hole: ['下洞不加分', '顶平过', '下洞加1分', '下洞加2分', '下洞加3分', '加倍（含奖励）', '加倍（不含奖励）', '连续翻倍'],
+  tie_hole: ['顶平过', '下洞加1分', '下洞加2分', '下洞加3分', '加倍（含奖励）', '加倍（不含奖励）', '连续翻倍'],
   collect_tie: [
     '赢洞全收',
     '帕收1/鸟收2/鹰全收',
@@ -74,6 +71,9 @@ onMounted(() => {
     const rule = matchStore.activeRules.find(r => r.id === ruleId.value);
     if (rule && rule.config) {
       config.value = { ...config.value, ...rule.config };
+      if (config.value.tie_hole === '下洞不加分') {
+        config.value.tie_hole = '顶平过';
+      }
       config.value.base_unit = rule.base_score || 1;
       const sh = rule.starting_hole ?? rule.config?.starting_hole;
       if (sh != null && Number.isFinite(Number(sh))) {
@@ -248,57 +248,6 @@ const handleSave = async () => {
                 <uni-icons type="checkmarkempty" :size="8" color="#ffffff" />
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Scoring Section (Dou Dizhu Style) -->
-      <div class="bg-white border border-slate-100 rounded-2xl p-3 shadow-sm">
-        <div class="flex items-center justify-between mb-3">
-          <div class="flex items-center gap-2">
-            <span class="text-base font-bold text-slate-500">Σ</span>
-            <span class="text-xs font-bold text-slate-600">计分规则</span>
-          </div>
-        </div>
-
-        <div class="flex justify-between items-center">
-          <div class="space-y-2 flex-1">
-            <label class="flex items-center gap-3 cursor-pointer group">
-              <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
-                   :class="config.pk_good ? 'bg-white border-slate-800' : 'bg-transparent'">
-                <uni-icons v-if="config.pk_good" type="checkmarkempty" :size="14" color="#0f172a" />
-              </div>
-              <input type="checkbox" v-model="config.pk_good" class="hidden" />
-              <span class="text-xs font-bold text-slate-600 group-active:text-slate-900">较好成绩PK</span>
-              <div class="px-2 py-0.5 rounded text-xs font-black ml-auto transition-colors"
-                   :class="config.pk_good ? 'bg-[#15803d] text-white' : 'bg-slate-200 text-slate-600'">+1</div>
-            </label>
-
-            <label class="flex items-center gap-3 cursor-pointer group">
-              <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
-                   :class="config.pk_bad ? 'bg-white border-slate-800' : 'bg-transparent'">
-                <uni-icons v-if="config.pk_bad" type="checkmarkempty" :size="14" color="#0f172a" />
-              </div>
-              <input type="checkbox" v-model="config.pk_bad" class="hidden" />
-              <span class="text-xs font-bold text-slate-600 group-active:text-slate-900">较差成绩PK</span>
-              <div class="px-2 py-0.5 rounded text-xs font-black ml-auto transition-colors"
-                   :class="config.pk_bad ? 'bg-[#15803d] text-white' : 'bg-slate-200 text-slate-600'">+1</div>
-            </label>
-
-            <label class="flex items-center gap-3 cursor-pointer group">
-              <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
-                   :class="config.pk_avg ? 'bg-white border-slate-800' : 'bg-transparent'">
-                <uni-icons v-if="config.pk_avg" type="checkmarkempty" :size="14" color="#0f172a" />
-              </div>
-              <input type="checkbox" v-model="config.pk_avg" class="hidden" />
-              <span class="text-xs font-bold text-slate-600 group-active:text-slate-900">平均成绩PK</span>
-              <div class="px-2 py-0.5 rounded text-xs font-black ml-auto transition-colors"
-                   :class="config.pk_avg ? 'bg-[#15803d] text-white' : 'bg-slate-200 text-slate-600'">+1</div>
-            </label>
-          </div>
-
-          <div class="w-16 flex flex-col items-center justify-center border-l border-slate-200 ml-3">
-            <span class="text-4xl font-black text-slate-200 font-mono">{{ (config.pk_good ? 1 : 0) + (config.pk_bad ? 1 : 0) + (config.pk_avg ? 1 : 0) }}</span>
           </div>
         </div>
       </div>

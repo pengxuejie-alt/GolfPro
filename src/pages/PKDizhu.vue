@@ -115,6 +115,10 @@ const handleSave = async () => {
     alert('请指定固定地主');
     return;
   }
+  if (!config.value.pk_good && !config.value.pk_bad && !config.value.pk_avg) {
+    alert('请至少选择一项计分维度');
+    return;
+  }
 
   matchStore.addRule({
     id: ruleId.value || 'dizhu_' + Date.now(),
@@ -139,6 +143,14 @@ const toggleHole = (hole: number) => {
     config.value.active_holes.sort((a, b) => a - b);
   }
 };
+
+const togglePkDim = (key: 'pk_good' | 'pk_bad' | 'pk_avg') => {
+  config.value[key] = !config.value[key];
+};
+
+const pkDimCount = computed(
+  () => (config.value.pk_good ? 1 : 0) + (config.value.pk_bad ? 1 : 0) + (config.value.pk_avg ? 1 : 0)
+);
 
 </script>
 
@@ -264,42 +276,39 @@ const toggleHole = (hole: number) => {
 
         <div class="flex justify-between items-center">
           <div class="space-y-2 flex-1">
-            <label class="flex items-center gap-3 cursor-pointer group">
+            <view class="flex items-center gap-3 active:opacity-80" @click="togglePkDim('pk_good')">
               <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
-                   :class="config.pk_good ? 'bg-white border-slate-800' : 'bg-transparent'">
-                <uni-icons v-if="config.pk_good" type="checkmarkempty" :size="14" color="#0f172a" />
+                   :class="config.pk_good ? 'bg-[#15803d] border-[#15803d]' : 'bg-transparent'">
+                <uni-icons v-if="config.pk_good" type="checkmarkempty" :size="14" color="#ffffff" />
               </div>
-              <input type="checkbox" v-model="config.pk_good" class="hidden" />
-              <span class="text-xs font-bold text-slate-600 group-active:text-slate-900">较好成绩PK</span>
+              <span class="text-xs font-bold text-slate-600">较好成绩PK</span>
               <div class="px-2 py-0.5 rounded text-xs font-black ml-auto transition-colors"
                    :class="config.pk_good ? 'bg-[#15803d] text-white' : 'bg-slate-200 text-slate-600'">+1</div>
-            </label>
+            </view>
 
-            <label class="flex items-center gap-3 cursor-pointer group">
+            <view class="flex items-center gap-3 active:opacity-80" @click="togglePkDim('pk_bad')">
               <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
-                   :class="config.pk_bad ? 'bg-white border-slate-800' : 'bg-transparent'">
-                <uni-icons v-if="config.pk_bad" type="checkmarkempty" :size="14" color="#0f172a" />
+                   :class="config.pk_bad ? 'bg-[#15803d] border-[#15803d]' : 'bg-transparent'">
+                <uni-icons v-if="config.pk_bad" type="checkmarkempty" :size="14" color="#ffffff" />
               </div>
-              <input type="checkbox" v-model="config.pk_bad" class="hidden" />
-              <span class="text-xs font-bold text-slate-600 group-active:text-slate-900">较差成绩PK</span>
+              <span class="text-xs font-bold text-slate-600">较差成绩PK</span>
               <div class="px-3 py-0.5 rounded text-xs font-black ml-auto transition-colors"
                    :class="config.pk_bad ? 'bg-[#15803d] text-white' : 'bg-slate-200 text-slate-600'">+1</div>
-            </label>
+            </view>
 
-            <label class="flex items-center gap-3 cursor-pointer group">
+            <view class="flex items-center gap-3 active:opacity-80" @click="togglePkDim('pk_avg')">
               <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
-                   :class="config.pk_avg ? 'bg-white border-slate-800' : 'bg-transparent'">
-                <uni-icons v-if="config.pk_avg" type="checkmarkempty" :size="14" color="#0f172a" />
+                   :class="config.pk_avg ? 'bg-[#15803d] border-[#15803d]' : 'bg-transparent'">
+                <uni-icons v-if="config.pk_avg" type="checkmarkempty" :size="14" color="#ffffff" />
               </div>
-              <input type="checkbox" v-model="config.pk_avg" class="hidden" />
-              <span class="text-xs font-bold text-slate-600 group-active:text-slate-900">平均成绩PK</span>
+              <span class="text-xs font-bold text-slate-600">平均成绩PK</span>
               <div class="px-3 py-0.5 rounded text-xs font-black ml-auto transition-colors"
                    :class="config.pk_avg ? 'bg-[#15803d] text-white' : 'bg-slate-200 text-slate-600'">+1</div>
-            </label>
+            </view>
           </div>
 
           <div class="w-16 flex flex-col items-center justify-center border-l border-slate-200 ml-3">
-            <span class="text-4xl font-black text-slate-200 font-mono">{{ (config.pk_good ? 1 : 0) + (config.pk_bad ? 1 : 0) + (config.pk_avg ? 1 : 0) }}</span>
+            <span class="text-4xl font-black text-slate-200 font-mono">{{ pkDimCount }}</span>
           </div>
         </div>
       </div>

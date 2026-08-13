@@ -2107,8 +2107,17 @@ const getRuleSummary = (rule: PKRule) => {
     }
   } else if (rule.type === 'landlord' || rule.type === 'tiger') {
     parts.push(rule.type === 'landlord' ? '斗地主' : '打老虎');
-    parts.push(conf.landlord_type || '流动地主');
+    parts.push(conf.landlord_type || conf.category || '流动地主');
     pushStartingHoleIfSet();
+    if (rule.type === 'landlord') {
+      const pkParts: string[] = [];
+      if (conf.pk_good) pkParts.push('较好');
+      if (conf.pk_bad) pkParts.push('较差');
+      if (conf.pk_avg) pkParts.push('平均');
+      if (pkParts.length) parts.push(pkParts.join('+') + 'PK');
+    } else if (conf.compare_type) {
+      parts.push(conf.compare_type);
+    }
     if (conf.tie_hole) parts.push(conf.tie_hole);
   }
   
