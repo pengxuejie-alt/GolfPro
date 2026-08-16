@@ -3611,10 +3611,11 @@ const getScoreShapeClasses = (pid: string, holeIndex: number) => {
   return golfScoreCellMarkClasses(score, par);
 };
 
+/** 无完赛差点记录时云库/建局常默认 0，与未填写一并展示为未知 */
 const formatPlayerHandicapDisplay = (h: number | null | undefined) => {
-  if (h === null || h === undefined) return '--';
-  // 旧版 userStore 默认占位 12.5，无真实完赛记录时不展示
-  if (h === 12.5) return '--';
+  if (h === null || h === undefined) return '差点：未知';
+  // 旧版 userStore 默认占位 12.5；新建用户云库默认 0
+  if (h === 12.5 || h === 0) return '差点：未知';
   return String(h);
 };
 
@@ -3949,17 +3950,17 @@ const posterPreviewSrc = ref('');
                 </view>
               </view>
               <view v-if="idx === 8" class="sc-cell sc-col-f9 sc-border-rb sc-bg-dim sc-summary-val">
-                <text class="text-sm font-bold text-slate-700">{{ getFront9(player.id) }}</text>
+                <text class="sc-table-num text-slate-700">{{ getFront9(player.id) }}</text>
               </view>
             </template>
-            <view class="sc-cell sc-col-par sc-border-rb sc-bg-dim sc-summary-val"><text class="text-sm text-slate-500">{{ getTotalPar() }}</text></view>
-            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim sc-summary-val"><text class="text-sm font-bold text-slate-700">{{ getBack9(player.id) }}</text></view>
-            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim sc-summary-val"><text class="text-sm font-bold text-slate-700">{{ getTotalDiff(player.id) }}</text></view>
-            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim sc-summary-val"><text class="text-base font-black text-[#07C160]">{{ getPlayerTotalDisplay(player.id) }}</text></view>
+            <view class="sc-cell sc-col-par sc-border-rb sc-bg-dim sc-summary-val"><text class="sc-table-num text-slate-500">{{ getTotalPar() }}</text></view>
+            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim sc-summary-val"><text class="sc-table-num text-slate-700">{{ getBack9(player.id) }}</text></view>
+            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim sc-summary-val"><text class="sc-table-num text-slate-700">{{ getTotalDiff(player.id) }}</text></view>
+            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim sc-summary-val"><text class="sc-table-num text-[#07C160]">{{ getPlayerTotalDisplay(player.id) }}</text></view>
             <view class="sc-cell sc-col-pk sc-border-rb sc-bg-dim sc-summary-val">
-              <text class="text-base font-bold" :class="getPKTotal(player.id) >= 0 ? 'text-red-500' : 'text-[#07C160]'">{{ getPKTotal(player.id) > 0 ? '+' : '' }}{{ getPKTotal(player.id) }}</text>
+              <text class="sc-table-num" :class="getPKTotal(player.id) >= 0 ? 'text-red-500' : 'text-[#07C160]'">{{ getPKTotal(player.id) > 0 ? '+' : '' }}{{ getPKTotal(player.id) }}</text>
             </view>
-            <view class="sc-cell sc-col-pk sc-border-b sc-bg-dim sc-summary-val"><text class="text-sm font-bold text-amber-600">{{ (get8421Points(player.id) || 0).toFixed(1) }}</text></view>
+            <view class="sc-cell sc-col-pk sc-border-b sc-bg-dim sc-summary-val"><text class="sc-table-num text-amber-600">{{ (get8421Points(player.id) || 0).toFixed(1) }}</text></view>
           </view>
 
         </view>
@@ -6298,6 +6299,13 @@ const posterPreviewSrc = ref('');
 
 .sc-summary-val {
   line-height: 1.25;
+}
+
+/* 与每洞杆数 .scorecard-score-value 同字号，前9/后9/总杆等汇总列统一 */
+.sc-table-num {
+  font-size: 32rpx;
+  line-height: 1.2;
+  font-weight: 700;
 }
 
 .sc-profit-wrap {

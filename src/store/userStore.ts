@@ -4,7 +4,7 @@ export interface UserProfile {
   nickname: string;
   avatar: string;
   gender: 'male' | 'female';
-  /** null = 尚无完赛/差点记录，计分卡展示 -- */
+  /** null = 尚无完赛/差点记录，计分卡展示「差点：未知」 */
   handicap: number | null;
 }
 
