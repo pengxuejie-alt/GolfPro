@@ -833,17 +833,21 @@ export const useMatchStore = defineStore('match', {
         const isLandlord8421 = rule.type === 'landlord' && isLandlord8421Config(config);
         let pkCount = 0;
         let holeProfit = 0;
+        /** 斗地主 8421：地主对每个农民的梯分差 (L−Pi)，与农民下标一一对应 */
+        let landlord8421PairDiffs: number[] | null = null;
 
         if (isLandlord8421) {
-          // 斗地主 8421：地主与每个农民比梯分，分差加总（非平均），再 × 基数；
-          // pairSum = Σ(地主 − 农民i) = 地主×n − 农民梯分和；平局 pairSum=0 进顶洞
-          // 结算：每位农民 −pairSum（经顶洞倍数后），地主 +pairSum×农民人数
+          // PK 分差 = Σ(地主8421 − 每个农民8421)，两两比再加总；不是跟平均比，也不是农民均摊同一分差
+          // 农民i 本洞 = −(L−Pi)×基数×顶洞倍率；地主 = Σ 对各农民得分；pairSum=0 整洞顶过
           const all8421Points = this.calculate8421Points(holeIndex, rule);
           const lPts = fin(all8421Points[landlordIdx]);
-          const n = peasantIndices.length;
-          const sumP = peasantIndices.reduce((acc, idx) => acc + fin(all8421Points[idx]), 0);
-          const pairSum = snapNearInteger(lPts * n - sumP);
           const base = fin(rule.base_score, 1) || 1;
+          landlord8421PairDiffs = peasantIndices.map((idx) =>
+            snapNearInteger(lPts - fin(all8421Points[idx])),
+          );
+          const pairSum = snapNearInteger(
+            landlord8421PairDiffs.reduce((acc, d) => acc + d, 0),
+          );
           holeProfit = fin(pairSum) * base;
           pkCount = pairSum === 0 ? 0 : pairSum;
         } else if (rule.type === 'landlord') {
@@ -914,13 +918,28 @@ export const useMatchStore = defineStore('match', {
           holeProfit *= (rule.landmines.multiplier || 2);
         }
 
-        if (isLandlord8421) {
+        if (isLandlord8421 && landlord8421PairDiffs) {
+          // 顶洞/地雷倍率作用在地主总分上后，按各对分差比例还原到每位农民（整数梯分差下保持整数）
           holeProfit = snapNearInteger(holeProfit);
+          const base = fin(rule.base_score, 1) || 1;
+          const rawLandlord = snapNearInteger(
+            landlord8421PairDiffs.reduce((acc, d) => acc + d, 0) * base,
+          );
+          const scale = rawLandlord !== 0 ? holeProfit / rawLandlord : 0;
+          let landlordTotal = 0;
+          peasantIndices.forEach((idx, i) => {
+            const farmerProfit = snapNearInteger(-landlord8421PairDiffs![i] * base * scale);
+            profits[idx] = farmerProfit;
+            landlordTotal = snapNearInteger(landlordTotal - farmerProfit);
+          });
+          profits[landlordIdx] = landlordTotal;
+        } else {
+          // 打3分 / 打老虎：按「每农民单位」对称分摊
+          profits[landlordIdx] = holeProfit * pScores.length;
+          peasantIndices.forEach((idx) => {
+            profits[idx] = -holeProfit;
+          });
         }
-
-        // Final distribution
-        profits[landlordIdx] = holeProfit * pScores.length;
-        peasantIndices.forEach(idx => profits[idx] = -holeProfit);
       } else if (rule.type === 'vegas_4') {
         const config = rule.config;
         if (!config) return { profits, nextCarryover };
