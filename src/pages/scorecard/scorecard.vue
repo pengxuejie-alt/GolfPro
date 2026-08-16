@@ -3082,15 +3082,6 @@ function avatarOrDefault(p: { id?: string; avatar?: string } | null | undefined)
   return mpAvatarImgSrcForDisplay(a, DEFAULT_RULE_SLOT_AVATAR);
 }
 
-/** 计分卡固定列：最多显示 5 个字，超出追加省略号 */
-function formatScorecardNickDisplay(nick: unknown): string {
-  const s = nick != null ? String(nick).trim() : '';
-  if (!s) return '';
-  const chars = Array.from(s);
-  if (chars.length <= 5) return s;
-  return `${chars.slice(0, 5).join('')}…`;
-}
-
 function playerForRuleSlot(slotIndex: number) {
   const id = currentConfigRule.value?.player_ids?.[slotIndex];
   if (!id) return null;
@@ -3842,13 +3833,13 @@ const posterPreviewSrc = ref('');
           :key="'fp-'+player.id"
           class="sc-fixed-player"
         >
-          <view @click="openPlayerActionModal(player)" class="sc-fixed-player-inner flex items-center gap-1.5 w-full h-full">
+          <view @click="openPlayerActionModal(player)" class="sc-fixed-player-inner flex items-center w-full h-full">
             <view v-if="player.isPending" class="scorecard-pending-avatar-slot rounded bg-slate-100 border border-dashed border-slate-300 flex items-center justify-center flex-shrink-0">
               <uni-icons type="personadd" :size="16" color="#94a3b8" />
             </view>
             <image v-else :src="avatarOrDefault(player)" class="sc-avatar flex-shrink-0" mode="aspectFill" />
             <view class="flex flex-col min-w-0 flex-1 sc-fixed-player-meta">
-              <text class="sc-player-nick text-slate-900">{{ formatScorecardNickDisplay(player.nickname) }}</text>
+              <view class="sc-player-nick text-slate-900">{{ player.nickname }}</view>
               <text class="sc-sub-text text-slate-500">{{ formatPlayerHandicapDisplay(player.handicap) }}</text>
             </view>
           </view>
@@ -5906,11 +5897,11 @@ const posterPreviewSrc = ref('');
   min-width: 0;
 }
 
-/* 固定球员列：保证单行可完整放下 5 字昵称 */
+/* 固定球员列：加宽 + 两行昵称，户外可读且尽量完整显示 */
 .sc-fixed-col {
   flex-shrink: 0 !important;
-  width: 248rpx !important;
-  min-width: 248rpx !important;
+  width: 312rpx !important;
+  min-width: 312rpx !important;
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -5922,7 +5913,7 @@ const posterPreviewSrc = ref('');
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  height: 90rpx !important;
+  height: 104rpx !important;
   box-sizing: border-box !important;
   border-bottom: 1rpx solid rgba(22, 163, 74, 0.3);
   border-right: 1rpx solid rgba(22, 163, 74, 0.3);
@@ -5935,14 +5926,15 @@ const posterPreviewSrc = ref('');
 /* 固定列球员行内边距：与右侧洞格垂直对齐 */
 .sc-fixed-player-inner {
   box-sizing: border-box;
-  padding: 4rpx 10rpx;
+  padding: 4rpx 8rpx;
+  gap: 8rpx;
 }
 
 /* 固定列 - 球员单元格 */
 .sc-fixed-player {
   display: flex !important;
   align-items: center !important;
-  height: 90rpx !important;
+  height: 104rpx !important;
   box-sizing: border-box !important;
   border-bottom: 1rpx solid #e2e8f0;
   border-right: 1rpx solid #e2e8f0;
@@ -5953,15 +5945,19 @@ const posterPreviewSrc = ref('');
 .sc-fixed-player-meta {
   justify-content: center;
   gap: 2rpx;
+  min-width: 0;
 }
 
-/* 球员昵称：单行；长度截断由 formatScorecardNickDisplay（最多 5 字）处理 */
+/* 球员昵称：加大字号 + 最多两行，超长再省略 */
 .sc-player-nick {
-  display: block;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  white-space: nowrap;
-  font-size: 28rpx;
-  line-height: 1.25;
+  word-break: break-all;
+  white-space: normal;
+  font-size: 32rpx;
+  line-height: 1.2;
   font-weight: 700;
   max-width: 100%;
 }
@@ -5991,26 +5987,26 @@ const posterPreviewSrc = ref('');
   align-items: stretch !important;
   width: 2890rpx !important;
   min-width: 2890rpx !important;
-  min-height: 90rpx !important;
-  height: 90rpx !important;
+  min-height: 104rpx !important;
+  height: 104rpx !important;
   box-sizing: border-box !important;
 }
 
 .hole-row.sc-header {
-  height: 90rpx !important;
-  min-height: 90rpx !important;
+  height: 104rpx !important;
+  min-height: 104rpx !important;
 }
 
 .hole-row:not(.sc-header) {
-  height: 90rpx !important;
-  min-height: 90rpx !important;
+  height: 104rpx !important;
+  min-height: 104rpx !important;
 }
 
 .scorecard-table-outer--pk .sc-fixed-player,
 .scorecard-table-outer--pk .hole-row:not(.sc-header),
 .scorecard-table-outer--pk .hole-row:not(.sc-header) .sc-cell {
-  height: 124rpx !important;
-  min-height: 124rpx !important;
+  height: 140rpx !important;
+  min-height: 140rpx !important;
 }
 
 /* sc-cell：flex 列，撑满行高 */
@@ -6021,7 +6017,7 @@ const posterPreviewSrc = ref('');
   justify-content: center !important;
   flex-shrink: 0 !important;
   height: 100% !important;
-  min-height: 90rpx !important;
+  min-height: 104rpx !important;
   box-sizing: border-box !important;
   overflow: hidden;
 }
@@ -6221,9 +6217,9 @@ const posterPreviewSrc = ref('');
 }
 
 .sc-col-player {
-  width: 248rpx !important;
-  min-width: 248rpx !important;
-  max-width: 248rpx !important;
+  width: 312rpx !important;
+  min-width: 312rpx !important;
+  max-width: 312rpx !important;
   box-sizing: border-box !important;
 }
 .sc-col-f9  { width: 96rpx !important; min-width: 96rpx !important; max-width: 96rpx !important; box-sizing: border-box !important; }
@@ -6250,11 +6246,11 @@ const posterPreviewSrc = ref('');
   box-sizing: border-box;
 }
 
-.sc-sub-text { font-size: 24rpx; line-height: 1.2; }
+.sc-sub-text { font-size: 26rpx; line-height: 1.2; }
 
 .sc-avatar {
-  width: 56rpx;
-  height: 56rpx;
+  width: 48rpx;
+  height: 48rpx;
   border-radius: 8rpx;
   border: 1rpx solid #e2e8f0;
   flex-shrink: 0;
@@ -6495,10 +6491,10 @@ const posterPreviewSrc = ref('');
 }
 
 .scorecard-pending-avatar-slot {
-  width: 56rpx;
-  height: 56rpx;
-  min-width: 56rpx;
-  min-height: 56rpx;
+  width: 48rpx;
+  height: 48rpx;
+  min-width: 48rpx;
+  min-height: 48rpx;
   box-sizing: border-box;
   flex-shrink: 0;
 }
