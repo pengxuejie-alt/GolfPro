@@ -7,6 +7,7 @@ import {
   computeCarryoverCollectAmount,
   isMultiplierTieHole,
   resolveTieHole,
+  tieHoleMultiplier,
 } from '@/utils/pkTieHole';
 
 /** 防止 cloud/表单混入 string 后 reduce/+= 退化成字符串拼接，避免出现一长串 9 */
@@ -622,7 +623,7 @@ export const useMatchStore = defineStore('match', {
 
     /**
      * 鸟/鹰/HIO 替换基数（与比洞赛 1→2 一致），不是在头尾总杆上再加分。
-     * 例：打头+打尾+总杆=3，鸟则每单位 1→2，洞分 3×2=6，再由顶洞加倍含奖励 ×2。
+     * 例：打头+打尾+总杆=3，鸟则每单位 1→2，洞分 3×2=6；若收 1 顶洞则加倍含奖励 ×(1+1)=×2。
      */
     getRewardBonus(rel: number, rewardConfig: string): number {
       if (rel >= 0) return 0;
@@ -766,16 +767,15 @@ export const useMatchStore = defineStore('match', {
               const th = resolveTieHole(rule);
               if (isMultiplierTieHole(th)) {
                 if (th === '加倍（不含奖励）') {
-                  // 多收 1 倍基数（不含 8421 梯分/奖励），零和；不要先加 collect 再乘
-                  const extraBase = base;
+                  // 每收 1 顶洞追加 1 倍基数（不含 8421 梯分/奖励），与 applyTieHoleAdjustments 一致
+                  const extraBase = base * collectAmount;
                   ruleProfits[winnerIdx] += extraBase * (playerCount - 1);
                   for (let m = 0; m < playerCount; m++) {
                     if (m !== winnerIdx) ruleProfits[m] -= extraBase;
                   }
                 } else {
-                  // 加倍（含奖励）：×(1+收顶洞数)；连续翻倍：×2^n
-                  const scale =
-                    th === '连续翻倍' ? Math.pow(2, collectAmount) : 1 + collectAmount;
+                  // 加倍（含奖励）/ 连续翻倍：与 tieHoleMultiplier 同一套倍率
+                  const scale = tieHoleMultiplier(th, collectAmount);
                   ruleProfits = ruleProfits.map((p) => p * scale);
                 }
               } else {

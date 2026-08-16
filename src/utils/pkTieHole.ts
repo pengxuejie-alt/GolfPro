@@ -35,6 +35,20 @@ export function isMultiplierTieHole(tieHole: string | null | undefined): boolean
   return th === '加倍（含奖励）' || th === '加倍（不含奖励）' || th === '连续翻倍';
 }
 
+/**
+ * 加倍/连续翻倍的倍率（斗地主 / 打老虎 / 挂8421 / 比洞 共用，避免分叉）。
+ * - 加倍（含/不含奖励）：本洞 1 倍 + 每收 1 顶洞再加 1 倍 → (1 + collectAmount)
+ * - 连续翻倍：2^collectAmount
+ */
+export function tieHoleMultiplier(tieHole: string | null | undefined, collectAmount: number): number {
+  const th = String(tieHole || '').trim();
+  const n = Math.max(0, Number(collectAmount) || 0);
+  if (n <= 0) return 1;
+  if (th === '连续翻倍') return Math.pow(2, n);
+  if (th === '加倍（含奖励）' || th === '加倍（不含奖励）') return 1 + n;
+  return 1;
+}
+
 export function computeCarryoverCollectAmount(
   carryover: number,
   winnerRel: number,
@@ -54,8 +68,8 @@ export function computeCarryoverCollectAmount(
 /**
  * 收顶洞后应用顶洞规则（下洞加分 / 加倍 / 连续翻倍）。
  * 下洞加 N 分：signedProfit 须已含本洞赢分 + 已收顶洞×基数。
- * 加倍（含奖励）：本洞 1 倍 + 每收 1 个顶洞再加 1 倍 → ×(1+collectAmount)
- *   例：顶两洞加两倍 → ×3（GolfLive 斗地主 8421）。
+ * 加倍（含奖励）：对本洞得分（含鸟鹰）× tieHoleMultiplier。
+ * 加倍（不含奖励）：只对基数部分按 (倍率−1) 追加。
  * 连续翻倍：×2^collectAmount。
  */
 export function applyTieHoleAdjustments(
@@ -71,14 +85,11 @@ export function applyTieHoleAdjustments(
   const noTieBonus = th === '下洞不加分' || th === '顶平过';
 
   let tieBonus = 0;
-  let tieMultiplier = 1;
-
   if (!noTieBonus && th === '下洞加1分') tieBonus = 1 * collectAmount;
   else if (!noTieBonus && th === '下洞加2分') tieBonus = 2 * collectAmount;
   else if (!noTieBonus && th === '下洞加3分') tieBonus = 3 * collectAmount;
-  else if (!noTieBonus && th === '加倍（含奖励）') tieMultiplier = 1 + collectAmount;
-  else if (!noTieBonus && th === '加倍（不含奖励）') tieMultiplier = 1 + collectAmount;
-  else if (!noTieBonus && th === '连续翻倍') tieMultiplier = Math.pow(2, collectAmount);
+
+  const tieMultiplier = noTieBonus ? 1 : tieHoleMultiplier(th, collectAmount);
 
   let result = signedProfit;
   if (!noTieBonus && th === '加倍（不含奖励）') {
