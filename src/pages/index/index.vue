@@ -1437,7 +1437,7 @@ const executeDeleteOrQuit = async () => {
             <view class="min-w-0 flex-1">
               <view class="flex flex-wrap items-center gap-1 text-lg font-bold text-slate-900">
                 <text>{{ t(greetingI18n) }},</text>
-                <text class="truncate max-w-[200px]">{{ userStore.profile.nickname }}</text>
+                <text class="truncate max-w-[280px]">{{ userStore.profile.nickname }}</text>
                 <text>👋</text>
               </view>
               <view class="text-sm text-slate-500 font-medium">{{ t(T.hcp) }}: <text class="font-mono font-bold">{{ averageHandicap }}</text></view>
@@ -1561,12 +1561,12 @@ const executeDeleteOrQuit = async () => {
              <image src="https://picsum.photos/200/200" mode="aspectFill" class="w-full h-full" />
           </div>
           <div class="flex-1 min-w-0">
-            <h3 class="font-bold text-slate-900 text-base mb-0.5 leading-tight truncate">{{ match.title }}</h3>
-            <div class="text-xs text-slate-600 flex items-center gap-1.5 mb-1 font-medium truncate">
+            <h3 class="font-bold text-slate-900 text-lg mb-0.5 leading-tight truncate">{{ match.title }}</h3>
+            <div class="text-sm text-slate-600 flex items-center gap-1.5 mb-1 font-medium truncate">
               <text class="mp-emoji mp-emoji-14 text-slate-400 shrink-0">📍</text>
               {{ match.course_name || '未知球场' }}
             </div>
-            <div class="text-xs text-slate-400 flex items-center gap-1.5 font-medium">
+            <div class="text-sm text-slate-400 flex items-center gap-1.5 font-medium">
               <text class="mp-emoji mp-emoji-14 text-slate-300 shrink-0">📅</text>
               {{ formatMatchWhen(match) }}
             </div>
@@ -1592,7 +1592,7 @@ const executeDeleteOrQuit = async () => {
               +0
             </div>
           </div>
-          <view class="bg-[#07C160] text-white text-xs px-5 py-2 rounded-full font-bold gp-shadow transition-colors">
+          <view class="bg-[#07C160] text-white text-sm px-5 py-2 rounded-full font-bold gp-shadow transition-colors">
             {{ T.enterScore.zh || T.enterScore }}
           </view>
         </div>
@@ -1645,7 +1645,7 @@ const executeDeleteOrQuit = async () => {
               <div class="text-[24px] font-black text-slate-900 leading-none tracking-tight">
                 {{ getMatchTotalParDiffDisplay(match) }}
               </div>
-              <div class="text-xs font-semibold text-slate-600 mt-1">杆差</div>
+              <div class="text-sm font-semibold text-slate-600 mt-1">杆差</div>
             </div>
             <div class="flex-1 min-w-0 overflow-x-auto no-scrollbar history-mini-chip-scroll">
               <div class="inline-flex gap-1.5 min-w-max pb-1">
@@ -1683,11 +1683,11 @@ const executeDeleteOrQuit = async () => {
             </div>
           </div>
           <div
-            class="mt-2.5 text-[13px] leading-snug font-bold text-slate-800 history-course-name"
+            class="mt-2.5 text-[15px] leading-snug font-bold text-slate-800 history-course-name"
           >
             {{ match.course_name || '未命名球场' }}
           </div>
-          <div class="text-xs text-slate-600 mt-1">{{ formatMatchWhen(match, true) }}</div>
+          <div class="text-sm text-slate-600 mt-1">{{ formatMatchWhen(match, true) }}</div>
         </view>
       </div>
       </div>
@@ -1853,7 +1853,7 @@ const executeDeleteOrQuit = async () => {
 }
 
 .history-hole-chip-num {
-  font-size: 22rpx;
+  font-size: 24rpx;
   line-height: 1;
   color: #64748b;
   font-weight: 700;
@@ -1871,7 +1871,7 @@ const executeDeleteOrQuit = async () => {
 }
 
 .history-chip-val {
-  font-size: 22rpx;
+  font-size: 26rpx;
   line-height: 1;
   font-weight: 700;
   color: #0f172a;
@@ -1896,7 +1896,7 @@ const executeDeleteOrQuit = async () => {
 .history-chip-val--under-par {
   color: #ffffff !important;
   font-weight: 800 !important;
-  font-size: 20rpx !important;
+  font-size: 22rpx !important;
 }
 
 /** +1：橙单方框（同 .sc-mark-bogey） */

@@ -3829,7 +3829,7 @@ const posterPreviewSrc = ref('');
             </view>
             <image v-else :src="avatarOrDefault(player)" class="sc-avatar flex-shrink-0" mode="aspectFill" />
             <view class="flex flex-col min-w-0 flex-1 sc-fixed-player-meta">
-              <text class="sc-player-nick text-slate-900">{{ player.nickname }}</text>
+              <view class="sc-player-nick text-slate-900">{{ player.nickname }}</view>
               <text class="sc-sub-text text-slate-500">{{ formatPlayerHandicapDisplay(player.handicap) }}</text>
             </view>
           </view>
@@ -4231,7 +4231,7 @@ const posterPreviewSrc = ref('');
                   <div class="w-9 h-9 rounded-full mb-0.5 border-2 border-white bg-slate-200 overflow-hidden shrink-0">
                     <image :src="avatarOrDefault(playerForRuleSlot(i - 1))" mode="aspectFill" class="w-full h-full block" />
                   </div>
-                  <span class="text-xs font-bold truncate max-w-[4.5rem] text-center">{{ players.find(p => p.id === currentConfigRule.player_ids[i-1])?.nickname || '未知' }}</span>
+                  <span class="text-sm font-bold truncate max-w-[7rem] text-center">{{ players.find(p => p.id === currentConfigRule.player_ids[i-1])?.nickname || '未知' }}</span>
                   <span class="text-xs opacity-60">选手{{ i }}</span>
                 </template>
                 <template v-else>
@@ -4409,7 +4409,7 @@ const posterPreviewSrc = ref('');
                   <div class="w-9 h-9 rounded-full mb-0.5 border-2 border-white bg-slate-200 overflow-hidden shrink-0">
                     <image :src="avatarOrDefault(playerForRuleSlot(i - 1))" mode="aspectFill" class="w-full h-full block" />
                   </div>
-                  <span class="text-xs font-bold truncate w-[4rem] text-center text-slate-800">{{ players.find(p => p.id === currentConfigRule.player_ids[i-1])?.nickname || '未知' }}</span>
+                  <span class="text-sm font-bold truncate w-[6.5rem] text-center text-slate-800">{{ players.find(p => p.id === currentConfigRule.player_ids[i-1])?.nickname || '未知' }}</span>
                   <span class="text-[7px] text-slate-500">选手{{ i }}</span>
                 </template>
                 <template v-else>
@@ -4525,7 +4525,7 @@ const posterPreviewSrc = ref('');
                   <div class="w-9 h-9 rounded-full mb-0.5 border-2 border-white bg-slate-200 overflow-hidden shrink-0 shadow-sm">
                     <image :src="avatarOrDefault(playerForRuleSlot(i - 1))" mode="aspectFill" class="w-full h-full block" />
                   </div>
-                  <span class="text-xs font-bold text-slate-800 truncate max-w-[4.5rem] text-center">{{ players.find(p => p.id === currentConfigRule.player_ids[i-1])?.nickname || '未知' }}</span>
+                  <span class="text-sm font-bold text-slate-800 truncate max-w-[7rem] text-center">{{ players.find(p => p.id === currentConfigRule.player_ids[i-1])?.nickname || '未知' }}</span>
                   <span class="text-xs text-slate-500 mt-0.5">选手{{ i }}</span>
                 </template>
                 <template v-else>
@@ -4545,7 +4545,7 @@ const posterPreviewSrc = ref('');
                 <template v-if="currentConfigRule?.player_ids?.[i - 1]">
                   <div class="flex items-center gap-2 min-w-0 flex-1">
                     <image :src="avatarOrDefault(playerForRuleSlot(i - 1))" mode="aspectFill" class="w-8 h-8 rounded-full border border-slate-200 shrink-0" />
-                    <span class="text-xs font-bold text-slate-800 truncate">{{ players.find(p => p.id === currentConfigRule.player_ids[i - 1])?.nickname || '选手' + i }}</span>
+                    <span class="text-sm font-bold text-slate-800 truncate max-w-[7rem]">{{ players.find(p => p.id === currentConfigRule.player_ids[i - 1])?.nickname || '选手' + i }}</span>
                   </div>
                   <input
                     v-model="currentConfigRule.player_8421[currentConfigRule.player_ids[i - 1]]"
@@ -4745,7 +4745,7 @@ const posterPreviewSrc = ref('');
               <div class="w-10 h-10 rounded-full border-2 border-slate-200 bg-slate-100 overflow-hidden shrink-0">
                 <image :src="avatarOrDefault(player)" mode="aspectFill" class="w-full h-full block" />
               </div>
-              <span class="text-xs font-medium truncate w-full text-center text-slate-700">{{ player.nickname }}</span>
+              <span class="text-sm font-medium truncate w-full text-center text-slate-700">{{ player.nickname }}</span>
             </button>
           </div>
         </div>
@@ -5474,7 +5474,7 @@ const posterPreviewSrc = ref('');
               <div class="w-10 h-10 rounded-full border-2 border-white bg-slate-200 overflow-hidden shrink-0">
                 <image :src="avatarOrDefault(player)" mode="aspectFill" class="w-full h-full block" />
               </div>
-              <span class="text-xs font-medium truncate w-full text-center text-slate-800">{{ player.nickname }}</span>
+              <span class="text-sm font-medium truncate w-full text-center text-slate-800">{{ player.nickname }}</span>
             </button>
           </div>
         </div>
@@ -5604,7 +5604,7 @@ const posterPreviewSrc = ref('');
               <view class="sc-pk-avatar-wrap">
                 <image :src="avatarOrDefault(player)" class="sc-pk-avatar" mode="aspectFill" />
               </view>
-              <text class="sc-pk-nick-text font-bold text-slate-800 sc-pk-nick">{{ player.nickname }}</text>
+              <view class="sc-pk-nick-text font-bold text-slate-800 sc-pk-nick">{{ player.nickname }}</view>
             </view>
           </view>
         </view>
@@ -5785,11 +5785,11 @@ const posterPreviewSrc = ref('');
 /* 规则配置面板内：保证浅色行上的文字可读 */
 .scorecard-config-row-label {
   color: #0f172a;
-  font-size: 28rpx;
+  font-size: 30rpx;
 }
 .scorecard-config-row-value {
   color: #334155;
-  font-size: 28rpx;
+  font-size: 30rpx;
   font-weight: 600;
 }
 .scorecard-config-row {
@@ -5887,11 +5887,11 @@ const posterPreviewSrc = ref('');
   min-width: 0;
 }
 
-/* 固定球员列：不参与横向滚动 */
+/* 固定球员列：加宽以多显示昵称（约 5～6 字/行，可两行） */
 .sc-fixed-col {
   flex-shrink: 0 !important;
-  width: 178rpx !important;
-  min-width: 178rpx !important;
+  width: 236rpx !important;
+  min-width: 236rpx !important;
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -5903,7 +5903,7 @@ const posterPreviewSrc = ref('');
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  height: 80rpx !important;
+  height: 90rpx !important;
   box-sizing: border-box !important;
   border-bottom: 1rpx solid rgba(22, 163, 74, 0.3);
   border-right: 1rpx solid rgba(22, 163, 74, 0.3);
@@ -5923,12 +5923,30 @@ const posterPreviewSrc = ref('');
 .sc-fixed-player {
   display: flex !important;
   align-items: center !important;
-  height: 80rpx !important;
+  height: 90rpx !important;
   box-sizing: border-box !important;
   border-bottom: 1rpx solid #e2e8f0;
   border-right: 1rpx solid #e2e8f0;
   overflow: hidden;
   background-color: #ffffff;
+}
+
+.sc-fixed-player-meta {
+  justify-content: center;
+  gap: 2rpx;
+}
+
+/* 球员昵称：加大字号 + 两行截断，户外可读且不挤布局 */
+.sc-player-nick {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-all;
+  font-size: 28rpx;
+  line-height: 1.25;
+  font-weight: 700;
+  max-width: 100%;
 }
 
 /* scroll-view：flex:1 占剩余宽度，enhanced 开启原生惯性 */
@@ -5940,12 +5958,12 @@ const posterPreviewSrc = ref('');
   box-sizing: border-box;
 }
 
-/* hole-track：scroll-view 直接子元素 */
+/* hole-track：scroll-view 直接子元素（洞格加宽后同步总宽） */
 .hole-track {
   display: inline-block !important;
   vertical-align: top;
-  width: 2660rpx !important;
-  min-width: 2660rpx !important;
+  width: 2890rpx !important;
+  min-width: 2890rpx !important;
 }
 
 /* hole-row：flex 行，与左侧固定列对齐，避免 inline-block 错位 */
@@ -5954,28 +5972,28 @@ const posterPreviewSrc = ref('');
   flex-direction: row !important;
   flex-wrap: nowrap !important;
   align-items: stretch !important;
-  width: 2660rpx !important;
-  min-width: 2660rpx !important;
-  min-height: 80rpx !important;
-  height: 80rpx !important;
+  width: 2890rpx !important;
+  min-width: 2890rpx !important;
+  min-height: 90rpx !important;
+  height: 90rpx !important;
   box-sizing: border-box !important;
 }
 
 .hole-row.sc-header {
-  height: 80rpx !important;
-  min-height: 80rpx !important;
+  height: 90rpx !important;
+  min-height: 90rpx !important;
 }
 
 .hole-row:not(.sc-header) {
-  height: 80rpx !important;
-  min-height: 80rpx !important;
+  height: 90rpx !important;
+  min-height: 90rpx !important;
 }
 
 .scorecard-table-outer--pk .sc-fixed-player,
 .scorecard-table-outer--pk .hole-row:not(.sc-header),
 .scorecard-table-outer--pk .hole-row:not(.sc-header) .sc-cell {
-  height: 112rpx !important;
-  min-height: 112rpx !important;
+  height: 124rpx !important;
+  min-height: 124rpx !important;
 }
 
 /* sc-cell：flex 列，撑满行高 */
@@ -5986,7 +6004,7 @@ const posterPreviewSrc = ref('');
   justify-content: center !important;
   flex-shrink: 0 !important;
   height: 100% !important;
-  min-height: 80rpx !important;
+  min-height: 90rpx !important;
   box-sizing: border-box !important;
   overflow: hidden;
 }
@@ -5996,20 +6014,20 @@ const posterPreviewSrc = ref('');
   overflow: visible !important;
 }
 
-/* 每一洞格：彻底锁定 110rpx */
+/* 每一洞格：略加宽以容纳更大杆数 */
 .sc-cell.sc-col-hole,
 .sc-col-hole.hole-item,
 .hole-item.sc-col-hole {
-  width: 110rpx !important;
-  min-width: 110rpx !important;
-  max-width: 110rpx !important;
+  width: 120rpx !important;
+  min-width: 120rpx !important;
+  max-width: 120rpx !important;
   box-sizing: border-box !important;
 }
 
 .sc-col-hole .sc-hdr-inner,
 .sc-col-hole .sc-score-stack {
-  width: 110rpx !important;
-  max-width: 110rpx !important;
+  width: 120rpx !important;
+  max-width: 120rpx !important;
   box-sizing: border-box;
 }
 
@@ -6168,12 +6186,14 @@ const posterPreviewSrc = ref('');
   align-items: center !important;
 }
 .sc-pk-nick {
-  display: block;
-  max-width: 100%;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-all;
+  max-width: 100%;
   text-align: center;
+  white-space: normal;
 }
 
 .sc-header {
@@ -6184,15 +6204,15 @@ const posterPreviewSrc = ref('');
 }
 
 .sc-col-player {
-  width: 180rpx !important;
-  min-width: 180rpx !important;
-  max-width: 180rpx !important;
+  width: 236rpx !important;
+  min-width: 236rpx !important;
+  max-width: 236rpx !important;
   box-sizing: border-box !important;
 }
-.sc-col-f9  { width: 90rpx !important; min-width: 90rpx !important; max-width: 90rpx !important; box-sizing: border-box !important; }
-.sc-col-par { width: 80rpx !important; min-width: 80rpx !important; max-width: 80rpx !important; box-sizing: border-box !important; }
-.sc-col-sum { width: 96rpx !important; min-width: 96rpx !important; max-width: 96rpx !important; box-sizing: border-box !important; }
-.sc-col-pk  { width: 110rpx !important; min-width: 110rpx !important; max-width: 110rpx !important; box-sizing: border-box !important; }
+.sc-col-f9  { width: 96rpx !important; min-width: 96rpx !important; max-width: 96rpx !important; box-sizing: border-box !important; }
+.sc-col-par { width: 88rpx !important; min-width: 88rpx !important; max-width: 88rpx !important; box-sizing: border-box !important; }
+.sc-col-sum { width: 104rpx !important; min-width: 104rpx !important; max-width: 104rpx !important; box-sizing: border-box !important; }
+.sc-col-pk  { width: 116rpx !important; min-width: 116rpx !important; max-width: 116rpx !important; box-sizing: border-box !important; }
 
 .sc-border-rb { border-right: 1rpx solid #e2e8f0; border-bottom: 1rpx solid #e2e8f0; }
 .sc-border-b  { border-bottom: 1rpx solid #e2e8f0; }
@@ -6208,16 +6228,16 @@ const posterPreviewSrc = ref('');
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 80rpx;
+  height: 90rpx;
   width: 100%;
   box-sizing: border-box;
 }
 
-.sc-sub-text { font-size: 22rpx; line-height: 1.2; }
+.sc-sub-text { font-size: 24rpx; line-height: 1.2; }
 
 .sc-avatar {
-  width: 64rpx;
-  height: 64rpx;
+  width: 56rpx;
+  height: 56rpx;
   border-radius: 8rpx;
   border: 1rpx solid #e2e8f0;
   flex-shrink: 0;
@@ -6277,7 +6297,7 @@ const posterPreviewSrc = ref('');
 }
 
 .sc-profit-text {
-  font-size: 20rpx;
+  font-size: 24rpx;
   line-height: 1.1;
   margin-top: 0;
   text-align: center;
@@ -6308,7 +6328,7 @@ const posterPreviewSrc = ref('');
   background-color: #dc2626;
 }
 .sc-role-badge-text {
-  font-size: 15rpx;
+  font-size: 16rpx;
   font-weight: 900;
   color: #fff;
   line-height: 1;
@@ -6348,11 +6368,11 @@ const posterPreviewSrc = ref('');
   display: block !important;
 }
 .sc-pk-label-text {
-  font-size: 26rpx;
+  font-size: 28rpx;
   line-height: 1.35;
 }
 .sc-pk-nick-text {
-  font-size: 24rpx;
+  font-size: 28rpx;
   line-height: 1.3;
   margin-top: 10rpx;
 }
@@ -6360,7 +6380,7 @@ const posterPreviewSrc = ref('');
   display: block;
   width: 100%;
   text-align: center;
-  font-size: 32rpx;
+  font-size: 36rpx;
   line-height: 1.2;
   box-sizing: border-box;
 }
@@ -6368,7 +6388,7 @@ const posterPreviewSrc = ref('');
   display: block;
   width: 100%;
   text-align: center;
-  font-size: 28rpx;
+  font-size: 30rpx;
   font-weight: 600;
   line-height: 1.25;
 }
@@ -6376,7 +6396,7 @@ const posterPreviewSrc = ref('');
   display: block;
   width: 100%;
   text-align: center;
-  font-size: 30rpx;
+  font-size: 34rpx;
   line-height: 1.25;
   font-weight: 600;
   box-sizing: border-box;
@@ -6386,7 +6406,7 @@ const posterPreviewSrc = ref('');
   font-weight: 500;
 }
 .sc-tiny-text {
-  font-size: 20rpx;
+  font-size: 22rpx;
   line-height: 1.2;
 }
 
@@ -6458,10 +6478,10 @@ const posterPreviewSrc = ref('');
 }
 
 .scorecard-pending-avatar-slot {
-  width: 64rpx;
-  height: 64rpx;
-  min-width: 64rpx;
-  min-height: 64rpx;
+  width: 56rpx;
+  height: 56rpx;
+  min-width: 56rpx;
+  min-height: 56rpx;
   box-sizing: border-box;
   flex-shrink: 0;
 }
@@ -6476,11 +6496,11 @@ const posterPreviewSrc = ref('');
 }
 
 .scorecard-hole-num {
-  width: 40rpx;
-  height: 40rpx;
-  min-width: 40rpx;
-  min-height: 40rpx;
-  border-radius: 20rpx;
+  width: 44rpx;
+  height: 44rpx;
+  min-width: 44rpx;
+  min-height: 44rpx;
+  border-radius: 22rpx;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6492,15 +6512,15 @@ const posterPreviewSrc = ref('');
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 44rpx;
-  min-height: 44rpx;
-  padding: 0 10rpx;
+  min-width: 52rpx;
+  min-height: 52rpx;
+  padding: 0 8rpx;
   box-sizing: border-box;
   flex-shrink: 0;
 }
 
 .scorecard-score-value {
-  font-size: 26rpx;
+  font-size: 32rpx;
   line-height: 1;
   font-weight: 700;
 }
@@ -6537,10 +6557,10 @@ const posterPreviewSrc = ref('');
 
 /* 低于标准杆：红实心圆 + 白字 */
 .sc-under-par-fill {
-  width: 48rpx;
-  height: 48rpx;
-  min-width: 48rpx;
-  min-height: 48rpx;
+  width: 56rpx;
+  height: 56rpx;
+  min-width: 56rpx;
+  min-height: 56rpx;
   border-radius: 999rpx;
   background: #dc2626;
   box-sizing: border-box;
@@ -6553,16 +6573,16 @@ const posterPreviewSrc = ref('');
 
 /* +2+：嵌套双方框 */
 .sc-dbl-sq-outer {
-  width: 56rpx;
-  height: 56rpx;
+  width: 64rpx;
+  height: 64rpx;
   border: 2rpx solid #ea580c;
   box-sizing: border-box;
   flex-shrink: 0;
   background: transparent;
 }
 .sc-dbl-sq-inner {
-  width: 42rpx;
-  height: 42rpx;
+  width: 48rpx;
+  height: 48rpx;
   border: 2rpx solid #ea580c;
   box-sizing: border-box;
   flex-shrink: 0;
@@ -6580,10 +6600,10 @@ const posterPreviewSrc = ref('');
   border-radius: 999rpx;
   border: 2rpx solid #dc2626 !important;
   padding: 0 !important;
-  min-width: 44rpx !important;
-  min-height: 44rpx !important;
-  width: 44rpx !important;
-  height: 44rpx !important;
+  min-width: 52rpx !important;
+  min-height: 52rpx !important;
+  width: 52rpx !important;
+  height: 52rpx !important;
 }
 
 /* +1：单方框 */
@@ -6591,12 +6611,12 @@ const posterPreviewSrc = ref('');
   border-radius: 0 !important;
   border: 2rpx solid #ea580c !important;
   padding: 0 !important;
-  width: 44rpx !important;
-  height: 44rpx !important;
-  min-width: 44rpx !important;
-  min-height: 44rpx !important;
-  max-width: 44rpx !important;
-  max-height: 44rpx !important;
+  width: 52rpx !important;
+  height: 52rpx !important;
+  min-width: 52rpx !important;
+  min-height: 52rpx !important;
+  max-width: 52rpx !important;
+  max-height: 52rpx !important;
   aspect-ratio: 1;
 }
 
@@ -6613,7 +6633,7 @@ const posterPreviewSrc = ref('');
 }
 
 .scorecard-bottom-label {
-  font-size: 22rpx;
+  font-size: 26rpx;
   font-weight: 600;
   color: #334155;
   letter-spacing: 0.02em;
