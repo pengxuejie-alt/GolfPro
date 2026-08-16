@@ -3072,6 +3072,15 @@ function avatarOrDefault(p: { id?: string; avatar?: string } | null | undefined)
   return mpAvatarImgSrcForDisplay(a, DEFAULT_RULE_SLOT_AVATAR);
 }
 
+/** 计分卡固定列：最多显示 5 个字，超出追加省略号 */
+function formatScorecardNickDisplay(nick: unknown): string {
+  const s = nick != null ? String(nick).trim() : '';
+  if (!s) return '';
+  const chars = Array.from(s);
+  if (chars.length <= 5) return s;
+  return `${chars.slice(0, 5).join('')}…`;
+}
+
 function playerForRuleSlot(slotIndex: number) {
   const id = currentConfigRule.value?.player_ids?.[slotIndex];
   if (!id) return null;
@@ -3829,7 +3838,7 @@ const posterPreviewSrc = ref('');
             </view>
             <image v-else :src="avatarOrDefault(player)" class="sc-avatar flex-shrink-0" mode="aspectFill" />
             <view class="flex flex-col min-w-0 flex-1 sc-fixed-player-meta">
-              <view class="sc-player-nick text-slate-900">{{ player.nickname }}</view>
+              <text class="sc-player-nick text-slate-900">{{ formatScorecardNickDisplay(player.nickname) }}</text>
               <text class="sc-sub-text text-slate-500">{{ formatPlayerHandicapDisplay(player.handicap) }}</text>
             </view>
           </view>
@@ -5887,11 +5896,11 @@ const posterPreviewSrc = ref('');
   min-width: 0;
 }
 
-/* 固定球员列：加宽以多显示昵称（约 5～6 字/行，可两行） */
+/* 固定球员列：保证单行可完整放下 5 字昵称 */
 .sc-fixed-col {
   flex-shrink: 0 !important;
-  width: 236rpx !important;
-  min-width: 236rpx !important;
+  width: 248rpx !important;
+  min-width: 248rpx !important;
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -5936,13 +5945,11 @@ const posterPreviewSrc = ref('');
   gap: 2rpx;
 }
 
-/* 球员昵称：加大字号 + 两行截断，户外可读且不挤布局 */
+/* 球员昵称：单行；长度截断由 formatScorecardNickDisplay（最多 5 字）处理 */
 .sc-player-nick {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  display: block;
   overflow: hidden;
-  word-break: break-all;
+  white-space: nowrap;
   font-size: 28rpx;
   line-height: 1.25;
   font-weight: 700;
@@ -6204,9 +6211,9 @@ const posterPreviewSrc = ref('');
 }
 
 .sc-col-player {
-  width: 236rpx !important;
-  min-width: 236rpx !important;
-  max-width: 236rpx !important;
+  width: 248rpx !important;
+  min-width: 248rpx !important;
+  max-width: 248rpx !important;
   box-sizing: border-box !important;
 }
 .sc-col-f9  { width: 96rpx !important; min-width: 96rpx !important; max-width: 96rpx !important; box-sizing: border-box !important; }
