@@ -64,7 +64,7 @@ const isDesignateLandlord = computed(
 const flowLandlordHint = computed(() =>
   config.value.category === '斗第一名'
     ? '之后各洞由上一洞第一名当地主'
-    : '之后各洞由上一洞第二名当地主'
+    : '之后各洞由上一洞第二名当地主（并列则看更早洞谁更好）'
 );
 
 const drawLandlord = () => {

@@ -395,6 +395,43 @@ export const useMatchStore = defineStore('match', {
       return config.category === '固定老虎' || t === '固定地主' || t === '指定地主';
     },
 
+    /**
+     * 斗地主名次并列时，沿游玩顺序往更早的洞比较杆数（越低越好），直到分出胜负。
+     * 回溯到出发洞仍并列则取候选中的第一位（稳定兜底）。
+     */
+    breakLandlordTieByPrevHoles(candidateIdxs: number[], fromHoleIdx: number, rule: PKRule): number {
+      if (candidateIdxs.length === 0) return -1;
+      if (candidateIdxs.length === 1) return candidateIdxs[0];
+
+      let candidates = [...candidateIdxs];
+      let holeIdx = fromHoleIdx;
+
+      while (this.playOrderPosition(rule, holeIdx) > 0) {
+        const lookIdx = this.prevHoleInPlayOrder(rule, holeIdx);
+        const hole = this.holeScores[lookIdx];
+        holeIdx = lookIdx;
+
+        if (!hole || hole.scores.every(s => s === 0)) continue;
+
+        let best = Infinity;
+        const winners: number[] = [];
+        for (const idx of candidates) {
+          const sc = hole.scores[idx] || 999;
+          if (sc < best) {
+            best = sc;
+            winners.length = 0;
+            winners.push(idx);
+          } else if (sc === best) {
+            winners.push(idx);
+          }
+        }
+        if (winners.length === 1) return winners[0];
+        if (winners.length > 1) candidates = winners;
+      }
+
+      return candidates[0];
+    },
+
     getLandlordIndex(holeIndex: number, rule: PKRule): number {
       const config = rule.config;
       if (!config) return -1;
@@ -443,7 +480,27 @@ export const useMatchStore = defineStore('match', {
          if (config.category === '斗第一名') {
            return playerScores[0].idx;
          } else {
-           return playerScores[1]?.idx ?? playerScores[0].idx;
+           // 斗第二名：有唯一第一时，取第二成绩档；若该档并列则回溯更早洞决胜
+           const firstCount = tiedFirsts.length;
+           if (firstCount >= playerScores.length) {
+             return this.breakLandlordTieByPrevHoles(
+               playerScores.map(p => p.idx),
+               prevIdx,
+               rule
+             );
+           }
+           if (firstCount > 1) {
+             // 第一名并列、无独立第二名：保持原行为
+             return playerScores[1]?.idx ?? playerScores[0].idx;
+           }
+           const secondScore = playerScores[1].score;
+           const tiedSeconds = playerScores.filter(p => p.score === secondScore);
+           if (tiedSeconds.length === 1) return tiedSeconds[0].idx;
+           return this.breakLandlordTieByPrevHoles(
+             tiedSeconds.map(p => p.idx),
+             prevIdx,
+             rule
+           );
          }
       }
 
