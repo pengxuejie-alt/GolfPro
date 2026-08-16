@@ -61,6 +61,11 @@ import {
   loadMpCanvas2dImage,
   paintPersonalScorePoster2d,
 } from '@/utils/scorePosterMpCanvas2d';
+import {
+  coerceProfileHandicap,
+  coerceRosterHandicap,
+  formatHandicapLabel,
+} from '@/utils/simpleAverageHandicap';
 
 /** 必须用 mpStaticAbsolute，勿手写 `'/static/...'`（构建器会改成 pages/scorecard/static/...） */
 const SCORECARD_POSTER_BG_SRC = mpStaticAbsolute('share-card.png');
@@ -759,15 +764,16 @@ function buildJoiningUserFromProfile(): {
   id: string;
   nickname: string;
   avatar: string;
-  handicap: number;
+  handicap: number | null;
 } {
   const openId = userStore.openId || '';
   const nick = userStore.profile.nickname && String(userStore.profile.nickname).trim();
+  const hcp = coerceProfileHandicap(userStore.profile.handicap);
   return {
     id: openId,
     nickname: nick || defaultJoinNickname(openId),
     avatar: userStore.profile.avatar || '',
-    handicap: userStore.profile.handicap,
+    handicap: hcp,
   };
 }
 
@@ -3611,12 +3617,21 @@ const getScoreShapeClasses = (pid: string, holeIndex: number) => {
   return golfScoreCellMarkClasses(score, par);
 };
 
-/** 无完赛差点记录时云库/建局常默认 0，与未填写一并展示为未知 */
-const formatPlayerHandicapDisplay = (h: number | null | undefined) => {
-  if (h === null || h === undefined) return '差点：未知';
-  // 旧版 userStore 默认占位 12.5；新建用户云库默认 0
-  if (h === 12.5 || h === 0) return '差点：未知';
-  return String(h);
+/**
+ * 计分卡差点：roster 上建局默认 0 / 旧占位 12.5 视为未填。
+ * 本人若 roster 无有效差点，回退到 profile（首页/我的从完赛场次同步的平均差点）。
+ */
+const formatPlayerHandicapDisplay = (player: { id?: string; handicap?: number | null } | null | undefined) => {
+  if (!player) return formatHandicapLabel(null);
+  let h = coerceRosterHandicap(player.handicap);
+  if (h == null) {
+    const oid = resolvePlayerOpenId(player) || String(player.id || '').trim();
+    const selfOid = String(userStore.openId || '').trim();
+    if (oid && selfOid && oid === selfOid) {
+      h = coerceProfileHandicap(userStore.profile.handicap);
+    }
+  }
+  return formatHandicapLabel(h);
 };
 
 const isLandmineExploded = (holeIndex: number) => {
@@ -3841,7 +3856,7 @@ const posterPreviewSrc = ref('');
             <image v-else :src="avatarOrDefault(player)" class="sc-avatar flex-shrink-0" mode="aspectFill" />
             <view class="flex flex-col min-w-0 flex-1 sc-fixed-player-meta">
               <view class="sc-player-nick text-slate-900">{{ player.nickname }}</view>
-              <text class="sc-sub-text text-slate-500">{{ formatPlayerHandicapDisplay(player.handicap) }}</text>
+              <text class="sc-sub-text text-slate-500">{{ formatPlayerHandicapDisplay(player) }}</text>
             </view>
           </view>
         </view>

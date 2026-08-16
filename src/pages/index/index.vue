@@ -24,6 +24,7 @@ import {
   seedMatchListAvatarDisplayFromRosters,
 } from '@/utils/rosterAvatarDisplay';
 import { stashScorecardPrefillFromIndex } from '@/utils/scorecardPrefill';
+import { computeSimpleAverageHandicap } from '@/utils/simpleAverageHandicap';
 import { resolveCloudFileIdToHttps, isWxCloudFileId } from '@/utils/mpCloudFileUrl';
 import {
   getCachedAvatarDisplay,
@@ -1198,35 +1199,23 @@ const HCP_SCAN_MAX = 24;
 const averageHandicap = computed(() => {
   if (!Array.isArray(matches.value) || matches.value.length === 0) return '—';
   if (matchListLoading.value) return '—';
-  const list = matches.value;
-
-  const slice = list.slice(0, HCP_SCAN_MAX);
-  const completed = slice.filter((m) => {
-    if (!m || typeof m !== 'object') return false;
-    const holeScores = Array.isArray(m.hole_scores) ? m.hole_scores : [];
-    if (holeScores.length < 18) return false;
-    let ok = 0;
-    for (let i = 0; i < 18; i++) {
-      const h = holeScores[i];
-      if (!h || !Array.isArray(h.scores)) continue;
-      if (h.scores.some((s) => Number(s) > 0)) ok++;
-    }
-    return ok >= 18;
-  });
-  if (completed.length === 0) return '—';
-
-  let total = 0;
-  for (const m of completed) {
-    const holeScores = Array.isArray(m.hole_scores) ? m.hole_scores : [];
-    let sum = 0;
-    for (let i = 0; i < holeScores.length; i++) {
-      const h = holeScores[i];
-      sum += h?.scores?.[0] != null ? Number(h.scores[0]) : 0;
-    }
-    total += sum - 72;
-  }
-  return (total / completed.length).toFixed(1);
+  const avg = computeSimpleAverageHandicap(matches.value, { maxScan: HCP_SCAN_MAX });
+  return avg == null ? '—' : avg.toFixed(1);
 });
+
+/** 完赛均值写入 profile，计分卡本人差点不再因 roster 默认 0 显示「未知」 */
+watch(
+  averageHandicap,
+  (v) => {
+    if (v === '—' || v == null) return;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return;
+    if (userStore.profile.handicap !== n) {
+      userStore.updateProfile({ handicap: n });
+    }
+  },
+  { immediate: true },
+);
 
 // Helper to handle potential object-based translations (prevents [object Object])
 const t = (val: any) => {

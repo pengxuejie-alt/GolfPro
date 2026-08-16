@@ -89,6 +89,14 @@ export async function hydrateUserProfileFromCloud(
     if (avatarUrl && !options?.skipAvatarOverwrite) {
       userStore.updateProfile({ avatar: avatarUrl });
     }
+    // 云库默认 handicap:0 表示未填；非 0/非旧占位 12.5 才写入（完赛均值由首页同步）
+    const rawHcp = row.handicap;
+    if (rawHcp != null && Number.isFinite(Number(rawHcp))) {
+      const n = Number(rawHcp);
+      if (n !== 0 && n !== 12.5) {
+        userStore.updateProfile({ handicap: n });
+      }
+    }
 
     let displayHttps = '';
     if (avatarUrl && resolveAvatar) {

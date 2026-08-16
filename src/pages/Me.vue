@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { onShow } from '@dcloudio/uni-app';
 // lucide removed — use uni-icons for WeChat compatibility
 import { MatchManager } from '@/utils/match_manager';
@@ -23,6 +23,7 @@ import {
 import { getMpMatchListNavShellStyle } from '@/utils/mpCapsuleSafeInset';
 import { MP_BATCH_CHECK_OFF, MP_BATCH_CHECK_ON, MP_BATCH_CHECK_ICON_COLOR } from '@/utils/mpBatchCheckStyle';
 import { APP_VERSION_NAME, APP_VERSION_CODE } from '@/utils/appVersion';
+import { computeSimpleAverageHandicap } from '@/utils/simpleAverageHandicap';
 const userStore = useUserStore();
 const profile = computed(() => userStore.profile);
 const DEFAULT_AVATAR_URL = mpStaticAbsolute('tab/me.png');
@@ -171,23 +172,28 @@ const completedMatches = computed(() => {
 });
 
 const averageHandicap = computed(() => {
-  if (completedMatches.value.length === 0) return 0;
-  const total = completedMatches.value.reduce((acc, m) => {
-    const score = m.hole_scores.reduce((sum: number, h: any) => sum + (h.scores[0] || 0), 0);
-    return acc + (score - 72); // Simple handicap calculation
-  }, 0);
-  return (total / completedMatches.value.length).toFixed(1);
+  const avg = computeSimpleAverageHandicap(completedMatches.value);
+  return avg == null ? 0 : avg.toFixed(1);
 });
 
 const last10Handicap = computed(() => {
   const last10 = completedMatches.value.slice(0, 10);
-  if (last10.length === 0) return 0;
-  const total = last10.reduce((acc, m) => {
-    const score = m.hole_scores.reduce((sum: number, h: any) => sum + (h.scores[0] || 0), 0);
-    return acc + (score - 72);
-  }, 0);
-  return (total / last10.length).toFixed(1);
+  const avg = computeSimpleAverageHandicap(last10);
+  return avg == null ? 0 : avg.toFixed(1);
 });
+
+watch(
+  () => ({ avg: averageHandicap.value, n: completedMatches.value.length }),
+  ({ avg, n }) => {
+    if (n === 0) return;
+    const num = Number(avg);
+    if (!Number.isFinite(num)) return;
+    if (userStore.profile.handicap !== num) {
+      userStore.updateProfile({ handicap: num });
+    }
+  },
+  { immediate: true },
+);
 
 const playedCourses = computed(() => {
   const courseMap = new Map<

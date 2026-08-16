@@ -14,6 +14,7 @@ import PrivacyPopup from '@/components/PrivacyPopup.vue';
 import MpPrivacyGateModal from '@/components/MpPrivacyGateModal.vue';
 import CreateMatchCoursePicker from '@/components/CreateMatchCoursePicker.vue';
 import { useMpPrivacyGate } from '@/composables/useMpPrivacyGate';
+import { coerceProfileHandicap } from '@/utils/simpleAverageHandicap';
 
 const matchStore = useMatchStore();
 const userStore = useUserStore();
@@ -166,11 +167,12 @@ const confirmDateTime = () => {
 
 const getHostPlayer = () => {
   const openId = String(userStore.openId || '').trim();
+  const hcp = coerceProfileHandicap(userStore.profile.handicap);
   return {
     id: openId || `host_${Date.now()}`,
     nickname: userStore.profile.nickname || '我',
     avatar: userStore.profile.avatar || '',
-    handicap: userStore.profile.handicap || 0,
+    handicap: hcp != null ? hcp : 0,
     role: '房主',
   };
 };
