@@ -5832,13 +5832,13 @@ const posterPreviewSrc = ref('');
   min-width: 0;
 }
 .sc-info-bar-course {
-  font-size: 28rpx;
+  font-size: 32rpx;
   font-weight: 800;
   color: #0f172a;
   line-height: 1.2;
 }
 .sc-info-bar-date {
-  font-size: 20rpx;
+  font-size: 24rpx;
   color: #64748b;
 }
 .sc-info-bar-right {
@@ -5848,18 +5848,18 @@ const posterPreviewSrc = ref('');
   flex-shrink: 0;
 }
 .sc-info-bar-label {
-  font-size: 18rpx;
+  font-size: 22rpx;
   color: #64748b;
   line-height: 1;
 }
 .sc-info-bar-score {
-  font-size: 52rpx;
+  font-size: 56rpx;
   font-weight: 900;
   color: #07C160;
   line-height: 1;
 }
 .sc-info-bar-progress {
-  font-size: 18rpx;
+  font-size: 22rpx;
   color: #475569;
   margin-top: 2rpx;
 }
