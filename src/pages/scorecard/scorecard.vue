@@ -3748,13 +3748,13 @@ const posterPreviewSrc = ref('');
         <!-- #endif -->
       </div>
       <div class="flex flex-col items-center">
-        <h1 class="text-base font-bold tracking-tight truncate max-w-[180px] text-slate-900">{{ scorecardCourseName }}</h1>
-        <div class="text-xs text-slate-500">{{ formatMatchKickoffCn(currentMatch) }}</div>
+        <h1 class="text-lg font-bold tracking-tight truncate max-w-[240px] text-slate-900">{{ scorecardCourseName }}</h1>
+        <div class="text-sm text-slate-500">{{ formatMatchKickoffCn(currentMatch) }}</div>
       </div>
-      <div class="w-20 flex justify-end items-center">
+      <div class="w-24 flex justify-end items-center">
         <view
           v-if="isSpectatorMode && needsSelfProfileCompletion()"
-          class="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-100 max-w-[5rem]"
+          class="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-100 max-w-[7rem]"
           @click="openSelfProfileEditGate"
         >
           <image
@@ -3762,29 +3762,29 @@ const posterPreviewSrc = ref('');
             class="w-6 h-6 rounded-full shrink-0"
             mode="aspectFill"
           />
-          <text class="text-[10px] text-slate-600 truncate">{{ profile.nickname || GUEST_NICKNAME }}</text>
+          <text class="text-xs text-slate-600 truncate">{{ profile.nickname || GUEST_NICKNAME }}</text>
         </view>
       </div>
     </header>
 
     <!-- Quick Navigation Toggle -->
     <div class="flex shrink-0 items-center justify-center gap-2 p-2 bg-white border-b border-slate-100 flex-wrap">
-      <button type="button" @click="scrollToSection('front')" class="scorecard-seg-btn px-4 py-1.5 text-xs font-bold active:opacity-80" :class="activeNineSection === 'front' ? 'bg-[#07C160] text-white' : 'bg-slate-100 text-slate-600'">
+      <button type="button" @click="scrollToSection('front')" class="scorecard-seg-btn px-4 py-1.5 text-sm font-bold active:opacity-80" :class="activeNineSection === 'front' ? 'bg-[#07C160] text-white' : 'bg-slate-100 text-slate-600'">
         前九 (1-9)
       </button>
-      <button type="button" @click="scrollToSection('back')" class="scorecard-seg-btn px-4 py-1.5 text-xs font-bold active:opacity-80" :class="activeNineSection === 'back' ? 'bg-[#07C160] text-white' : 'bg-slate-100 text-slate-600'">
+      <button type="button" @click="scrollToSection('back')" class="scorecard-seg-btn px-4 py-1.5 text-sm font-bold active:opacity-80" :class="activeNineSection === 'back' ? 'bg-[#07C160] text-white' : 'bg-slate-100 text-slate-600'">
         后九 (10-18)
       </button>
       <button
         type="button"
         @click="openSharePosterModal"
-        class="scorecard-seg-btn px-3 py-1.5 border border-slate-200 bg-white text-xs font-bold text-slate-700 active:opacity-80"
+        class="scorecard-seg-btn px-3 py-1.5 border border-slate-200 bg-white text-sm font-bold text-slate-700 active:opacity-80"
       >
         生成海报
       </button>
       <view
         v-if="matchStore.activeRules.length > 0"
-        class="scorecard-seg-btn scorecard-pk-filter-chip px-3 py-1.5 bg-amber-50 border border-amber-200 text-xs font-bold text-amber-800 active:opacity-80 flex items-center gap-1 max-w-[16rem]"
+        class="scorecard-seg-btn scorecard-pk-filter-chip px-3 py-1.5 bg-amber-50 border border-amber-200 text-sm font-bold text-amber-800 active:opacity-80 flex items-center gap-1 max-w-[16rem]"
         @tap.stop="openPKRuleSheet"
       >
         <text class="truncate">{{ selectedPKRuleLabel }}</text>
@@ -3814,7 +3814,7 @@ const posterPreviewSrc = ref('');
       <view class="sc-fixed-col">
         <view class="sc-fixed-hdr">
           <view class="sc-hdr-inner">
-            <text class="text-xs font-bold text-white">球员</text>
+            <text class="text-sm font-bold text-white">球员</text>
             <text class="sc-sub-text" style="color:rgba(255,255,255,0.75)">差点</text>
           </view>
         </view>
@@ -3828,8 +3828,8 @@ const posterPreviewSrc = ref('');
               <uni-icons type="personadd" :size="16" color="#94a3b8" />
             </view>
             <image v-else :src="avatarOrDefault(player)" class="sc-avatar flex-shrink-0" mode="aspectFill" />
-            <view class="flex flex-col min-w-0 flex-1">
-              <text class="text-xs font-bold truncate leading-tight text-slate-900" >{{ player.nickname }}</text>
+            <view class="flex flex-col min-w-0 flex-1 sc-fixed-player-meta">
+              <text class="sc-player-nick text-slate-900">{{ player.nickname }}</text>
               <text class="sc-sub-text text-slate-500">{{ formatPlayerHandicapDisplay(player.handicap) }}</text>
             </view>
           </view>
@@ -3858,20 +3858,20 @@ const posterPreviewSrc = ref('');
                 :id="h.number === 1 ? 'hole-anchor-1' : (h.number === 10 ? 'hole-anchor-10' : '')"
               >
                 <view class="sc-hdr-inner">
-                  <view class="scorecard-hole-num text-xs font-bold" style="background:#0f172a;color:#fff;">{{ h.number }}</view>
+                  <view class="scorecard-hole-num text-sm font-bold" style="background:#0f172a;color:#fff;">{{ h.number }}</view>
                   <text class="sc-sub-text" style="color:rgba(255,255,255,0.8)">{{ h.par }}</text>
                 </view>
               </view>
               <view v-if="idx === 8" class="sc-cell sc-col-f9 sc-border-rb sc-bg-dim">
-                <text class="text-xs font-bold text-white">前9</text>
+                <text class="text-sm font-bold text-white">前9</text>
               </view>
             </template>
-            <view class="sc-cell sc-col-par sc-border-rb sc-bg-dim"><text class="text-xs font-bold text-white">标准杆</text></view>
-            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim"><text class="text-xs font-bold text-white">后9</text></view>
-            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim"><text class="text-xs font-bold text-white">总差</text></view>
-            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim"><text class="text-xs font-bold text-white">总杆</text></view>
-            <view class="sc-cell sc-col-pk sc-border-rb sc-bg-dim"><text class="text-xs font-bold text-yellow-200">PK</text></view>
-            <view class="sc-cell sc-col-pk sc-border-b sc-bg-dim"><text class="text-xs font-bold text-white">8421</text></view>
+            <view class="sc-cell sc-col-par sc-border-rb sc-bg-dim"><text class="text-sm font-bold text-white">标准杆</text></view>
+            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim"><text class="text-sm font-bold text-white">后9</text></view>
+            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim"><text class="text-sm font-bold text-white">总差</text></view>
+            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim"><text class="text-sm font-bold text-white">总杆</text></view>
+            <view class="sc-cell sc-col-pk sc-border-rb sc-bg-dim"><text class="text-sm font-bold text-yellow-200">PK</text></view>
+            <view class="sc-cell sc-col-pk sc-border-b sc-bg-dim"><text class="text-sm font-bold text-white">8421</text></view>
           </view>
 
           <!-- Player Score Rows -->
@@ -3939,17 +3939,17 @@ const posterPreviewSrc = ref('');
                 </view>
               </view>
               <view v-if="idx === 8" class="sc-cell sc-col-f9 sc-border-rb sc-bg-dim sc-summary-val">
-                <text class="text-xs font-bold text-slate-700">{{ getFront9(player.id) }}</text>
+                <text class="text-sm font-bold text-slate-700">{{ getFront9(player.id) }}</text>
               </view>
             </template>
-            <view class="sc-cell sc-col-par sc-border-rb sc-bg-dim sc-summary-val"><text class="text-xs text-slate-500">{{ getTotalPar() }}</text></view>
-            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim sc-summary-val"><text class="text-xs font-bold text-slate-700">{{ getBack9(player.id) }}</text></view>
-            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim sc-summary-val"><text class="text-xs font-bold text-slate-700">{{ getTotalDiff(player.id) }}</text></view>
-            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim sc-summary-val"><text class="text-sm font-black text-[#07C160]">{{ getPlayerTotalDisplay(player.id) }}</text></view>
+            <view class="sc-cell sc-col-par sc-border-rb sc-bg-dim sc-summary-val"><text class="text-sm text-slate-500">{{ getTotalPar() }}</text></view>
+            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim sc-summary-val"><text class="text-sm font-bold text-slate-700">{{ getBack9(player.id) }}</text></view>
+            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim sc-summary-val"><text class="text-sm font-bold text-slate-700">{{ getTotalDiff(player.id) }}</text></view>
+            <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim sc-summary-val"><text class="text-base font-black text-[#07C160]">{{ getPlayerTotalDisplay(player.id) }}</text></view>
             <view class="sc-cell sc-col-pk sc-border-rb sc-bg-dim sc-summary-val">
-              <text class="text-sm font-bold" :class="getPKTotal(player.id) >= 0 ? 'text-red-500' : 'text-[#07C160]'">{{ getPKTotal(player.id) > 0 ? '+' : '' }}{{ getPKTotal(player.id) }}</text>
+              <text class="text-base font-bold" :class="getPKTotal(player.id) >= 0 ? 'text-red-500' : 'text-[#07C160]'">{{ getPKTotal(player.id) > 0 ? '+' : '' }}{{ getPKTotal(player.id) }}</text>
             </view>
-            <view class="sc-cell sc-col-pk sc-border-b sc-bg-dim sc-summary-val"><text class="text-xs font-bold text-amber-600">{{ (get8421Points(player.id) || 0).toFixed(1) }}</text></view>
+            <view class="sc-cell sc-col-pk sc-border-b sc-bg-dim sc-summary-val"><text class="text-sm font-bold text-amber-600">{{ (get8421Points(player.id) || 0).toFixed(1) }}</text></view>
           </view>
 
         </view>
