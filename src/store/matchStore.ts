@@ -834,15 +834,15 @@ export const useMatchStore = defineStore('match', {
         let holeProfit = 0;
 
         if (isLandlord8421) {
-          // 斗地主 8421：地主梯分 vs 两农民平均梯分，差额 × 基数（与打3分一样按「每农民单位」结算）
+          // 斗地主 8421：地主梯分 vs 农民梯分之和（整数差额），再 × 基数；
+          // 每位农民记 -差额，地主记 +差额×农民人数（与打3分一样按「每农民单位」分摊）
           const all8421Points = this.calculate8421Points(holeIndex, rule);
           const lPts = fin(all8421Points[landlordIdx]);
           const sumP = peasantIndices.reduce((acc, idx) => acc + fin(all8421Points[idx]), 0);
-          const n = peasantIndices.length;
-          const unitDiff = (lPts * n - sumP) / n;
+          const sumDiff = snapNearInteger(lPts - sumP);
           const base = fin(rule.base_score, 1) || 1;
-          holeProfit = fin(unitDiff) * base;
-          pkCount = unitDiff === 0 ? 0 : unitDiff;
+          holeProfit = fin(sumDiff) * base;
+          pkCount = sumDiff === 0 ? 0 : sumDiff;
         } else if (rule.type === 'landlord') {
           if (config.pk_avg) {
             const avg = pScores.reduce((a, b) => a + b, 0) / pScores.length;
