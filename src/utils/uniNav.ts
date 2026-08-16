@@ -26,24 +26,26 @@ const TABBAR_PATHS = new Set([
 
 /** 避免连续调用路由 API（易触发 webviewId / routeDone 类系统错误，尤其在模拟器热重载时） */
 let navBusy = false;
-const RELEASE_MS = 120;
+const RELEASE_MS = 200;
+
+function releaseNavSoon() {
+  setTimeout(() => {
+    navBusy = false;
+  }, RELEASE_MS);
+}
 
 function runNav(action: () => void) {
-  if (navBusy) return;
+  if (navBusy) {
+    console.warn('[uniNav] skipped: busy');
+    return;
+  }
   navBusy = true;
   try {
     action();
-  } catch {
+  } catch (e) {
+    console.warn('[uniNav] sync throw', e);
     navBusy = false;
-    return;
   }
-  const release = () => {
-    setTimeout(() => {
-      navBusy = false;
-    }, RELEASE_MS);
-  };
-  // 下一帧再释放，给原生层先挂上本次跳转
-  setTimeout(release, 0);
 }
 
 function normalizeKey(key: NavKey): string {
@@ -60,6 +62,40 @@ function toQuery(params?: Record<string, unknown>): string {
   return parts.length ? `?${parts.join('&')}` : '';
 }
 
+function toastNavFail() {
+  try {
+    uni.showToast({
+      title: '页面打开失败，请清缓存后重新编译',
+      icon: 'none',
+      duration: 2500,
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+/** navigateTo 失败时（常见于模拟器 routeDone/webviewId）改用 redirectTo */
+function navigateOrRedirect(url: string) {
+  runNav(() => {
+    uni.navigateTo({
+      url,
+      success: () => releaseNavSoon(),
+      fail: (err) => {
+        console.warn('[openRoute] navigateTo fail', url, err);
+        uni.redirectTo({
+          url,
+          success: () => releaseNavSoon(),
+          fail: (err2) => {
+            console.warn('[openRoute] redirectTo fail', url, err2);
+            toastNavFail();
+            navBusy = false;
+          },
+        });
+      },
+    });
+  });
+}
+
 /** uni-app 页面跳转：Tab 栏页面用 switchTab，其余用 navigateTo */
 export function openRoute(tab: NavKey, params?: Record<string, any>) {
   const path = ROUTES[normalizeKey(tab)];
@@ -68,12 +104,13 @@ export function openRoute(tab: NavKey, params?: Record<string, any>) {
     return;
   }
   if (TABBAR_PATHS.has(path)) {
-    uni.switchTab({ url: path });
+    uni.switchTab({
+      url: path,
+      fail: (err) => console.warn('[openRoute] switchTab fail', path, err),
+    });
     return;
   }
-  runNav(() => {
-    uni.navigateTo({ url: path + toQuery(params) });
-  });
+  navigateOrRedirect(path + toQuery(params));
 }
 
 /** 从计分板「当前生效规则」进入打老虎/拉斯/斗地主子页后，返回时重新打开 PK 规则弹层 */
@@ -108,7 +145,13 @@ export function goBackFromPkRulePage(matchId: string) {
   const pages = getCurrentPages();
   if (pages.length > 1) {
     runNav(() => {
-      uni.navigateBack({ delta: 1 });
+      uni.navigateBack({
+        delta: 1,
+        success: () => releaseNavSoon(),
+        fail: () => {
+          navBusy = false;
+        },
+      });
     });
     return;
   }
@@ -117,6 +160,11 @@ export function goBackFromPkRulePage(matchId: string) {
     runNav(() => {
       uni.redirectTo({
         url: `/pages/scorecard/scorecard?match_id=${encodeURIComponent(matchId)}`,
+        success: () => releaseNavSoon(),
+        fail: () => {
+          toastNavFail();
+          navBusy = false;
+        },
       });
     });
     return;
@@ -127,11 +175,27 @@ export function goBackFromPkRulePage(matchId: string) {
 export function goBack(fallbackReLaunchIndex = true) {
   const pages = getCurrentPages();
   if (pages.length > 1) {
-    runNav(() => uni.navigateBack({ delta: 1 }));
+    runNav(() =>
+      uni.navigateBack({
+        delta: 1,
+        success: () => releaseNavSoon(),
+        fail: () => {
+          navBusy = false;
+        },
+      }),
+    );
     return;
   }
   if (fallbackReLaunchIndex) {
-    runNav(() => uni.reLaunch({ url: '/pages/index/index' }));
+    runNav(() =>
+      uni.reLaunch({
+        url: '/pages/index/index',
+        success: () => releaseNavSoon(),
+        fail: () => {
+          navBusy = false;
+        },
+      }),
+    );
   }
 }
 
@@ -140,10 +204,21 @@ export function replaceRoute(tab: NavKey, params?: Record<string, any>) {
   const path = ROUTES[normalizeKey(tab)];
   if (!path) return;
   if (TABBAR_PATHS.has(path)) {
-    uni.switchTab({ url: path });
+    uni.switchTab({
+      url: path,
+      fail: (err) => console.warn('[replaceRoute] switchTab fail', path, err),
+    });
     return;
   }
   runNav(() => {
-    uni.redirectTo({ url: path + toQuery(params) });
+    uni.redirectTo({
+      url: path + toQuery(params),
+      success: () => releaseNavSoon(),
+      fail: (err) => {
+        console.warn('[replaceRoute] redirectTo fail', path, err);
+        toastNavFail();
+        navBusy = false;
+      },
+    });
   });
 }
