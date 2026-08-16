@@ -773,8 +773,9 @@ export const useMatchStore = defineStore('match', {
                     if (m !== winnerIdx) ruleProfits[m] -= extraBase;
                   }
                 } else {
-                  // 加倍（含奖励）/ 连续翻倍：只对本洞 8421 得分做倍数
-                  const scale = th === '连续翻倍' ? Math.pow(2, collectAmount) : 2;
+                  // 加倍（含奖励）：×(1+收顶洞数)；连续翻倍：×2^n
+                  const scale =
+                    th === '连续翻倍' ? Math.pow(2, collectAmount) : 1 + collectAmount;
                   ruleProfits = ruleProfits.map((p) => p * scale);
                 }
               } else {
@@ -834,15 +835,17 @@ export const useMatchStore = defineStore('match', {
         let holeProfit = 0;
 
         if (isLandlord8421) {
-          // 斗地主 8421：地主梯分 vs 农民梯分之和（整数差额），再 × 基数；
-          // 每位农民记 -差额，地主记 +差额×农民人数（与打3分一样按「每农民单位」分摊）
+          // 斗地主 8421：地主与每个农民比梯分，分差加总（非平均），再 × 基数；
+          // pairSum = Σ(地主 − 农民i) = 地主×n − 农民梯分和；平局 pairSum=0 进顶洞
+          // 结算：每位农民 −pairSum（经顶洞倍数后），地主 +pairSum×农民人数
           const all8421Points = this.calculate8421Points(holeIndex, rule);
           const lPts = fin(all8421Points[landlordIdx]);
+          const n = peasantIndices.length;
           const sumP = peasantIndices.reduce((acc, idx) => acc + fin(all8421Points[idx]), 0);
-          const sumDiff = snapNearInteger(lPts - sumP);
+          const pairSum = snapNearInteger(lPts * n - sumP);
           const base = fin(rule.base_score, 1) || 1;
-          holeProfit = fin(sumDiff) * base;
-          pkCount = sumDiff === 0 ? 0 : sumDiff;
+          holeProfit = fin(pairSum) * base;
+          pkCount = pairSum === 0 ? 0 : pairSum;
         } else if (rule.type === 'landlord') {
           if (config.pk_avg) {
             const avg = pScores.reduce((a, b) => a + b, 0) / pScores.length;

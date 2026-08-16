@@ -476,7 +476,7 @@ const pkDimCount = computed(
         <!-- 8421 -->
         <div v-else class="space-y-3">
           <p class="text-[11px] text-slate-500 leading-relaxed">
-            按 8421 梯分：地主梯分与农民梯分之和比差额（整数），每位农民记 −差额、地主记 +差额×人数（鸟鹰已计入梯分，不再叠奖励）。
+            按 8421 梯分：地主与每个农民比梯分，分差加总后为 PK 分差（非平均）；顶洞「翻倍含奖励」为本洞×(1+顶洞数)。鸟鹰已计入梯分，不再叠奖励。
           </p>
           <div class="space-y-2">
             <view class="flex items-center gap-3 active:opacity-80" @click="config.deduction_type = 'progressive'">

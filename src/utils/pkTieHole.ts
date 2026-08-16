@@ -54,7 +54,9 @@ export function computeCarryoverCollectAmount(
 /**
  * 收顶洞后应用顶洞规则（下洞加分 / 加倍 / 连续翻倍）。
  * 下洞加 N 分：signedProfit 须已含本洞赢分 + 已收顶洞×基数。
- * 加倍（含奖励）：signedProfit 只含本洞赢分（含鸟鹰奖励），再 ×2，不要先加顶洞基数。
+ * 加倍（含奖励）：本洞 1 倍 + 每收 1 个顶洞再加 1 倍 → ×(1+collectAmount)
+ *   例：顶两洞加两倍 → ×3（GolfLive 斗地主 8421）。
+ * 连续翻倍：×2^collectAmount。
  */
 export function applyTieHoleAdjustments(
   signedProfit: number,
@@ -74,8 +76,8 @@ export function applyTieHoleAdjustments(
   if (!noTieBonus && th === '下洞加1分') tieBonus = 1 * collectAmount;
   else if (!noTieBonus && th === '下洞加2分') tieBonus = 2 * collectAmount;
   else if (!noTieBonus && th === '下洞加3分') tieBonus = 3 * collectAmount;
-  else if (!noTieBonus && th === '加倍（含奖励）') tieMultiplier = 2;
-  else if (!noTieBonus && th === '加倍（不含奖励）') tieMultiplier = 2;
+  else if (!noTieBonus && th === '加倍（含奖励）') tieMultiplier = 1 + collectAmount;
+  else if (!noTieBonus && th === '加倍（不含奖励）') tieMultiplier = 1 + collectAmount;
   else if (!noTieBonus && th === '连续翻倍') tieMultiplier = Math.pow(2, collectAmount);
 
   let result = signedProfit;
