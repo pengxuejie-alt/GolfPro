@@ -24,6 +24,8 @@ const config = ref({
   active_holes: Array.from({ length: 18 }, (_, i) => i + 1),
   category: '斗第二名',
   landlord_type: '抽地主',
+  /** points_3 = 打3分；8421 = 8421 梯分 */
+  scoring_mode: 'points_3' as 'points_3' | '8421',
   scoring_type: '1/2/3分',
   pk_good: false,
   pk_bad: false,
@@ -34,13 +36,22 @@ const config = ref({
   reward: '鸟2/鹰5/HIO(双鹰)10',
   tie_hole: '下洞不加分',
   collect_tie: '帕收1/鸟收2/鹰全收',
-  is_landmine: false
+  is_landmine: false,
+  deduction_type: 'none',
+  deduction_par3_plus3: false,
+  player_8421: {} as Record<string, string>
 });
+
+const scoringModes = [
+  { id: 'points_3', name: '打3分' },
+  { id: '8421', name: '8421' }
+] as const;
 
 const showModal = ref<string | null>(null);
 const modalOptions = {
   category: ['斗第二名', '斗第一名'],
   landlord_type: ['抽地主', '指定地主'],
+  scoring_mode: ['打3分', '8421'],
   reward: [
     '鸟2/鹰5/HIO(双鹰)10',
     '鸟2/鹰10/HIO(双鹰)20',
@@ -61,11 +72,33 @@ const isDesignateLandlord = computed(
   () => config.value.landlord_type === '指定地主' || config.value.landlord_type === '固定地主'
 );
 
+const is8421Mode = computed(() => config.value.scoring_mode === '8421');
+
+const scoringModeLabel = computed(
+  () => scoringModes.find((m) => m.id === config.value.scoring_mode)?.name || '打3分'
+);
+
 const flowLandlordHint = computed(() =>
   config.value.category === '斗第一名'
     ? '之后各洞由上一洞第一名当地主'
     : '之后各洞由上一洞第二名当地主（并列则看更早洞谁更好）'
 );
+
+const ensurePlayer8421Defaults = () => {
+  if (!config.value.player_8421) config.value.player_8421 = {};
+  for (const id of config.value.selected_player_ids) {
+    if (!config.value.player_8421[id]) {
+      config.value.player_8421[id] = '8421';
+    }
+  }
+};
+
+const setScoringMode = (mode: 'points_3' | '8421') => {
+  config.value.scoring_mode = mode;
+  config.value.scoring_type = mode === '8421' ? '8421' : '1/2/3分';
+  if (mode === '8421') ensurePlayer8421Defaults();
+  showModal.value = null;
+};
 
 const drawLandlord = () => {
   const ids = config.value.selected_player_ids;
@@ -78,6 +111,10 @@ const drawLandlord = () => {
 };
 
 const selectOption = (key: string, val: string) => {
+  if (key === 'scoring_mode') {
+    setScoringMode(val === '8421' ? '8421' : 'points_3');
+    return;
+  }
   (config.value as any)[key] = val;
   showModal.value = null;
   if (key === 'landlord_type' && val === '抽地主' && config.value.selected_player_ids.length === 3 && !config.value.drawn_landlord_id) {
@@ -118,6 +155,17 @@ onMounted(() => {
             '';
         }
       }
+      // 兼容旧规则：仅有 scoring_type 时推导 scoring_mode
+      if (config.value.scoring_mode !== '8421' && config.value.scoring_mode !== 'points_3') {
+        const st = String(config.value.scoring_type || '');
+        config.value.scoring_mode = st.includes('8421') ? '8421' : 'points_3';
+      }
+      config.value.scoring_type = config.value.scoring_mode === '8421' ? '8421' : '1/2/3分';
+      if (!config.value.player_8421) config.value.player_8421 = {};
+      if (rule.player_8421 && typeof rule.player_8421 === 'object') {
+        config.value.player_8421 = { ...config.value.player_8421, ...rule.player_8421 };
+      }
+      if (config.value.scoring_mode === '8421') ensurePlayer8421Defaults();
       return;
     }
   }
@@ -160,6 +208,7 @@ const togglePlayerSelection = (playerId: string) => {
   ) {
     drawLandlord();
   }
+  if (config.value.scoring_mode === '8421') ensurePlayer8421Defaults();
 };
 
 const handleSave = async () => {
@@ -184,10 +233,15 @@ const handleSave = async () => {
   } else {
     config.value.drawn_landlord_id = config.value.fixed_landlord_id;
   }
-  if (!config.value.pk_good && !config.value.pk_bad && !config.value.pk_avg) {
-    alert('请至少选择一项计分维度');
-    return;
+  if (config.value.scoring_mode !== '8421') {
+    if (!config.value.pk_good && !config.value.pk_bad && !config.value.pk_avg) {
+      alert('请至少选择一项计分维度');
+      return;
+    }
+  } else {
+    ensurePlayer8421Defaults();
   }
+  config.value.scoring_type = config.value.scoring_mode === '8421' ? '8421' : '1/2/3分';
 
   matchStore.addRule({
     id: ruleId.value || 'dizhu_' + Date.now(),
@@ -197,6 +251,7 @@ const handleSave = async () => {
     base_score: config.value.base_unit,
     starting_hole: config.value.starting_hole ?? 1,
     player_ids: config.value.selected_player_ids,
+    player_8421: config.value.scoring_mode === '8421' ? { ...config.value.player_8421 } : undefined,
     config: { ...config.value }
   });
   await matchStore.saveMatch();
@@ -368,11 +423,19 @@ const pkDimCount = computed(
         <div class="flex items-center justify-between mb-3">
           <div class="flex items-center gap-2">
             <span class="text-base font-bold text-slate-500">Σ</span>
-            <span class="text-xs font-bold text-slate-600">计分 (1/2/3分)</span>
+            <span class="text-xs font-bold text-slate-600">计分</span>
+          </div>
+          <div
+            @click="showModal = 'scoring_mode'"
+            class="bg-emerald-50 text-[#15803d] px-2 py-0.5 rounded-lg text-xs font-black border border-emerald-200 cursor-pointer flex items-center gap-1"
+          >
+            {{ scoringModeLabel }}
+            <uni-icons type="right" :size="12" color="#94a3b8" />
           </div>
         </div>
 
-        <div class="flex justify-between items-center">
+        <!-- 打3分 -->
+        <div v-if="!is8421Mode" class="flex justify-between items-center">
           <div class="space-y-2 flex-1">
             <view class="flex items-center gap-3 active:opacity-80" @click="togglePkDim('pk_good')">
               <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
@@ -409,11 +472,75 @@ const pkDimCount = computed(
             <span class="text-4xl font-black text-slate-200 font-mono">{{ pkDimCount }}</span>
           </div>
         </div>
+
+        <!-- 8421 -->
+        <div v-else class="space-y-3">
+          <p class="text-[11px] text-slate-500 leading-relaxed">
+            按 8421 梯分：地主与两农民平均梯分差额结算（鸟鹰已计入梯分，不再叠奖励）。
+          </p>
+          <div class="space-y-2">
+            <view class="flex items-center gap-3 active:opacity-80" @click="config.deduction_type = 'progressive'">
+              <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center"
+                   :class="config.deduction_type === 'progressive' ? 'bg-[#15803d] border-[#15803d]' : 'bg-transparent'">
+                <uni-icons v-if="config.deduction_type === 'progressive'" type="checkmarkempty" :size="14" color="#ffffff" />
+              </div>
+              <span class="text-xs font-bold text-slate-600">一直扣（+4扣1、+5扣2…）</span>
+            </view>
+            <view v-if="config.deduction_type === 'progressive'" class="pl-8 flex items-center gap-2 active:opacity-80" @click="config.deduction_par3_plus3 = !config.deduction_par3_plus3">
+              <div class="w-4 h-4 rounded border border-slate-300 flex items-center justify-center"
+                   :class="config.deduction_par3_plus3 ? 'bg-[#15803d] border-[#15803d]' : 'bg-transparent'">
+                <uni-icons v-if="config.deduction_par3_plus3" type="checkmarkempty" :size="12" color="#ffffff" />
+              </div>
+              <span class="text-xs font-bold text-slate-500">3杆洞从+3开始扣</span>
+            </view>
+            <view class="flex items-center gap-3 active:opacity-80" @click="config.deduction_type = 'single_plus4'">
+              <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center"
+                   :class="config.deduction_type === 'single_plus4' ? 'bg-[#15803d] border-[#15803d]' : 'bg-transparent'">
+                <uni-icons v-if="config.deduction_type === 'single_plus4'" type="checkmarkempty" :size="14" color="#ffffff" />
+              </div>
+              <span class="text-xs font-bold text-slate-600">最多扣1分（+4起）</span>
+            </view>
+            <view class="flex items-center gap-3 active:opacity-80" @click="config.deduction_type = 'single_double_par'">
+              <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center"
+                   :class="config.deduction_type === 'single_double_par' ? 'bg-[#15803d] border-[#15803d]' : 'bg-transparent'">
+                <uni-icons v-if="config.deduction_type === 'single_double_par'" type="checkmarkempty" :size="14" color="#ffffff" />
+              </div>
+              <span class="text-xs font-bold text-slate-600">最多扣1分（双帕起）</span>
+            </view>
+            <view class="flex items-center gap-3 active:opacity-80" @click="config.deduction_type = 'none'">
+              <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center"
+                   :class="config.deduction_type === 'none' ? 'bg-[#15803d] border-[#15803d]' : 'bg-transparent'">
+                <uni-icons v-if="config.deduction_type === 'none'" type="checkmarkempty" :size="14" color="#ffffff" />
+              </div>
+              <span class="text-xs font-bold text-slate-600">不扣分</span>
+            </view>
+          </div>
+          <div class="space-y-2 pt-2 border-t border-slate-100">
+            <div v-for="player in selectedPlayers" :key="'dz8421-' + player.id" class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2 min-w-0">
+                <image :src="player.avatar" mode="aspectFill" class="w-7 h-7 rounded-full border border-slate-200 shrink-0" />
+                <span class="text-xs font-bold text-slate-700 truncate">{{ player.nickname }}</span>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <div class="bg-[#15803d] px-1.5 py-0.5 rounded text-[10px] font-black text-white">8421</div>
+                <input
+                  v-model="config.player_8421[player.id]"
+                  class="w-16 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5 text-xs font-black text-[#15803d] text-center"
+                  placeholder="8421"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- More Settings -->
       <div class="space-y-0.5 rounded-2xl bg-white border border-slate-100 shadow-sm px-2">
-        <div @click="showModal = 'reward'" class="flex items-center justify-between py-2.5 border-b border-slate-100 active:bg-emerald-50/50 px-2 rounded-t-2xl transition-colors cursor-pointer">
+        <div
+          v-if="!is8421Mode"
+          @click="showModal = 'reward'"
+          class="flex items-center justify-between py-2.5 border-b border-slate-100 active:bg-emerald-50/50 px-2 rounded-t-2xl transition-colors cursor-pointer"
+        >
           <div class="flex items-center gap-3">
             <uni-icons type="medal" :size="16" color="#15803d" />
             <span class="text-sm font-bold text-slate-600">奖励</span>
@@ -424,7 +551,8 @@ const pkDimCount = computed(
           </div>
         </div>
 
-        <div @click="showModal = 'tie_hole'" class="flex items-center justify-between py-2.5 border-b border-slate-100 active:bg-emerald-50/50 px-2 transition-colors cursor-pointer">
+        <div @click="showModal = 'tie_hole'" class="flex items-center justify-between py-2.5 border-b border-slate-100 active:bg-emerald-50/50 px-2 transition-colors cursor-pointer"
+             :class="is8421Mode ? 'rounded-t-2xl' : ''">
           <div class="flex items-center gap-3">
             <div class="w-1.5 h-1.5 rounded-full border border-slate-400"></div>
             <span class="text-sm font-bold text-slate-600">顶洞</span>
@@ -485,7 +613,12 @@ const pkDimCount = computed(
                     @click="selectOption(showModal!, opt)"
                     class="w-full py-3 px-4 bg-slate-50 border border-slate-200 text-slate-900 rounded-xl font-bold flex items-center justify-between transition-colors active:bg-emerald-50">
               <span class="text-left text-sm leading-snug">{{ opt }}</span>
-              <uni-icons v-if="(config as any)[showModal!] === opt" type="checkmarkempty" :size="20" color="#15803d" />
+              <uni-icons
+                v-if="showModal === 'scoring_mode' ? scoringModeLabel === opt : (config as any)[showModal!] === opt"
+                type="checkmarkempty"
+                :size="20"
+                color="#15803d"
+              />
             </button>
           </template>
         </div>

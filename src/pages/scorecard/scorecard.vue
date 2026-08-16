@@ -2130,11 +2130,18 @@ const getRuleSummary = (rule: PKRule) => {
     }
     pushStartingHoleIfSet();
     if (rule.type === 'landlord') {
-      const pkParts: string[] = [];
-      if (conf.pk_good) pkParts.push('较好');
-      if (conf.pk_bad) pkParts.push('较差');
-      if (conf.pk_avg) pkParts.push('平均');
-      if (pkParts.length) parts.push(pkParts.join('+') + 'PK');
+      const is8421 =
+        conf.scoring_mode === '8421' || String(conf.scoring_type || '').includes('8421');
+      if (is8421) {
+        parts.push('8421');
+      } else {
+        parts.push('打3分');
+        const pkParts: string[] = [];
+        if (conf.pk_good) pkParts.push('较好');
+        if (conf.pk_bad) pkParts.push('较差');
+        if (conf.pk_avg) pkParts.push('平均');
+        if (pkParts.length) parts.push(pkParts.join('+') + 'PK');
+      }
     } else if (conf.compare_type) {
       parts.push(conf.compare_type);
     }
@@ -2167,6 +2174,9 @@ const getPKRuleTitle = (rule: PKRule) => {
         ? '出发洞指定'
         : '出发洞抽取'
     );
+    const is8421 =
+      conf.scoring_mode === '8421' || String(conf.scoring_type || '').includes('8421');
+    extras.push(is8421 ? '8421' : '打3分');
   } else if (rule.type === 'tiger') {
     extras.push(String(conf.category || conf.compare_type || ''));
   }

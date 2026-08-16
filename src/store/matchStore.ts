@@ -31,12 +31,20 @@ function scaled8421HoleProfits(pPoints: number[], playerCount: number, base: num
   return pPoints.map((p) => (fin(p) * n - sum) * b);
 }
 
-/** 记分卡「8421」累加列、洞分换算：挂 8421 / type=8421 / 拉斯 8421 */
+/** 记分卡「8421」累加列、洞分换算：挂 8421 / type=8421 / 拉斯 8421 / 斗地主 8421 */
+export function isLandlord8421Config(config: Record<string, unknown> | null | undefined): boolean {
+  if (!config || typeof config !== 'object') return false;
+  if (config.scoring_mode === '8421') return true;
+  const t = String(config.scoring_type || '');
+  return t.includes('8421');
+}
+
 export function findActive8421PkRule(activeRules: PKRule[]): PKRule | undefined {
   return (
     activeRules.find((r) => r.type === '8421_1v1') ||
     activeRules.find((r) => r.type === '8421') ||
-    activeRules.find((r) => r.type === 'vegas_4' && r.config?.scoring_mode === '8421')
+    activeRules.find((r) => r.type === 'vegas_4' && r.config?.scoring_mode === '8421') ||
+    activeRules.find((r) => r.type === 'landlord' && isLandlord8421Config(r.config))
   );
 }
 
@@ -821,8 +829,21 @@ export const useMatchStore = defineStore('match', {
 
         if (lScore === 0 || pScores.some(s => s === 0)) return { profits, nextCarryover };
 
+        const isLandlord8421 = rule.type === 'landlord' && isLandlord8421Config(config);
         let pkCount = 0;
-        if (rule.type === 'landlord') {
+        let holeProfit = 0;
+
+        if (isLandlord8421) {
+          // 斗地主 8421：地主梯分 vs 两农民平均梯分，差额 × 基数（与打3分一样按「每农民单位」结算）
+          const all8421Points = this.calculate8421Points(holeIndex, rule);
+          const lPts = fin(all8421Points[landlordIdx]);
+          const sumP = peasantIndices.reduce((acc, idx) => acc + fin(all8421Points[idx]), 0);
+          const n = peasantIndices.length;
+          const unitDiff = (lPts * n - sumP) / n;
+          const base = fin(rule.base_score, 1) || 1;
+          holeProfit = fin(unitDiff) * base;
+          pkCount = unitDiff === 0 ? 0 : unitDiff;
+        } else if (rule.type === 'landlord') {
           if (config.pk_avg) {
             const avg = pScores.reduce((a, b) => a + b, 0) / pScores.length;
             if (lScore < avg) pkCount++;
@@ -838,6 +859,7 @@ export const useMatchStore = defineStore('match', {
             if (lScore < worst) pkCount++;
             else if (lScore > worst) pkCount--;
           }
+          holeProfit = pkCount * (rule.base_score || 1);
         } else {
           // Tiger logic
           if (config.compare_type === '比洞') {
@@ -850,23 +872,24 @@ export const useMatchStore = defineStore('match', {
             const avgPeasant = pScores.reduce((a, b) => a + b, 0) / pScores.length;
             pkCount = avgPeasant - lScore; // Positive if Tiger wins
           }
+          holeProfit = pkCount * (rule.base_score || 1);
         }
 
-        let holeProfit = pkCount * (rule.base_score || 1);
-
-        // 奖励：鸟2/鹰5 为基数替换（1→2），不是 3+2。两农民对称分摊。
+        // 奖励：鸟2/鹰5 为基数替换（1→2），不是 3+2。两农民对称分摊。8421 梯分已含鸟鹰，不再叠奖励。
         const lRel = lScore - par;
         const pRels = pScores.map(s => s - par);
         const rewardConfig = config.reward;
 
-        let multiplier = 1;
-        if (pkCount > 0) {
-          multiplier = this.getMultiplier(lRel, rewardConfig);
-        } else if (pkCount < 0) {
-          const bestPRel = Math.min(...pRels);
-          multiplier = this.getMultiplier(bestPRel, rewardConfig);
+        if (!isLandlord8421) {
+          let multiplier = 1;
+          if (pkCount > 0) {
+            multiplier = this.getMultiplier(lRel, rewardConfig);
+          } else if (pkCount < 0) {
+            const bestPRel = Math.min(...pRels);
+            multiplier = this.getMultiplier(bestPRel, rewardConfig);
+          }
+          holeProfit *= multiplier;
         }
-        holeProfit *= multiplier;
 
         // Tie-hole (Carryover)
         const winnerRel = pkCount > 0 ? lRel : Math.min(...pRels);
@@ -886,6 +909,10 @@ export const useMatchStore = defineStore('match', {
         // Landmines for Tiger (if applicable)
         if (rule.landmines && rule.landmines.assignedHoles.includes(holeIndex + 1)) {
           holeProfit *= (rule.landmines.multiplier || 2);
+        }
+
+        if (isLandlord8421) {
+          holeProfit = snapNearInteger(holeProfit);
         }
 
         // Final distribution
