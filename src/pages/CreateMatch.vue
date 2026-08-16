@@ -73,7 +73,6 @@ watch(
 );
 
 const matchType = ref('REGULAR');
-const playerCount = ref(1);
 const kickoffTime = ref(formatDate(now));
 const isPrivate = ref(false);
 const showPKRules = ref(false);
@@ -217,8 +216,6 @@ const fillFromMatch = (match: any) => {
     tempTime.value = tm.toTimeString().split(' ')[0].slice(0, 5);
   }
   isPrivate.value = !!(match?.is_private === true || match?.is_private === 1);
-  const roster = Array.isArray(match?.user_list) ? match.user_list : [];
-  playerCount.value = Math.max(1, Math.min(8, roster.length || 1));
   selectedCourse.value = pickCourseByMatch(match);
 };
 
@@ -245,22 +242,6 @@ onLoad((query) => {
     if (match) fillFromMatch(match);
   });
 });
-
-/** 发布时本地注入虚拟球友（不依赖 getMatchTeammates 云拉取），与 GolfLive CreateGame 注入 players 思路一致 */
-function buildVirtualPlayers(extraCount: number) {
-  const n = Math.max(0, Math.min(7, Math.floor(extraCount)));
-  const t = Date.now();
-  return Array.from({ length: n }, (_, i) => ({
-    id: `virtual_${t}_${i}`,
-    nickname: `球友${i + 1}`,
-    avatar: '',
-    handicap: null as number | null,
-  }));
-}
-
-const bumpPlayerCount = (delta: number) => {
-  playerCount.value = Math.max(1, Math.min(8, playerCount.value + delta));
-};
 
 const pkRules = [
   { id: 1, name: '拉斯 (Vegas)', desc: '2对2组合分比拼', type: 'lashi' },
@@ -347,8 +328,9 @@ const handleStart = async () => {
         oldMatch.course_id = selectedCourse.value.id;
         const existed = Array.isArray(oldMatch.hole_scores) ? oldMatch.hole_scores : [];
         const holeTemplate = Array.isArray(selectedCourse.value.holes) ? selectedCourse.value.holes : [];
+        const slotCount = Math.max(1, Array.isArray(oldMatch.user_list) ? oldMatch.user_list.length : 1);
         oldMatch.hole_scores = holeTemplate.map((h: any, i: number) => ({
-          scores: Array.isArray(existed[i]?.scores) ? existed[i].scores : Array.from({ length: playerCount.value }, () => 0),
+          scores: Array.isArray(existed[i]?.scores) ? existed[i].scores : Array.from({ length: slotCount }, () => 0),
           par: h.par,
         }));
       }
@@ -358,8 +340,7 @@ const handleStart = async () => {
     }
 
     const host = getHostPlayer();
-    const virtuals = buildVirtualPlayers(playerCount.value - 1);
-    const userList = [host, ...virtuals];
+    const userList = [host];
     const slotCount = userList.length;
 
     const newMatch = await MatchManager.createMatch(matchName.value, 1);
@@ -509,34 +490,6 @@ const handleStart = async () => {
           <div class="flex items-center gap-2">
             <span class="text-sm font-bold text-slate-900 truncate max-w-[150px]">{{ selectedCourse?.name || '请选择球场' }}</span>
             <uni-icons type="right" :size="16" color="#cbd5e1" />
-          </div>
-        </div>
-      </div>
-
-      <!-- 人数（含房主）：本地注入虚拟球友，无需拉取好友云函数 -->
-      <div class="bg-white rounded-3xl p-4 shadow-sm mb-4">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <div class="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center">
-              <uni-icons type="person" :size="16" color="#d97706" />
-            </div>
-            <div>
-              <span class="text-sm font-medium text-slate-700 block">球局人数</span>
-              <span class="text-xs text-slate-400">除你外自动添加虚拟球友，记分卡可对位录入</span>
-            </div>
-          </div>
-          <div class="flex items-center gap-3">
-            <button
-              type="button"
-              class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-700 font-bold active:bg-slate-200"
-              @click="bumpPlayerCount(-1)"
-            >−</button>
-            <span class="text-lg font-black text-slate-900 w-8 text-center">{{ playerCount }}</span>
-            <button
-              type="button"
-              class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-700 font-bold active:bg-slate-200"
-              @click="bumpPlayerCount(1)"
-            >+</button>
           </div>
         </div>
       </div>
