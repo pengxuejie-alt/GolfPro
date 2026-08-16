@@ -3936,10 +3936,14 @@ const posterPreviewSrc = ref('');
                       </template>
                     </view>
                     <view
-                      v-if="getScore(player.id, h.index) && matchStore.activeRules.length > 0"
+                      v-if="matchStore.activeRules.length > 0"
                       class="sc-profit-wrap"
                     >
-                      <text class="sc-profit-text" :class="getHoleProfit(player.id, h.index) >= 0 ? 'text-red-400' : 'text-green-400'">
+                      <text
+                        v-if="getScore(player.id, h.index)"
+                        class="sc-profit-text"
+                        :class="getHoleProfit(player.id, h.index) >= 0 ? 'text-red-400' : 'text-green-400'"
+                      >
                         {{ getHoleProfit(player.id, h.index) > 0 ? '+' : '' }}{{ getHoleProfit(player.id, h.index) }}
                       </text>
                     </view>
@@ -6006,8 +6010,8 @@ const posterPreviewSrc = ref('');
 .scorecard-table-outer--pk .sc-fixed-player,
 .scorecard-table-outer--pk .hole-row:not(.sc-header),
 .scorecard-table-outer--pk .hole-row:not(.sc-header) .sc-cell {
-  height: 140rpx !important;
-  min-height: 140rpx !important;
+  height: 148rpx !important;
+  min-height: 148rpx !important;
 }
 
 /* sc-cell：flex 列，撑满行高 */
@@ -6277,6 +6281,24 @@ const posterPreviewSrc = ref('');
   overflow: visible;
 }
 
+/* PK 模式：杆差区固定高度 + 底部 PK 槽固定，跨格水平对齐 */
+.scorecard-table-outer--pk .sc-score-stack {
+  justify-content: flex-start;
+  padding-top: 6rpx;
+  padding-bottom: 4rpx;
+}
+
+.scorecard-table-outer--pk .scorecard-score-cell-inner {
+  width: 100%;
+  height: 68rpx;
+  min-height: 68rpx;
+  max-height: 68rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /** 斗地主「地」/ 打老虎「虎」角标：绝对定位，不挤开杆差与 PK 分 */
 .sc-score-stack--with-badge {
   padding-top: 0;
@@ -6313,17 +6335,25 @@ const posterPreviewSrc = ref('');
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: 2rpx;
+  margin-top: 8rpx;
   box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.scorecard-table-outer--pk .sc-profit-wrap {
+  height: 36rpx;
+  min-height: 36rpx;
+  margin-top: 10rpx;
 }
 
 .sc-profit-text {
-  font-size: 24rpx;
-  line-height: 1.1;
+  font-size: 28rpx;
+  line-height: 1.15;
   margin-top: 0;
   text-align: center;
   white-space: nowrap;
   width: 100%;
+  font-weight: 700;
 }
 
 .sc-role-badge {
