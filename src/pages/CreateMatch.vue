@@ -84,6 +84,12 @@ const selectedCourse = ref<any>(null);
 const selectedSections = ref<any[]>([]);
 const isEditMode = computed(() => editingMatchId.value !== '');
 const publishBtnLabel = computed(() => (isEditMode.value ? '保存修改' : '发布并开球'));
+/** 防连点 / 异步发布过程中重复 handleStart */
+const publishInFlight = ref(false);
+const publishBtnText = computed(() => {
+  if (publishInFlight.value) return isEditMode.value ? '保存中…' : '发布中…';
+  return publishBtnLabel.value;
+});
 const allCoursesFlat = flattenCoursesForPicker();
 
 /** 半场组合弹层：多半场用 sections；标准 18 洞用合成的前 9 / 后 9 */
@@ -263,41 +269,15 @@ const selectPKRule = (id: number) => {
   showPKRules.value = false;
 };
 
-/** 发布球局：先云函数 upsert matches（保证好友 getMatch/joinMatch 可查），再本地 + db.saveMatch 对齐 */
-function callCreateMatchCloud(data: Record<string, unknown>): Promise<{ success?: boolean; error?: string; upsert?: string } | null> {
-  return new Promise((resolve) => {
-    try {
-      // #ifdef MP-WEIXIN
-      if (typeof wx === 'undefined' || !wx.cloud?.callFunction) {
-        resolve(null);
-        return;
-      }
-      wx.cloud.callFunction({
-        name: 'createMatch',
-        data,
-        success: (r: any) => resolve((r?.result as { success?: boolean; error?: string; upsert?: string }) ?? null),
-        fail: (e: any) => {
-          console.warn('[CreateMatch] cloud createMatch fail', e);
-          resolve({ success: false, error: String(e?.errMsg || e || '') });
-        },
-      });
-      // #endif
-      // #ifndef MP-WEIXIN
-      resolve(null);
-      // #endif
-    } catch (e) {
-      console.warn('[CreateMatch] callCreateMatchCloud', e);
-      resolve({ success: false, error: String(e) });
-    }
-  });
-}
-
 const handleBack = () => {
   goBack();
 };
 
 const handleStart = async () => {
+  if (publishInFlight.value) return;
+  publishInFlight.value = true;
   try {
+    uni.showLoading({ title: isEditMode.value ? '保存中…' : '发布中…', mask: true });
     // #ifdef MP-WEIXIN
     const session = await ensureWxSessionForCloud({ gatePrivacyBeforeCloud });
     if (!session.ok) {
@@ -322,7 +302,7 @@ const handleStart = async () => {
         return;
       }
       oldMatch.title = matchName.value;
-      oldMatch.create_time = kickoffMsFromPicker();
+      oldMatch.create_time = new Date(kickoffMsFromPicker()).toISOString();
       oldMatch.is_private = isPrivate.value;
       oldMatch.match_meta_sync_ts = Date.now();
       if (selectedCourse.value) {
@@ -346,7 +326,8 @@ const handleStart = async () => {
     const slotCount = userList.length;
 
     const newMatch = await MatchManager.createMatch(matchName.value, 1);
-    newMatch.create_time = kickoffMsFromPicker();
+    const kickoffMs = kickoffMsFromPicker();
+    newMatch.create_time = new Date(kickoffMs).toISOString();
 
     newMatch.user_list = userList;
     newMatch.is_private = isPrivate.value;
@@ -371,42 +352,7 @@ const handleStart = async () => {
     newMatch.pk_rules_sync_ts = newMatch.pk_rules_sync_ts || Date.now();
     newMatch.match_meta_sync_ts = newMatch.match_meta_sync_ts || Date.now();
 
-    const cloudPlayers = userList.map((p: { id: string; nickname: string; avatar?: string; handicap?: number }) => ({
-      uid: p.id,
-      nickName: p.nickname,
-      avatarUrl: p.avatar || '',
-      handicap: p.handicap ?? 0,
-    }));
-
-    // #ifdef MP-WEIXIN
-    try {
-      const cloudRes = await callCreateMatchCloud({
-        match_id: newMatch.match_id,
-        title: matchName.value || '我的球局',
-        courseName: selectedCourse.value?.name || '',
-        course_id: selectedCourse.value?.id || '',
-        players: cloudPlayers,
-        date: kickoffTime.value,
-        is_private: isPrivate.value,
-        hole_scores: newMatch.hole_scores,
-        status: newMatch.status,
-      });
-      if (cloudRes && cloudRes.success === false) {
-        uni.showToast({
-          title: formatCloudSyncError(cloudRes),
-          icon: 'none',
-          duration: 3200,
-        });
-        console.warn('[CreateMatch] cloud createMatch', cloudRes);
-      } else if (cloudRes?.success) {
-        console.info('[CreateMatch] cloud createMatch ok', cloudRes);
-      }
-    } catch (e) {
-      console.warn('[CreateMatch] cloud sync', e);
-      uni.showToast({ title: '云端同步异常', icon: 'none' });
-    }
-    // #endif
-
+    /** 只走 updateMatch→saveMatch→createMatch 一次 upsert，避免连调两次云函数竞态叉开 */
     await MatchManager.updateMatch(newMatch);
 
     replaceRoute(Tab.SCORECARD, { match_id: newMatch.match_id });
@@ -417,6 +363,13 @@ const handleStart = async () => {
     } catch {
       /* ignore */
     }
+  } finally {
+    try {
+      uni.hideLoading();
+    } catch {
+      /* ignore */
+    }
+    publishInFlight.value = false;
   }
 };
 </script>
@@ -516,11 +469,13 @@ const handleStart = async () => {
           </button>
       </div>
 
-      <button 
+      <button
+        type="button"
+        :disabled="publishInFlight"
         @click="handleStart"
-        class="w-full bg-emerald-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-emerald-600/30 active:scale-95 transition-all flex items-center justify-center"
+        class="w-full bg-emerald-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-emerald-600/30 active:scale-95 transition-all flex items-center justify-center disabled:opacity-60 disabled:active:scale-100"
       >
-        {{ publishBtnLabel }}
+        {{ publishBtnText }}
       </button>
     </div>
 

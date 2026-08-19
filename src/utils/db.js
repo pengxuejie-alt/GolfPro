@@ -378,6 +378,16 @@ function mapMatchToCloudPayload(matchData) {
   };
 }
 
+function normalizeMatchDateForCloud(v) {
+  if (v == null || v === '') return new Date().toISOString();
+  if (typeof v === 'number' && Number.isFinite(v)) return new Date(v).toISOString();
+  const s = String(v).trim();
+  if (!s) return new Date().toISOString();
+  const t = Date.parse(s);
+  if (!Number.isNaN(t)) return new Date(t).toISOString();
+  return s;
+}
+
 /** 将本地比赛对象转为 createMatch 云函数入参（云函数有管理员权限，避免客户端直连 add 产生重复副本） */
 function mapMatchToCreateMatchEvent(matchData) {
   const roster = matchData.user_list || matchData.players || [];
@@ -395,7 +405,7 @@ function mapMatchToCreateMatchEvent(matchData) {
     courseName: matchData.course_name || matchData.courseName || '',
     course_id: matchData.course_id || '',
     players,
-    date: matchData.create_time || matchData.date || new Date().toISOString(),
+    date: normalizeMatchDateForCloud(matchData.create_time || matchData.date),
     is_private: !!(matchData.is_private === true || matchData.is_private === 1),
     hole_scores: Array.isArray(holeScores) ? holeScores : undefined,
     status: matchData.status ?? 1,
@@ -790,7 +800,23 @@ export const db = {
         'saveMatch.createMatch',
       );
       if (cloudRes && cloudRes.success === true) {
-        return { success: true, mode: 'cloud-fn', upsert: cloudRes.upsert, deduped: cloudRes.deduped || 0 };
+        const canonicalMid =
+          cloudRes.match_id != null ? String(cloudRes.match_id).trim() : mid;
+        if (canonicalMid && canonicalMid !== mid) {
+          matchData.match_id = canonicalMid;
+          try {
+            uni.setStorageSync('last_match_cache', matchData);
+          } catch {
+            /* ignore */
+          }
+        }
+        return {
+          success: true,
+          mode: 'cloud-fn',
+          upsert: cloudRes.upsert,
+          deduped: cloudRes.deduped || 0,
+          match_id: canonicalMid,
+        };
       }
       const errMsg = cloudRes?.error || 'createMatch failed';
       console.warn('[db.saveMatch] 云函数 upsert 失败', errMsg);

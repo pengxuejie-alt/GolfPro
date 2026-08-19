@@ -2,9 +2,44 @@ const cloud = require('wx-server-sdk');
 /** 与 joinMatch / listMyMatches / 小程序 wx.cloud.init 当前环境一致，勿写死 env，否则会「写入 A 库、列表读 B 库」 */
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
-const { findMatchDocsByMid } = require('./matchCanonical');
+const { findMatchDocsByMid, docTimeMs } = require('./matchCanonical');
 
 const EMPTY_18 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+/** 同一房主、同一球场、数分钟内重复 add 时合并到已有文档（防客户端连点/双通道写入） */
+const HOST_DUP_COALESCE_MS = 3 * 60 * 1000;
+
+function normalizeDateField(v) {
+  if (v == null || v === '') return new Date().toISOString();
+  if (typeof v === 'number' && Number.isFinite(v)) return new Date(v).toISOString();
+  const s = String(v).trim();
+  if (!s) return new Date().toISOString();
+  const t = Date.parse(s);
+  if (!Number.isNaN(t)) return new Date(t).toISOString();
+  return s;
+}
+
+async function findRecentHostDuplicate(db, openId, courseId, title) {
+  const cid = courseId != null ? String(courseId).trim() : '';
+  if (!openId || !cid) return null;
+  try {
+    const snap = await db.collection('matches').where({ _openid: openId, course_id: cid }).limit(12).get();
+    const rows = snap.data || [];
+    const now = Date.now();
+    const wantTitle = String(title || '').trim();
+    let best = null;
+    for (const row of rows) {
+      const t = docTimeMs(row);
+      if (!t || now - t > HOST_DUP_COALESCE_MS) continue;
+      const rowTitle = String(row.title || '').trim();
+      if (wantTitle && rowTitle && rowTitle !== wantTitle) continue;
+      if (!best || docTimeMs(row) >= docTimeMs(best)) best = row;
+    }
+    return best;
+  } catch (e) {
+    console.warn('[createMatch] findRecentHostDuplicate', e);
+    return null;
+  }
+}
 
 function playerUid(p) {
   if (!p || typeof p !== 'object') return '';
@@ -76,7 +111,7 @@ exports.main = async (event) => {
     players: mapPlayersForCloud(playerList),
     user_list: mapPlayersForCloud(playerList),
     scores: hole_scores || Array.from({ length: 18 }, () => ({ scores: [0], par: 4 })),
-    date: date || new Date().toISOString(),
+    date: normalizeDateField(date),
     status: Number.isFinite(matchStatus) ? matchStatus : 1,
     is_private: is_private || false,
     updated_at: db.serverDate(),
@@ -154,11 +189,41 @@ exports.main = async (event) => {
       if (!callerInRoster && hostUid !== openId && !hostIsVirtual) {
         return { success: false, step: 'matches', error: 'not_found', match_id: mid };
       }
-      const matchRes = await db.collection('matches').add({ data: matchPayload });
-      result.matchOk = true;
-      result._id = matchRes._id;
-      result.match_id = mid;
-      result.upsert = 'add';
+      const recentDup = await findRecentHostDuplicate(db, openId, matchPayload.course_id, matchPayload.title);
+      if (recentDup && recentDup._id) {
+        const docId = recentDup._id;
+        const canonicalMid =
+          recentDup.match_id != null ? String(recentDup.match_id).trim() : String(recentDup._id).trim();
+        const updateData = {
+          title: matchPayload.title,
+          courseName: matchPayload.courseName,
+          course_name: matchPayload.course_name,
+          course_id: matchPayload.course_id,
+          players: matchPayload.players,
+          user_list: matchPayload.user_list,
+          scores: matchPayload.scores,
+          date: matchPayload.date,
+          status: matchPayload.status,
+          is_private: matchPayload.is_private,
+          updated_at: db.serverDate(),
+        };
+        if (pkPayload && pkPayload.length > 0) {
+          updateData.pk_results = pkPayload;
+        }
+        await db.collection('matches').doc(docId).update({ data: updateData });
+        result.matchOk = true;
+        result._id = docId;
+        result.match_id = canonicalMid;
+        result.upsert = 'update';
+        result.coalesced = true;
+        console.info('[createMatch] coalesced recent host dup', canonicalMid, 'from', mid);
+      } else {
+        const matchRes = await db.collection('matches').add({ data: matchPayload });
+        result.matchOk = true;
+        result._id = matchRes._id;
+        result.match_id = mid;
+        result.upsert = 'add';
+      }
     }
   } catch (e) {
     return { success: false, step: 'matches', error: e.message || String(e) };

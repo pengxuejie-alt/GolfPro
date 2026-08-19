@@ -302,7 +302,17 @@ export const MatchManager = {
     await persistMatchList(matchList);
     if (skipCloudSave) return;
     try {
-      await db.saveMatch(normalized);
+      const saveRes = await db.saveMatch(normalized);
+      const finalMid = normalizeMid(saveRes?.match_id ?? normalized.match_id ?? normalized.id);
+      if (finalMid && finalMid !== mid) {
+        normalized.match_id = finalMid;
+        let list2 = await db.getItem(MATCH_LIST_KEY) || [];
+        list2 = list2.filter((m) => normalizeMid(m?.match_id ?? m?.id) !== mid);
+        const idx2 = list2.findIndex((m) => normalizeMid(m?.match_id ?? m?.id) === finalMid);
+        if (idx2 !== -1) list2[idx2] = normalized;
+        else list2.unshift(normalized);
+        await persistMatchList(list2);
+      }
     } catch (e) {
       console.warn('[MatchManager.updateMatch] db.saveMatch', e);
     }
