@@ -11,6 +11,7 @@ import {
   onPrivacyContractAgreed,
   getPrivacyNeedAuthorizationAsync,
   emitPrivacyContractAgreed,
+  isWxShareOrScanEntryScene,
 } from '@/utils/mpPrivacyBridge';
 import PrivacyPopup from '@/components/PrivacyPopup.vue';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
@@ -216,12 +217,22 @@ function buildHomeShareTimelineQuery(): string {
   return `inviter=${encodeURIComponent(uid)}`;
 }
 
-/** 分享卡片带 match_id 落地首页：跳过隐私弹窗，直达计分加入流 */
+/** 分享卡片带 match_id 落地首页：跳过隐私弹窗，直达计分加入流（兼容旧卡片仍指向首页） */
 function isShareMatchLanding(options?: Record<string, string | undefined>): boolean {
   const mid = options?.match_id != null ? String(options.match_id).trim() : '';
   if (!mid) return false;
   const from = options?.from;
-  return from === 'share' || from === 'timeline';
+  if (from === 'share' || from === 'timeline') return true;
+  try {
+    // #ifdef MP-WEIXIN
+    const wxApi = typeof wx !== 'undefined' ? (wx as any) : null;
+    const scene = wxApi?.getEnterOptionsSync?.()?.scene;
+    if (isWxShareOrScanEntryScene(scene)) return true;
+    // #endif
+  } catch {
+    /* ignore */
+  }
+  return false;
 }
 
 /** 不传 imageUrl：微信使用当前页面截图作为分享卡片图（与常见小程序一致） */

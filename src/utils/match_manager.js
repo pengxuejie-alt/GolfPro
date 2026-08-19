@@ -18,15 +18,46 @@ function normalizeMid(m) {
   return String(m).trim();
 }
 
+function matchRowIds(m) {
+  const mid = normalizeMid(m?.match_id);
+  const id = normalizeMid(m?._id ?? m?.id);
+  return { mid, id };
+}
+
 function dedupeMatchListById(matchList) {
   const list = Array.isArray(matchList) ? matchList : [];
+  const parent = new Map();
+  const find = (k) => {
+    if (!k) return '';
+    if (!parent.has(k)) parent.set(k, k);
+    const p = parent.get(k);
+    if (p !== k) {
+      const r = find(p);
+      parent.set(k, r);
+      return r;
+    }
+    return k;
+  };
+  const union = (a, b) => {
+    if (!a || !b) return;
+    const ra = find(a);
+    const rb = find(b);
+    if (ra && rb && ra !== rb) parent.set(ra, rb);
+  };
+  for (const m of list) {
+    const { mid, id } = matchRowIds(m);
+    if (mid) find(mid);
+    if (id) find(id);
+    if (mid && id) union(mid, id);
+  }
   const seen = new Set();
   const out = [];
   for (const m of list) {
-    const id = normalizeMid(m?.match_id ?? m?.id);
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    out.push(m?.match_id != null && String(m.match_id) !== id ? { ...m, match_id: id } : m);
+    const { mid, id } = matchRowIds(m);
+    const root = find(mid || id);
+    if (!root || seen.has(root)) continue;
+    seen.add(root);
+    out.push(m?.match_id != null && String(m.match_id) !== mid && mid ? { ...m, match_id: mid } : m);
   }
   return out;
 }

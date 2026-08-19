@@ -104,21 +104,51 @@ function mapDocToClient(doc) {
   return row;
 }
 
+function docIdOf(d) {
+  return d && d._id != null ? String(d._id).trim() : '';
+}
+
+/**
+ * 按 match_id 去重，并把「文档 _id === 另一条 match_id」的叉开副本收成一条
+ *（围观/saveMatch 误用 _id 当 match_id 时，房主列表会看到两个球局）
+ */
 function dedupeByMidDescending(docs, cap) {
-  const byMid = new Map();
-  for (const d of docs || []) {
-    if (!d || typeof d !== 'object') continue;
-    const mid =
-      d.match_id != null
-        ? String(d.match_id).trim()
-        : d._id != null
-          ? String(d._id).trim()
-          : '';
-    if (!mid) continue;
-    const prev = byMid.get(mid);
-    if (!prev || parseTimeMs(d) >= parseTimeMs(prev)) byMid.set(mid, d);
+  const rows = (docs || []).filter((d) => d && typeof d === 'object');
+  const parent = new Map();
+  const find = (k) => {
+    if (!k) return '';
+    if (!parent.has(k)) parent.set(k, k);
+    const p = parent.get(k);
+    if (p !== k) {
+      const r = find(p);
+      parent.set(k, r);
+      return r;
+    }
+    return k;
+  };
+  const union = (a, b) => {
+    if (!a || !b) return;
+    const ra = find(a);
+    const rb = find(b);
+    if (ra && rb && ra !== rb) parent.set(ra, rb);
+  };
+  for (const d of rows) {
+    const id = docIdOf(d);
+    const mid = d.match_id != null ? String(d.match_id).trim() : '';
+    if (id) find(id);
+    if (mid) find(mid);
+    if (id && mid) union(id, mid);
   }
-  const sorted = [...byMid.values()].sort((a, b) => parseTimeMs(b) - parseTimeMs(a));
+  const byRoot = new Map();
+  for (const d of rows) {
+    const id = docIdOf(d);
+    const mid = d.match_id != null ? String(d.match_id).trim() : '';
+    const root = find(id || mid);
+    if (!root) continue;
+    const prev = byRoot.get(root);
+    if (!prev || parseTimeMs(d) >= parseTimeMs(prev)) byRoot.set(root, d);
+  }
+  const sorted = [...byRoot.values()].sort((a, b) => parseTimeMs(b) - parseTimeMs(a));
   return cap > 0 && sorted.length > cap ? sorted.slice(0, cap) : sorted;
 }
 

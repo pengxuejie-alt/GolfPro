@@ -202,9 +202,10 @@ const scorecardSharePath = computed(() => {
     '';
   const id = String(mid || '').trim();
   const inviter = userStore.openId ? `&inviter=${encodeURIComponent(userStore.openId)}` : '';
+  /** 直达计分页，勿走 tabBar 首页：iOS 分享 tabBar+query 会二次进入，易叉开一份球局 */
   return id
-    ? `pages/index/index?match_id=${encodeURIComponent(id)}&from=share${inviter}`
-    : 'pages/index/index?from=share';
+    ? `pages/scorecard/scorecard?match_id=${encodeURIComponent(id)}&from=share${inviter}`
+    : 'pages/scorecard/scorecard?from=share';
 });
 
 const scorecardShareTimelineQuery = computed(() => {
@@ -230,6 +231,11 @@ async function finalizeMatchKickoffAutoEnd(match: any | null): Promise<any | nul
   if (!match || typeof match !== 'object') return match;
   if (!shouldAutoEndByKickoffTtl(match)) return match;
   const ended = { ...match, status: 2 };
+  const oid = userStore.openId || '';
+  /** 围观/尚未加入：只改本地展示，禁止 saveMatch/createMatch 叉开副本 */
+  if (enteredViaInvite.value && oid && !isOpenIdInMatchRoster(match, oid)) {
+    return ended;
+  }
   await MatchManager.updateMatch(ended);
   return ended;
 }
@@ -642,6 +648,12 @@ function canonicalKickoffSigPart(m: Record<string, unknown> | undefined | null):
 
 /** upsert 后与 list 内已有局合并（保留本机 pk_rules），并返回合并后的比赛供 initMatch 使用 */
 async function upsertLocalMatchFromCloudAndRefetch(matchId: string, cloudDoc: any): Promise<any> {
+  const oid = userStore.openId || '';
+  const inRoster = !!(oid && isOpenIdInMatchRoster(cloudDoc, oid));
+  /** 仅围观：不要写入「我的球局」缓存，避免和房主局并排成两条 */
+  if (enteredViaInvite.value && !inRoster) {
+    return cloudDoc;
+  }
   await MatchManager.upsertLocalMatch(cloudDoc);
   return (await MatchManager.getMatch(matchId)) ?? cloudDoc;
 }

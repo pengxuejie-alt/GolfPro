@@ -1,6 +1,7 @@
 /**
  * 同一 match_id 在 matches 集合可能存在多条（客户端直连 add 与云函数写入竞态、参与者权限分裂等）。
  * 云函数侧统一：按 match_id 取 canonical 文档，合并后删除冗余副本。
+ * 若入参其实是文档 _id（围观/分享误把 _id 当 match_id），也要命中原局，避免再 add 一份。
  */
 
 function rosterLen(doc) {
@@ -60,6 +61,36 @@ function compareMatchDocPriority(a, b) {
   return String(a._id || '').localeCompare(String(b._id || ''));
 }
 
+function rosterHostUid(doc) {
+  if (!doc || typeof doc !== 'object') return '';
+  const roster = doc.user_list || doc.players;
+  if (!Array.isArray(roster) || roster.length === 0) return '';
+  const first = roster[0];
+  if (!first || typeof first !== 'object') return '';
+  return String(first.uid ?? first.id ?? first.openId ?? first.openid ?? '').trim();
+}
+
+/** 与客户端 MatchManager.isUserHostOfMatch 一致：文档 _openid 或名单首位 */
+function isOwnerOfMatchDoc(doc, openId) {
+  const oid = openId != null ? String(openId).trim() : '';
+  if (!oid || !doc || typeof doc !== 'object') return false;
+  const docOpen = doc._openid;
+  if (docOpen != null && String(docOpen).trim() === oid) return true;
+  return rosterHostUid(doc) === oid;
+}
+
+async function tryGetMatchByDocId(db, mid) {
+  try {
+    const byId = await db.collection('matches').doc(mid).get();
+    if (byId && byId.data) {
+      return { ...byId.data, _id: byId.data._id || mid };
+    }
+  } catch {
+    /* mid 不是文档 _id */
+  }
+  return null;
+}
+
 /**
  * @param {import('wx-server-sdk').DB.Database} db
  * @param {string} matchId
@@ -76,7 +107,10 @@ async function findMatchDocsByMid(db, matchId, opts = {}) {
     rows = snap.data || [];
   } catch (e) {
     console.warn('[matchCanonical] query', mid, e.message || String(e));
-    return { doc: null, duplicates: [] };
+  }
+  if (rows.length === 0) {
+    const byId = await tryGetMatchByDocId(db, mid);
+    if (byId) rows = [byId];
   }
   if (rows.length === 0) return { doc: null, duplicates: [] };
   if (rows.length === 1) return { doc: rows[0], duplicates: [] };
@@ -97,24 +131,6 @@ async function findMatchDocsByMid(db, matchId, opts = {}) {
     );
   }
   return { doc, duplicates };
-}
-
-function rosterHostUid(doc) {
-  if (!doc || typeof doc !== 'object') return '';
-  const roster = doc.user_list || doc.players;
-  if (!Array.isArray(roster) || roster.length === 0) return '';
-  const first = roster[0];
-  if (!first || typeof first !== 'object') return '';
-  return String(first.uid ?? first.id ?? first.openId ?? first.openid ?? '').trim();
-}
-
-/** 与客户端 MatchManager.isUserHostOfMatch 一致：文档 _openid 或名单首位 */
-function isOwnerOfMatchDoc(doc, openId) {
-  const oid = openId != null ? String(openId).trim() : '';
-  if (!oid || !doc || typeof doc !== 'object') return false;
-  const docOpen = doc._openid;
-  if (docOpen != null && String(docOpen).trim() === oid) return true;
-  return rosterHostUid(doc) === oid;
 }
 
 module.exports = {

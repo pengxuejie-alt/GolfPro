@@ -209,15 +209,45 @@ function normalizeMidList(row) {
   return raw != null ? String(raw).trim() : '';
 }
 
-/** 先去重再将「云端」与「本机缓存」合并：同 match_id 以云端条目为准（先写 cloud Map） */
+/** 先去重再将「云端」与「本机缓存」合并：同 match_id 以云端条目为准（先写 cloud Map）；_id 与 match_id 互指视为同一局 */
 function dedupeMatchesByMid(rows) {
   const list = Array.isArray(rows) ? rows : [];
+  const parent = new Map();
+  const find = (k) => {
+    if (!k) return '';
+    if (!parent.has(k)) parent.set(k, k);
+    const p = parent.get(k);
+    if (p !== k) {
+      const r = find(p);
+      parent.set(k, r);
+      return r;
+    }
+    return k;
+  };
+  const union = (a, b) => {
+    if (!a || !b) return;
+    const ra = find(a);
+    const rb = find(b);
+    if (ra && rb && ra !== rb) parent.set(ra, rb);
+  };
+  const keysOf = (r) => {
+    const mid = normalizeMidList(r);
+    const id = r && r._id != null ? String(r._id).trim() : '';
+    return { mid, id };
+  };
+  for (const r of list) {
+    const { mid, id } = keysOf(r);
+    if (mid) find(mid);
+    if (id) find(id);
+    if (mid && id) union(mid, id);
+  }
   const seen = new Set();
   const out = [];
   for (const r of list) {
-    const id = normalizeMidList(r);
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
+    const { mid, id } = keysOf(r);
+    const root = find(mid || id);
+    if (!root || seen.has(root)) continue;
+    seen.add(root);
     out.push(r);
   }
   return out;

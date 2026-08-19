@@ -95,47 +95,64 @@ exports.main = async (event) => {
 
     if (existing) {
       const docId = existing._id;
-      const updateData = {
-        title: matchPayload.title,
-        courseName: matchPayload.courseName,
-        course_name: matchPayload.course_name,
-        course_id: matchPayload.course_id,
-        players: matchPayload.players,
-        user_list: matchPayload.user_list,
-        scores: matchPayload.scores,
-        date: matchPayload.date,
-        status: matchPayload.status,
-        is_private: matchPayload.is_private,
-        updated_at: db.serverDate(),
-      };
-      if (pkPayload && pkPayload.length > 0) {
-        updateData.pk_results = pkPayload;
+      const existingRoster = Array.isArray(existing.players) && existing.players.length
+        ? existing.players
+        : Array.isArray(existing.user_list)
+          ? existing.user_list
+          : [];
+      const callerOwnsOrPlays =
+        (existing._openid && String(existing._openid) === openId) ||
+        existingRoster.some((p) => playerUid(p) === openId);
+      /** 围观/路人 saveMatch 不得覆盖原局，也不得因查错 id 再 add 一份 */
+      if (!callerOwnsOrPlays) {
+        result.matchOk = true;
+        result._id = docId;
+        result.match_id = existing.match_id != null ? String(existing.match_id).trim() : mid;
+        result.upsert = 'skip';
+      } else {
+        const updateData = {
+          title: matchPayload.title,
+          courseName: matchPayload.courseName,
+          course_name: matchPayload.course_name,
+          course_id: matchPayload.course_id,
+          players: matchPayload.players,
+          user_list: matchPayload.user_list,
+          scores: matchPayload.scores,
+          date: matchPayload.date,
+          status: matchPayload.status,
+          is_private: matchPayload.is_private,
+          updated_at: db.serverDate(),
+        };
+        if (pkPayload && pkPayload.length > 0) {
+          updateData.pk_results = pkPayload;
+        }
+        await db.collection('matches').doc(docId).update({ data: updateData });
+        result.matchOk = true;
+        result._id = docId;
+        result.match_id = existing.match_id != null ? String(existing.match_id).trim() : mid;
+        result.upsert = 'update';
       }
-      await db.collection('matches').doc(docId).update({ data: updateData });
-      result.matchOk = true;
-      result._id = docId;
-      result.match_id = mid;
-      result.upsert = 'update';
     } else {
-      if (playerList.length > 0) {
-        const hostUidRaw = playerUid(playerList[0]);
-        if (isPlaceholderHostUid(hostUidRaw) && openId) {
-          playerList[0] = {
-            ...playerList[0],
-            uid: openId,
-            id: openId,
-            openId,
-            openid: openId,
-          };
-          matchPayload.players = mapPlayersForCloud(playerList);
-          matchPayload.user_list = mapPlayersForCloud(playerList);
-        }
-        const hostUid = playerUid(playerList[0]);
-        const callerInRoster = playerList.some((p) => playerUid(p) === openId);
-        const hostIsVirtual = isPlaceholderHostUid(hostUid);
-        if (!callerInRoster && hostUid !== openId && !hostIsVirtual) {
-          return { success: false, step: 'matches', error: 'not_found', match_id: mid };
-        }
+      if (playerList.length === 0) {
+        return { success: false, step: 'matches', error: 'not_found', match_id: mid };
+      }
+      const hostUidRaw = playerUid(playerList[0]);
+      if (isPlaceholderHostUid(hostUidRaw) && openId) {
+        playerList[0] = {
+          ...playerList[0],
+          uid: openId,
+          id: openId,
+          openId,
+          openid: openId,
+        };
+        matchPayload.players = mapPlayersForCloud(playerList);
+        matchPayload.user_list = mapPlayersForCloud(playerList);
+      }
+      const hostUid = playerUid(playerList[0]);
+      const callerInRoster = playerList.some((p) => playerUid(p) === openId);
+      const hostIsVirtual = isPlaceholderHostUid(hostUid);
+      if (!callerInRoster && hostUid !== openId && !hostIsVirtual) {
+        return { success: false, step: 'matches', error: 'not_found', match_id: mid };
       }
       const matchRes = await db.collection('matches').add({ data: matchPayload });
       result.matchOk = true;
