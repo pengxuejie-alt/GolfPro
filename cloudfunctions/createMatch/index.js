@@ -145,6 +145,7 @@ exports.main = async (event) => {
         result.match_id = existing.match_id != null ? String(existing.match_id).trim() : mid;
         result.upsert = 'skip';
       } else {
+        const existingFinished = Number(existing.status) === 2;
         const updateData = {
           title: matchPayload.title,
           courseName: matchPayload.courseName,
@@ -152,14 +153,16 @@ exports.main = async (event) => {
           course_id: matchPayload.course_id,
           players: matchPayload.players,
           user_list: matchPayload.user_list,
-          scores: matchPayload.scores,
           date: matchPayload.date,
-          status: matchPayload.status,
+          status: existingFinished ? 2 : matchPayload.status,
           is_private: matchPayload.is_private,
           updated_at: db.serverDate(),
         };
-        if (pkPayload && pkPayload.length > 0) {
-          updateData.pk_results = pkPayload;
+        if (!existingFinished) {
+          updateData.scores = matchPayload.scores;
+          if (pkPayload && pkPayload.length > 0) {
+            updateData.pk_results = pkPayload;
+          }
         }
         await db.collection('matches').doc(docId).update({ data: updateData });
         result.matchOk = true;
@@ -201,14 +204,16 @@ exports.main = async (event) => {
           course_id: matchPayload.course_id,
           players: matchPayload.players,
           user_list: matchPayload.user_list,
-          scores: matchPayload.scores,
           date: matchPayload.date,
-          status: matchPayload.status,
+          status: Number(recentDup.status) === 2 ? 2 : matchPayload.status,
           is_private: matchPayload.is_private,
           updated_at: db.serverDate(),
         };
-        if (pkPayload && pkPayload.length > 0) {
-          updateData.pk_results = pkPayload;
+        if (Number(recentDup.status) !== 2) {
+          updateData.scores = matchPayload.scores;
+          if (pkPayload && pkPayload.length > 0) {
+            updateData.pk_results = pkPayload;
+          }
         }
         await db.collection('matches').doc(docId).update({ data: updateData });
         result.matchOk = true;

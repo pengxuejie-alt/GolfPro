@@ -1535,6 +1535,25 @@ const isInteractionLocked = computed(
   () => currentMatch.value?.status === 2 || isSpectatorMode.value,
 );
 
+function toastScoreEditLocked() {
+  uni.showToast({ title: '比赛已结束，无法修改比分', icon: 'none' });
+}
+
+function guardScoreEdit(): boolean {
+  if (isInteractionLocked.value) {
+    toastScoreEditLocked();
+    return false;
+  }
+  return true;
+}
+
+watch(isInteractionLocked, (locked) => {
+  if (locked && showScoreModal.value) {
+    closeScoreModalDiscard();
+    toastScoreEditLocked();
+  }
+});
+
 const onTapAddPlayer = () => {
   if (isInteractionLocked.value) {
     uni.showToast({ title: '本场为只读，无法添加球手', icon: 'none' });
@@ -2517,6 +2536,7 @@ function buildFullScoresPayloadForCloud() {
 }
 
 async function pushFullScoresToCloudOnce(mid: string): Promise<void> {
+  if (currentMatch.value?.status === 2) return;
   // #ifdef MP-WEIXIN
   const full_scores = buildFullScoresPayloadForCloud();
   await new Promise<void>((resolve) => {
@@ -2546,6 +2566,7 @@ async function pushFullScoresToCloudOnce(mid: string): Promise<void> {
 
 /** 成绩表 scores 集合：与个人页统计兼容 */
 async function pushLegacyScoresTable(mid: string): Promise<void> {
+  if (currentMatch.value?.status === 2) return;
   // #ifdef MP-WEIXIN
   const list = players.value;
   await Promise.all(
@@ -2626,7 +2647,7 @@ const saveMatch = async (opts?: { skipCloudPush?: boolean }) => {
     await MatchManager.updateMatch(currentMatch.value, { skipCloudSave: opts?.skipCloudPush === true });
     lastLocalScoreCommitAt.value = Date.now();
     markScorecardPollActivity();
-    if (!opts?.skipCloudPush) {
+    if (!opts?.skipCloudPush && currentMatch.value.status !== 2) {
       queueCloudScoreSync();
     }
   }
@@ -2892,6 +2913,8 @@ function mergeHoleScoresFromCloud(cloudMatch: any): boolean {
   if (!currentMatch.value || !matchStore.user_list.length) return false;
   const cloudHoles = (cloudMatch.hole_scores ?? cloudMatch.scores) as unknown[];
   if (!Array.isArray(cloudHoles) || cloudHoles.length === 0) return false;
+  const isFinished =
+    Number(currentMatch.value?.status) === 2 || Number(cloudMatch?.status) === 2;
   const docTime = parseCloudUpdatedAt(cloudMatch.updated_at);
   const nPlayers = matchStore.user_list.length;
   let changed = false;
@@ -2911,6 +2934,15 @@ function mergeHoleScoresFromCloud(cloudMatch: any): boolean {
       const cTraw = Number(cTs[p] ?? 0);
       const lv = Number(lh.scores[p] ?? 0);
       const lT = Number(lh.scoreTs[p] ?? 0);
+      if (isFinished) {
+        const newTs = cTraw > 0 ? cTraw : docTime > 0 ? docTime : 0;
+        if (lv !== cv || lT !== newTs) {
+          lh.scores[p] = cv;
+          lh.scoreTs[p] = newTs;
+          changed = true;
+        }
+        continue;
+      }
       let takeCloud = false;
       if (cTraw > lT) takeCloud = true;
       else if (lT > cTraw) takeCloud = false;
@@ -3018,6 +3050,9 @@ async function syncMatchFromCloud(
     );
     if (!cloudRes?.success || !cloudRes.match) return;
     const cm = cloudRes.match;
+    if (Number(cm.status) === 2 && currentMatch.value.status !== 2) {
+      currentMatch.value.status = 2;
+    }
     rememberCloudRevision(cloudRes.revision, cm as Record<string, unknown>);
     let changed = false;
     let newPlayers = false;
@@ -3404,6 +3439,7 @@ const get8421Points = (pid: string) => {
 };
 
 const saveScore = () => {
+  if (!guardScoreEdit()) return;
   if (!editingCell.value || modalDraftStrokes.value == null) return;
   const pIdx = players.value.findIndex(p => p.id === editingCell.value!.pid);
   const hIdx = editingCell.value!.holeIndex;
@@ -3432,6 +3468,7 @@ const openScoreModal = (pid: string, holeIndex: number) => {
 };
 
 const updateModalScoreDelta = (delta: number) => {
+  if (!guardScoreEdit()) return;
   if (!editingCell.value || modalDraftStrokes.value == null) return;
   modalDraftStrokes.value = Math.max(1, modalDraftStrokes.value + delta);
 };
@@ -3445,6 +3482,7 @@ const getModalRelativeText = (): string => {
 };
 
 const clearScore = () => {
+  if (!guardScoreEdit()) return;
   if (!editingCell.value) return;
   const pIdx = players.value.findIndex(p => p.id === editingCell.value!.pid);
   matchStore.updateScore(editingCell.value!.holeIndex, pIdx, 0);

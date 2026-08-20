@@ -85,10 +85,22 @@ exports.main = async (event) => {
 
   const result = { scoresTableOk: false, matchesTableOk: false, fullScoresOk: false };
 
+  /** 已结束比赛禁止改分（客户端竞态/手快确认时服务端兜底） */
+  let matchDocForGuard = null;
+  try {
+    const { doc } = await findMatchDocsByMid(db, match_id, { dedupe: true });
+    matchDocForGuard = doc;
+    if (doc && Number(doc.status) === 2) {
+      return { success: false, error: 'match_finished', match_id, ...result };
+    }
+  } catch (e) {
+    console.warn('[updateScore] status guard', e);
+  }
+
   // ───────── ⓪ 整块 matches.scores 合并（在册球手均可写，解决非房主客户端无法改 matches 文档的问题） ─────────
   if (Array.isArray(event.full_scores) && event.full_scores.length > 0 && match_id) {
     try {
-      const { doc } = await findMatchDocsByMid(db, match_id, { dedupe: true });
+      const doc = matchDocForGuard || (await findMatchDocsByMid(db, match_id, { dedupe: true })).doc;
 
       if (doc) {
         const players =
@@ -152,7 +164,7 @@ exports.main = async (event) => {
   // ───────── ② 同步更新 matches 集合内嵌分数 ─────────
   if (holeIndex != null && playerIndex != null && score != null) {
     try {
-      const { doc } = await findMatchDocsByMid(db, match_id, { dedupe: true });
+      const doc = matchDocForGuard || (await findMatchDocsByMid(db, match_id, { dedupe: true })).doc;
 
       if (doc) {
         const scores = doc.scores || [];
