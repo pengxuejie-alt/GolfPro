@@ -24,6 +24,7 @@ import { getMpMatchListNavShellStyle } from '@/utils/mpCapsuleSafeInset';
 import { MP_BATCH_CHECK_OFF, MP_BATCH_CHECK_ON, MP_BATCH_CHECK_ICON_COLOR } from '@/utils/mpBatchCheckStyle';
 import { APP_VERSION_NAME, APP_VERSION_CODE } from '@/utils/appVersion';
 import { computeSimpleAverageHandicap } from '@/utils/simpleAverageHandicap';
+import { stashScorecardPrefillFromIndex } from '@/utils/scorecardPrefill';
 const userStore = useUserStore();
 const profile = computed(() => userStore.profile);
 const DEFAULT_AVATAR_URL = mpStaticAbsolute('tab/me.png');
@@ -454,6 +455,7 @@ function onHistoryRowTap(match: any) {
     return;
   }
   const rawId = match?.match_id != null ? match.match_id : mid;
+  stashScorecardPrefillFromIndex(match as Record<string, unknown>, {});
   openRoute('SCORECARD', { match_id: rawId });
 }
 
@@ -1150,7 +1152,7 @@ function getMatchTotalStrokes(m: any): number {
         <div
           v-for="match in matchesForSelectedCourse"
           :key="match.match_id || match._id"
-          @click="openRoute('SCORECARD', { match_id: match.match_id || match._id })"
+          @click="onHistoryRowTap(match)"
           class="relative bg-white rounded-2xl p-4 shadow-sm border border-slate-100 active:opacity-90 overflow-hidden"
         >
           <image class="me-history-poster-bg" :src="SHARE_CARD_POSTER_BG" mode="aspectFill" />

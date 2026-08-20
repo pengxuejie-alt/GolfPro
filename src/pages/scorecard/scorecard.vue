@@ -27,7 +27,9 @@ import {
 } from '@/utils/mpAvatarSrc';
 import {
   applyScorecardPrefillToDisplay,
+  buildMatchStubFromPrefill,
   consumeScorecardPrefill,
+  type ScorecardPrefillPayload,
 } from '@/utils/scorecardPrefill';
 import { buildRosterAvatarDisplayMap, isLikelyWeChatOpenId } from '@/utils/rosterAvatarDisplay';
 import { rosterRowToPlayer, rosterIdsSignature } from '@/utils/rosterPlayerNormalize';
@@ -54,7 +56,7 @@ import { hydrateUserProfileFromCloud } from '@/utils/hydrateUserProfileFromCloud
 import { golfScoreCellMarkClasses, golfHoleMarkKind } from '@/utils/golfScoreShapes';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { formatMatchKickoffCn, shouldAutoEndByKickoffTtl } from '@/utils/matchKickoff';
-import { strokeCountInHoleList } from '@/utils/matchHoleScoresNormalize';
+import { strokeCountInHoleList, normalizeMatchHoleScoresForClient } from '@/utils/matchHoleScoresNormalize';
 import {
   acquireMpPosterCanvas2d,
   exportMpPosterCanvas2dTempPath,
@@ -646,7 +648,7 @@ function canonicalKickoffSigPart(m: Record<string, unknown> | undefined | null):
   return v == null ? '' : String(v);
 }
 
-/** upsert 后与 list 内已有局合并（保留本机 pk_rules），并返回合并后的比赛供 initMatch 使用 */
+/** upsert 后与列表内已有局合并（保留本机 pk_rules）。禁止再 getMatchList，否则会打 listMyMatches 卡住洞分。 */
 async function upsertLocalMatchFromCloudAndRefetch(matchId: string, cloudDoc: any): Promise<any> {
   const oid = userStore.openId || '';
   const inRoster = !!(oid && isOpenIdInMatchRoster(cloudDoc, oid));
@@ -654,8 +656,8 @@ async function upsertLocalMatchFromCloudAndRefetch(matchId: string, cloudDoc: an
   if (enteredViaInvite.value && !inRoster) {
     return cloudDoc;
   }
-  await MatchManager.upsertLocalMatch(cloudDoc);
-  return (await MatchManager.getMatch(matchId)) ?? cloudDoc;
+  const merged = await MatchManager.upsertLocalMatch(cloudDoc);
+  return merged || MatchManager.peekLocalMatch(matchId) || cloudDoc;
 }
 
 async function purgeDeletedInviteMatch(mid: string) {
@@ -671,6 +673,77 @@ function isCloudMatchNotFound(res: { success?: boolean; error?: string } | null 
   return res?.success === false && String(res.error || '').trim() === 'not_found';
 }
 
+function cloneMatchRowShallow(row: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  if (!row || typeof row !== 'object') return null;
+  try {
+    return JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
+  } catch {
+    return { ...row };
+  }
+}
+
+/** 本机/prefill 立刻上屏，不经过云函数 */
+function paintScorecardFromLocalOrPrefill(
+  routeMid: string,
+  prefill: ScorecardPrefillPayload | null,
+): boolean {
+  const peeked = MatchManager.peekLocalMatch(routeMid) as Record<string, unknown> | undefined;
+  let row = cloneMatchRowShallow(peeked || null);
+  if (row) {
+    normalizeMatchHoleScoresForClient(row);
+  }
+  if (prefill) {
+    const stub = buildMatchStubFromPrefill(routeMid, prefill);
+    if (!row) {
+      row = stub;
+    } else {
+      const localN = strokeCountInHoleList(row.hole_scores ?? row.scores);
+      const preN = strokeCountInHoleList(prefill.hole_scores);
+      if (preN > localN) {
+        row.hole_scores = stub.hole_scores;
+      }
+      const localRoster = row.user_list ?? row.players;
+      const localRosterLen = Array.isArray(localRoster) ? localRoster.length : 0;
+      if (localRosterLen === 0 && Array.isArray(stub.user_list) && stub.user_list.length) {
+        row.user_list = stub.user_list;
+        row.players = stub.players;
+      }
+      if (!String(row.course_name ?? row.courseName ?? '').trim() && stub.course_name) {
+        row.course_name = stub.course_name;
+        row.courseName = stub.courseName;
+      }
+      if (row.pk_rules == null && stub.pk_rules != null) row.pk_rules = stub.pk_rules;
+      if (row.status == null && stub.status != null) row.status = stub.status;
+      if (row.create_time == null && stub.create_time != null) row.create_time = stub.create_time;
+    }
+  }
+  if (!row) return false;
+  const hasRoster =
+    (Array.isArray(row.user_list) && row.user_list.length > 0) ||
+    (Array.isArray(row.players) && row.players.length > 0);
+  const hasScores = strokeCountInHoleList(row.hole_scores ?? row.scores) > 0;
+  if (!hasRoster && !hasScores) return false;
+
+  currentMatch.value = row as any;
+  const bootCourse = String(row.course_name ?? row.courseName ?? '').trim();
+  if (bootCourse) stickyScorecardCourseName[routeMid] = bootCourse;
+  matchStore.initMatch(row);
+  matchStore.ensureEighteenHoles();
+  seedRosterAvatarDisplayFromMatchDoc(row);
+  seedRosterAvatarDisplayFromCache();
+  seedRosterAvatarDisplayFromStorePlayers();
+  lastLocalScoreCommitAt.value = Date.now();
+  refreshSavedRuleAndMetaFingerprints();
+  debugInfo('[scorecard] paint fast', {
+    match_id: routeMid,
+    from: peeked ? 'local' : 'prefill',
+    holes: matchStore.holeScores.length,
+    hole1: matchStore.holeScores[0]?.scores,
+    roster: matchStore.user_list.length,
+  });
+  return true;
+}
+
 async function loadMatchForScorecard(
   mid: string,
   opts?: { minRosterCount?: number },
@@ -679,19 +752,19 @@ async function loadMatchForScorecard(
   const needPrivacy = await shouldBlockCloudForPrivacy();
   if (needPrivacy) {
     if (enteredViaInvite.value) return null;
-    const cached = await MatchManager.getMatch(mid);
+    const cached = MatchManager.peekLocalMatch(mid);
     if (cached) {
       return enrichMatchKickoffFromDoc(cached as Record<string, unknown>) as typeof cached;
     }
     return null;
   }
 
-  /** 分享 / 扫码 / scene 进入：必须用云端覆盖本机缓存（cloud-first 已覆盖） */
-
   const fetchCloud = () =>
-    callWxCloudFn<{ success?: boolean; match?: any; error?: string }>('getMatch', { match_id: mid });
+    callWxCloudFn<{ success?: boolean; match?: any; error?: string }>('getMatch', {
+      match_id: mid,
+      skip_avatar_enrich: true,
+    });
 
-  /** 优先云端完整 roster（含 enrich 头像），避免本地快照少人、头像空 */
   const cloudResFirst = await fetchCloud();
   if (isCloudMatchNotFound(cloudResFirst)) {
     await purgeDeletedInviteMatch(mid);
@@ -702,7 +775,7 @@ async function loadMatchForScorecard(
     return upsertLocalMatchFromCloudAndRefetch(mid, cm);
   }
 
-  let match = await MatchManager.getMatch(mid);
+  let match = MatchManager.peekLocalMatch(mid);
   if (match) {
     match = enrichMatchKickoffFromDoc(match as Record<string, unknown>) as typeof match;
     const localCourse = String(
@@ -739,8 +812,8 @@ async function loadMatchForScorecard(
     return null;
   }
   if (cloudRes?.success && cloudRes.match) {
-    cloudMatch = enrichMatchKickoffFromDoc(cloudRes.match as Record<string, unknown>) as any;
-    return upsertLocalMatchFromCloudAndRefetch(mid, cloudMatch);
+    const cm = enrichMatchKickoffFromDoc(cloudRes.match as Record<string, unknown>) as any;
+    return upsertLocalMatchFromCloudAndRefetch(mid, cm);
   }
 
   try {
@@ -1131,6 +1204,7 @@ async function ensureInviteMatchLoaded(): Promise<boolean> {
   try {
     const cloudRes = await callWxCloudFn<{ success?: boolean; match?: any; error?: string }>('getMatch', {
       match_id: routeMid,
+      skip_avatar_enrich: true,
     });
     if (!cloudRes?.success || !cloudRes.match) {
       if (isCloudMatchNotFound(cloudRes)) {
@@ -1193,7 +1267,7 @@ async function bootstrapScorecardPage() {
         id: row.id,
         nickname: row.nickname,
         avatar: row.avatar || prefill.avatarsByOpenId[row.id] || '',
-        handicap: null,
+        handicap: row.handicap ?? null,
       }));
     }
     applyScorecardPrefillToDisplay(
@@ -1203,6 +1277,12 @@ async function bootstrapScorecardPage() {
       mergeAvatarDisplayMaps,
       rosterAvatarDisplay,
     );
+  }
+
+  /** 首帧同步上屏：首页/本机已有洞分时不要空等 getMatch */
+  const paintedFast = paintScorecardFromLocalOrPrefill(routeMid, prefill);
+  if (paintedFast) {
+    bootstrapPreviewRoster.value = [];
   }
 
   try {
@@ -1228,10 +1308,18 @@ async function bootstrapScorecardPage() {
     hole_scores_len: match?.hole_scores?.length,
     scores_len: (match as any)?.scores?.length,
     hole1_scores: match?.hole_scores?.[0]?.scores,
+    paintedFast,
   });
   debugLog('[scorecard] loaded match:', routeMid, 'user_list:', match?.user_list?.length, 'holes:', match?.hole_scores?.length);
 
   if (!match) {
+    if (paintedFast) {
+      matchStore.ensureEighteenHoles();
+      if (enteredViaInvite.value && !inviteMatchDeleted.value) {
+        await maybeRunInviteFlow(currentMatch.value);
+      }
+      return;
+    }
     if (enteredViaInvite.value) {
       matchStore.ensureEighteenHoles();
       if (!inviteMatchDeleted.value) {
@@ -1269,10 +1357,27 @@ async function bootstrapScorecardPage() {
   }
   match = await finalizeMatchKickoffAutoEnd(match);
   if (seq !== scorecardBootstrapSeq) return;
-  currentMatch.value = match;
-  const bootCourse = String(match.course_name ?? match.courseName ?? '').trim();
-  if (bootCourse) stickyScorecardCourseName[routeMid] = bootCourse;
-  matchStore.initMatch(match);
+
+  const alreadyHasScores = strokeCountInHoleList(matchStore.holeScores) > 0;
+  if (paintedFast && alreadyHasScores && currentMatch.value) {
+    const bootCourse = String(match.course_name ?? match.courseName ?? '').trim();
+    if (bootCourse) {
+      stickyScorecardCourseName[routeMid] = bootCourse;
+      currentMatch.value.course_name = bootCourse;
+      currentMatch.value.courseName = bootCourse;
+    }
+    if (match.status != null) currentMatch.value.status = match.status;
+    mergePkRulesAndMetaFromCloud(match);
+    mergeCloudRosterIntoScorecard(match);
+    applyRosterCosmeticsFromCloud(match);
+    mergeHoleScoresFromCloud(match);
+    seedRosterAvatarDisplayFromMatchDoc(match as Record<string, unknown>);
+  } else {
+    currentMatch.value = match;
+    const bootCourse = String(match.course_name ?? match.courseName ?? '').trim();
+    if (bootCourse) stickyScorecardCourseName[routeMid] = bootCourse;
+    matchStore.initMatch(match);
+  }
   bootstrapPreviewRoster.value = [];
   seedRosterAvatarDisplayFromMatchDoc(match as Record<string, unknown>);
   seedRosterAvatarDisplayFromCache();
@@ -1296,7 +1401,7 @@ async function bootstrapScorecardPage() {
   refreshSavedRuleAndMetaFingerprints();
   const inviteNeedPrivacy = enteredViaInvite.value ? await shouldBlockCloudForPrivacy() : false;
   if (!inviteNeedPrivacy) {
-    await ensureRosterAvatarsStable(match as Record<string, unknown>);
+    void ensureRosterAvatarsStable(match as Record<string, unknown>);
   }
   await maybeRunInviteFlow(match);
 
@@ -1306,9 +1411,6 @@ async function bootstrapScorecardPage() {
   await nextTick();
   scorecardBootstrappedMid = routeMid;
   scorecardBootstrapFinishedAt = Date.now();
-  if (matchId.value && currentMatch.value && !inviteNeedPrivacy) {
-    void syncMatchFromCloud('show', { gentle: true, skipRosterMerge: true });
-  }
   } finally {
     scorecardBootstrapInFlight = false;
   }
@@ -2912,7 +3014,7 @@ async function syncMatchFromCloud(
 
     const cloudRes = await callWxCloudFn<{ success?: boolean; match?: any; revision?: MatchCloudRevision }>(
       'getMatch',
-      { match_id: mid },
+      { match_id: mid, skip_avatar_enrich: true },
     );
     if (!cloudRes?.success || !cloudRes.match) return;
     const cm = cloudRes.match;

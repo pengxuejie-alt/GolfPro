@@ -9,6 +9,7 @@ import { Tab } from '@/types';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { getMpMatchListNavShellStyle } from '@/utils/mpCapsuleSafeInset';
 import { MP_BATCH_CHECK_OFF, MP_BATCH_CHECK_ON, MP_BATCH_CHECK_ICON_COLOR } from '@/utils/mpBatchCheckStyle';
+import { stashScorecardPrefillFromIndex } from '@/utils/scorecardPrefill';
 
 const userStore = useUserStore();
 const SHARE_CARD_POSTER_BG = mpStaticAbsolute('share-card.png');
@@ -214,6 +215,7 @@ function onHistoryRowTap(match: any) {
     return;
   }
   const rawId = match?.match_id != null ? match.match_id : mid;
+  stashScorecardPrefillFromIndex(match as Record<string, unknown>, {});
   openRoute(Tab.SCORECARD, { match_id: rawId });
 }
 

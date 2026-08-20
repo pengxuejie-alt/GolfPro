@@ -216,37 +216,45 @@ exports.main = async (event) => {
     const row = mapDocToClient(rawDoc);
     const embed = row.scores || row.hole_scores;
     const nEmbed = strokeCountInHoleList(embed);
+    const skipAvatarEnrich = event?.skip_avatar_enrich === true;
+    const skipLegacyScores = event?.skip_legacy_scores === true;
 
-    let legacySnap;
-    try {
-      legacySnap = await db.collection('scores').where({ match_id: matchId }).limit(50).get();
-    } catch (e) {
-      console.warn('[getMatch] scores collection', e);
-      legacySnap = { data: [] };
-    }
-    const legacyRows = legacySnap.data || [];
-    const nLegacy = legacyTableStrokeCells(legacyRows);
+    /** matches 已内嵌洞分时不必再查 scores 表；头像换链也不挡记分卡首屏 */
+    if (nEmbed === 0 && skipLegacyScores !== true) {
+      let legacySnap;
+      try {
+        legacySnap = await db.collection('scores').where({ match_id: matchId }).limit(50).get();
+      } catch (e) {
+        console.warn('[getMatch] scores collection', e);
+        legacySnap = { data: [] };
+      }
+      const legacyRows = legacySnap.data || [];
+      const nLegacy = legacyTableStrokeCells(legacyRows);
 
-    /** matches 内嵌成绩为空，但 scores 表仍有按人存的洞杆数 → 回填并写回 matches，避免用户以为成绩丢了 */
-    if (nEmbed === 0 && nLegacy > 0 && row) {
-      const roster = row.user_list || row.players || [];
-      const rebuilt = buildScoresMatrixFromLegacyRows(embed, roster, legacyRows);
-      if (rebuilt && strokeCountInHoleList(rebuilt) > 0) {
-        row.scores = rebuilt;
-        row.hole_scores = rebuilt;
-        try {
-          await db
-            .collection('matches')
-            .doc(rawDoc._id)
-            .update({ data: { scores: rebuilt, updated_at: db.serverDate() } });
-        } catch (e) {
-          console.warn('[getMatch] writeBack scores from legacy table', e);
+      /** matches 内嵌成绩为空，但 scores 表仍有按人存的洞杆数 → 回填并写回 matches */
+      if (nLegacy > 0 && row) {
+        const roster = row.user_list || row.players || [];
+        const rebuilt = buildScoresMatrixFromLegacyRows(embed, roster, legacyRows);
+        if (rebuilt && strokeCountInHoleList(rebuilt) > 0) {
+          row.scores = rebuilt;
+          row.hole_scores = rebuilt;
+          try {
+            await db
+              .collection('matches')
+              .doc(rawDoc._id)
+              .update({ data: { scores: rebuilt, updated_at: db.serverDate() } });
+          } catch (e) {
+            console.warn('[getMatch] writeBack scores from legacy table', e);
+          }
         }
       }
     }
 
-    await enrichMatchRosterAvatars(cloud, db, row);
-    const revision = await buildMatchRevision(db, row, matchId);
+    const revisionPromise = buildMatchRevision(db, row, matchId);
+    if (!skipAvatarEnrich) {
+      await enrichMatchRosterAvatars(cloud, db, row);
+    }
+    const revision = await revisionPromise;
     return { success: true, match: row, revision };
   } catch (e) {
     console.warn('[getMatch]', e);

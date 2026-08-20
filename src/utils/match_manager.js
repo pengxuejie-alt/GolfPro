@@ -171,11 +171,46 @@ export const MatchManager = {
   },
 
   /**
+   * 仅读本机 Storage，不打 listMyMatches。计分页首屏用，避免进页再等整表云函数。
+   */
+  peekLocalMatch: function (matchId) {
+    const want = normalizeMid(matchId);
+    if (!want) return undefined;
+    const fromList = (list) =>
+      (Array.isArray(list) ? list : []).find((m) => normalizeMid(m?.match_id ?? m?.id) === want);
+    try {
+      const quick = uni.getStorageSync(MATCHES_QUICK_KEY);
+      const hit = fromList(quick);
+      if (hit) return hit;
+    } catch {
+      /* ignore */
+    }
+    try {
+      const list = uni.getStorageSync(MATCH_LIST_KEY);
+      const hit = fromList(list);
+      if (hit) return hit;
+    } catch {
+      /* ignore */
+    }
+    try {
+      const last = uni.getStorageSync('last_match_cache');
+      if (last && (normalizeMid(last.match_id) === want || normalizeMid(last.id) === want)) {
+        return last;
+      }
+    } catch {
+      /* ignore */
+    }
+    return undefined;
+  },
+
+  /**
    * 获取单个比赛
    */
   getMatch: async function(matchId) {
     const want = normalizeMid(matchId);
     if (!want) return undefined;
+    const local = this.peekLocalMatch(want);
+    if (local) return local;
     const matchList = await this.getMatchList();
     return matchList.find((m) => normalizeMid(m?.match_id ?? m?.id) === want);
   },
@@ -254,6 +289,7 @@ export const MatchManager = {
     if (idx !== -1) matchList[idx] = merged;
     else matchList.unshift(merged);
     await persistMatchList(matchList);
+    return merged;
   },
 
   updateMatch: async function(matchData, opts = {}) {
