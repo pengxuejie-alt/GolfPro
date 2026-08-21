@@ -68,6 +68,7 @@ import {
   coerceRosterHandicap,
   formatHandicapLabel,
 } from '@/utils/simpleAverageHandicap';
+import { buildAiPkHandicapAdvice, type AiHandicapAdviceResult } from '@/utils/aiPkHandicapAdvice';
 
 /** 必须用 mpStaticAbsolute，勿手写 `'/static/...'`（构建器会改成 pages/scorecard/static/...） */
 const SCORECARD_POSTER_BG_SRC = mpStaticAbsolute('share-card.png');
@@ -1513,6 +1514,7 @@ const showEditStandard18SectionHint = computed(() => {
 });
 
 const showPKScoreModal = ref(false);
+const showAiHandicapModal = ref(false);
 const selectedPKRuleId = ref<string>('all');
 const showPKRuleSheet = ref(false);
 
@@ -1580,6 +1582,57 @@ const onTapSettings = () => {
 
 const onTapPKScore = () => {
   showPKScoreModal.value = true;
+};
+
+const isMatchFinishedForAi = computed(() => {
+  if (currentMatch.value?.status === 2) return true;
+  const lead = leadPlayer.value;
+  if (!lead) return false;
+  return getCompletedHolesCount(lead.id) >= 18;
+});
+
+const aiHandicapAdvice = computed((): AiHandicapAdviceResult => {
+  const plist = players.value.map((p) => ({
+    id: p.id,
+    nickname: p.nickname,
+    handicap: p.handicap != null ? p.handicap : null,
+  }));
+  const holes = matchStore.holeScores.map((h) => ({
+    par: h.par || 4,
+    scores: [...h.scores],
+  }));
+  const rules = matchStore.activeRules.map((r) => {
+    const profits = matchStore.getProfitsByRule(r.id);
+    const profitsByPlayerId: Record<string, number> = {};
+    players.value.forEach((p, idx) => {
+      let sum = 0;
+      for (let i = 0; i < 18; i++) sum += profits[i][idx] || 0;
+      profitsByPlayerId[p.id] = sum;
+    });
+    return {
+      id: r.id,
+      type: r.type,
+      name: getPKRuleTitle(r),
+      baseScore: r.base_score || 1,
+      playerIds: r.player_ids || [],
+      summary: getRuleSummary(r),
+      profitsByPlayerId,
+    };
+  });
+  return buildAiPkHandicapAdvice({
+    players: plist,
+    holes,
+    rules,
+    isFinished: isMatchFinishedForAi.value,
+  });
+});
+
+const onTapAiHandicap = () => {
+  if (!aiHandicapAdvice.value.ready) {
+    uni.showToast({ title: aiHandicapAdvice.value.reason || '暂无法分析', icon: 'none' });
+    return;
+  }
+  showAiHandicapModal.value = true;
 };
 
 const openPlayerActionModal = (player: any) => {
@@ -4166,7 +4219,19 @@ const posterPreviewSrc = ref('');
         <span class="scorecard-bottom-label">PK得分</span>
       </button>
 
-      <button type="button" @click="onTapSettings" class="scorecard-bottom-item flex flex-col items-center gap-1.5 bg-transparent border-0 p-0 m-0">
+      <button
+        v-if="matchStore.activeRules.length > 0"
+        type="button"
+        @click="onTapAiHandicap"
+        class="scorecard-bottom-item flex flex-col items-center gap-1.5 bg-transparent border-0 p-0 m-0"
+      >
+        <view class="scorecard-bottom-circle scorecard-bottom-circle--ai">
+          <uni-icons type="star-filled" :size="24" color="#c4b5fd" />
+        </view>
+        <span class="scorecard-bottom-label">AI盘口</span>
+      </button>
+
+      <button type="button" @click="onTapSettings" class="scorecard-bottom-item flex flex-col items-center gap-1.5 bg-transparent border-0 p-0 m-0"
         <view class="scorecard-bottom-circle scorecard-bottom-circle--gear">
           <uni-icons type="gear-filled" :size="24" color="#cbd5e1" />
         </view>
@@ -5758,6 +5823,46 @@ const posterPreviewSrc = ref('');
       </div>
     </div>
 
+    <!-- AI 盘口 Modal -->
+    <div
+      v-if="showAiHandicapModal"
+      class="scorecard-ai-modal-root fixed inset-0 z-[165] flex flex-col bg-white animate-in slide-in-from-bottom duration-300"
+    >
+      <div class="px-3 py-3 border-b border-slate-100 flex items-center gap-2 bg-white sticky top-0 z-50 shrink-0">
+        <button
+          type="button"
+          @click="showAiHandicapModal = false"
+          class="shrink-0 w-10 h-10 flex items-center justify-center rounded-full bg-slate-100 active:bg-slate-200"
+          aria-label="返回"
+        >
+          <view class="scorecard-uni-ico-slot"><uni-icons type="left" :size="22" color="#334155" /></view>
+        </button>
+        <view class="flex-1 min-w-0">
+          <text class="block text-base font-bold text-slate-900 truncate">AI 盘口</text>
+          <text class="block text-xs text-slate-500 truncate">{{ isMatchFinishedForAi ? '基于完赛数据' : '基于当前进度' }}</text>
+        </view>
+      </div>
+      <scroll-view scroll-y class="flex-1 bg-slate-50 min-h-0" :show-scrollbar="false">
+        <view class="scorecard-ai-headline">
+          <text class="scorecard-ai-headline-text">{{ aiHandicapAdvice.headline }}</text>
+        </view>
+        <view
+          v-for="(sec, si) in aiHandicapAdvice.sections"
+          :key="'ai-sec-' + si"
+          class="scorecard-ai-section"
+          :class="'scorecard-ai-section--' + (sec.tone || 'neutral')"
+        >
+          <text class="scorecard-ai-section-title">{{ sec.title }}</text>
+          <view v-for="(line, li) in sec.lines" :key="'ai-line-' + si + '-' + li" class="scorecard-ai-line">
+            <text class="scorecard-ai-line-text">{{ line }}</text>
+          </view>
+        </view>
+        <view class="scorecard-ai-footer-note">
+          <text class="scorecard-ai-footer-note-text">意见由本地规则引擎生成，供娱乐参考，实际让杆请球友协商</text>
+        </view>
+      </scroll-view>
+    </div>
+
     <!-- PK Score Modal -->
     <div v-if="showPKScoreModal" class="scorecard-pk-modal-root fixed inset-0 z-[160] flex flex-col bg-white animate-in slide-in-from-bottom duration-300">
       <!-- Header：返回 + 下拉筛选（不用 native picker，模拟器可点） -->
@@ -6905,6 +7010,82 @@ const posterPreviewSrc = ref('');
 .scorecard-bottom-circle--gear {
   background: linear-gradient(155deg, #e2e8f0 0%, #f8fafc 100%);
   border-color: rgba(148, 163, 184, 0.35);
+}
+
+.scorecard-bottom-circle--ai {
+  background: linear-gradient(155deg, #ede9fe 0%, #f5f3ff 100%);
+  border-color: rgba(167, 139, 250, 0.45);
+}
+
+.scorecard-ai-modal-root {
+  padding-top: constant(safe-area-inset-top);
+  padding-top: env(safe-area-inset-top);
+}
+
+.scorecard-ai-headline {
+  margin: 24rpx 24rpx 8rpx;
+  padding: 28rpx 32rpx;
+  border-radius: 24rpx;
+  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+  box-shadow: 0 8rpx 24rpx rgba(109, 40, 217, 0.25);
+}
+
+.scorecard-ai-headline-text {
+  color: #fff;
+  font-size: 32rpx;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.scorecard-ai-section {
+  margin: 16rpx 24rpx 0;
+  padding: 24rpx 28rpx;
+  border-radius: 20rpx;
+  background: #fff;
+  border: 1rpx solid #e2e8f0;
+}
+
+.scorecard-ai-section--win {
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.scorecard-ai-section--lose {
+  border-color: rgba(7, 193, 96, 0.25);
+}
+
+.scorecard-ai-section--tip {
+  background: #fffbeb;
+  border-color: rgba(250, 204, 21, 0.35);
+}
+
+.scorecard-ai-section-title {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 12rpx;
+}
+
+.scorecard-ai-line {
+  margin-top: 8rpx;
+}
+
+.scorecard-ai-line-text {
+  font-size: 26rpx;
+  color: #475569;
+  line-height: 1.55;
+}
+
+.scorecard-ai-footer-note {
+  margin: 24rpx 24rpx 48rpx;
+  padding: 20rpx 24rpx;
+}
+
+.scorecard-ai-footer-note-text {
+  font-size: 22rpx;
+  color: #94a3b8;
+  line-height: 1.5;
+  text-align: center;
 }
 
 .scorecard-bottom-icon-slot {
