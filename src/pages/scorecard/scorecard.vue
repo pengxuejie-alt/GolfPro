@@ -68,7 +68,7 @@ import {
   coerceRosterHandicap,
   formatHandicapLabel,
 } from '@/utils/simpleAverageHandicap';
-import { buildAiPkHandicapAdvice, type AiHandicapAdviceResult } from '@/utils/aiPkHandicapAdvice';
+import { buildAiPkHandicapAdvice, computeRecentHandicapsForPlayers, type AiHandicapAdviceResult, type AiHandicapMode, type AiPlayerRecentHandicap } from '@/utils/aiPkHandicapAdvice';
 
 /** 必须用 mpStaticAbsolute，勿手写 `'/static/...'`（构建器会改成 pages/scorecard/static/...） */
 const SCORECARD_POSTER_BG_SRC = mpStaticAbsolute('share-card.png');
@@ -1515,6 +1515,9 @@ const showEditStandard18SectionHint = computed(() => {
 
 const showPKScoreModal = ref(false);
 const showAiHandicapModal = ref(false);
+const aiHandicapMode = ref<AiHandicapMode>('current');
+const aiRecentHandicaps = ref<Record<string, AiPlayerRecentHandicap>>({});
+const aiHandicapLoading = ref(false);
 const selectedPKRuleId = ref<string>('all');
 const showPKRuleSheet = ref(false);
 
@@ -1591,7 +1594,7 @@ const isMatchFinishedForAi = computed(() => {
   return getCompletedHolesCount(lead.id) >= 18;
 });
 
-const aiHandicapAdvice = computed((): AiHandicapAdviceResult => {
+const buildAiHandicapInput = () => {
   const plist = players.value.map((p) => ({
     id: p.id,
     nickname: p.nickname,
@@ -1619,17 +1622,68 @@ const aiHandicapAdvice = computed((): AiHandicapAdviceResult => {
       profitsByPlayerId,
     };
   });
-  return buildAiPkHandicapAdvice({
+  return {
     players: plist,
     holes,
     rules,
     isFinished: isMatchFinishedForAi.value,
+    recentHandicaps: aiRecentHandicaps.value,
+  };
+};
+
+const aiHandicapAdvice = computed((): AiHandicapAdviceResult => {
+  const input = buildAiHandicapInput();
+  return buildAiPkHandicapAdvice({
+    mode: aiHandicapMode.value,
+    ...input,
   });
 });
 
-const onTapAiHandicap = () => {
-  if (!aiHandicapAdvice.value.ready) {
-    uni.showToast({ title: aiHandicapAdvice.value.reason || '暂无法分析', icon: 'none' });
+const aiHandicapAdviceRecent3 = computed((): AiHandicapAdviceResult =>
+  buildAiPkHandicapAdvice({ mode: 'recent3', ...buildAiHandicapInput() })
+);
+
+const aiHandicapAdviceCurrent = computed((): AiHandicapAdviceResult =>
+  buildAiPkHandicapAdvice({ mode: 'current', ...buildAiHandicapInput() })
+);
+
+const activeAiHandicapAdvice = computed(() =>
+  aiHandicapMode.value === 'recent3' ? aiHandicapAdviceRecent3.value : aiHandicapAdviceCurrent.value
+);
+
+const loadAiRecentHandicaps = async () => {
+  aiHandicapLoading.value = true;
+  try {
+    const list = await MatchManager.getMatchList();
+    const plist = players.value.map((p) => ({
+      id: p.id,
+      nickname: p.nickname,
+      handicap: p.handicap != null ? p.handicap : null,
+    }));
+    aiRecentHandicaps.value = computeRecentHandicapsForPlayers(list, plist, {
+      maxMatches: 3,
+      excludeMatchId: matchId.value,
+    });
+  } catch {
+    aiRecentHandicaps.value = {};
+  } finally {
+    aiHandicapLoading.value = false;
+  }
+};
+
+const switchAiHandicapMode = (mode: AiHandicapMode) => {
+  aiHandicapMode.value = mode;
+  const advice = mode === 'recent3' ? aiHandicapAdviceRecent3.value : aiHandicapAdviceCurrent.value;
+  if (!advice.ready) {
+    uni.showToast({ title: advice.reason || '暂无法分析', icon: 'none' });
+  }
+};
+
+const onTapAiHandicap = async () => {
+  await loadAiRecentHandicaps();
+  const advice = activeAiHandicapAdvice.value;
+  if (!advice.ready) {
+    uni.showToast({ title: advice.reason || '暂无法分析', icon: 'none' });
     return;
   }
   showAiHandicapModal.value = true;
@@ -4220,7 +4274,7 @@ const posterPreviewSrc = ref('');
       </button>
 
       <button
-        v-if="matchStore.activeRules.length > 0"
+        v-if="players.length >= 2"
         type="button"
         @click="onTapAiHandicap"
         class="scorecard-bottom-item flex flex-col items-center gap-1.5 bg-transparent border-0 p-0 m-0"
@@ -5839,15 +5893,36 @@ const posterPreviewSrc = ref('');
         </button>
         <view class="flex-1 min-w-0">
           <text class="block text-base font-bold text-slate-900 truncate">AI 盘口</text>
-          <text class="block text-xs text-slate-500 truncate">{{ isMatchFinishedForAi ? '基于完赛数据' : '基于当前进度' }}</text>
+          <text class="block text-xs text-slate-500 truncate">{{ aiHandicapLoading ? '加载历史差点…' : (aiHandicapMode === 'recent3' ? '近三场差点' : '本场结果') }}</text>
         </view>
       </div>
+      <view class="scorecard-ai-mode-tabs shrink-0">
+        <button
+          type="button"
+          class="scorecard-ai-mode-tab"
+          :class="aiHandicapMode === 'recent3' ? 'scorecard-ai-mode-tab--active' : ''"
+          @click="switchAiHandicapMode('recent3')"
+        >
+          近三场差点
+        </button>
+        <button
+          type="button"
+          class="scorecard-ai-mode-tab"
+          :class="aiHandicapMode === 'current' ? 'scorecard-ai-mode-tab--active' : ''"
+          @click="switchAiHandicapMode('current')"
+        >
+          本场结果
+        </button>
+      </view>
       <scroll-view scroll-y class="flex-1 bg-slate-50 min-h-0" :show-scrollbar="false">
-        <view class="scorecard-ai-headline">
-          <text class="scorecard-ai-headline-text">{{ aiHandicapAdvice.headline }}</text>
+        <view v-if="activeAiHandicapAdvice.ready" class="scorecard-ai-headline">
+          <text class="scorecard-ai-headline-text">{{ activeAiHandicapAdvice.headline }}</text>
+        </view>
+        <view v-else class="scorecard-ai-empty">
+          <text class="scorecard-ai-empty-text">{{ activeAiHandicapAdvice.reason || '暂无分析' }}</text>
         </view>
         <view
-          v-for="(sec, si) in aiHandicapAdvice.sections"
+          v-for="(sec, si) in activeAiHandicapAdvice.sections"
           :key="'ai-sec-' + si"
           class="scorecard-ai-section"
           :class="'scorecard-ai-section--' + (sec.tone || 'neutral')"
@@ -7020,6 +7095,52 @@ const posterPreviewSrc = ref('');
 .scorecard-ai-modal-root {
   padding-top: constant(safe-area-inset-top);
   padding-top: env(safe-area-inset-top);
+}
+
+.scorecard-ai-mode-tabs {
+  display: flex;
+  gap: 16rpx;
+  padding: 16rpx 24rpx 8rpx;
+  background: #fff;
+  border-bottom: 1rpx solid #f1f5f9;
+}
+
+.scorecard-ai-mode-tab {
+  flex: 1;
+  height: 72rpx;
+  line-height: 72rpx;
+  text-align: center;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #64748b;
+  background: #f8fafc;
+  border-radius: 999rpx;
+  border: 1rpx solid #e2e8f0;
+}
+
+.scorecard-ai-mode-tab::after {
+  display: none;
+}
+
+.scorecard-ai-mode-tab--active {
+  color: #fff;
+  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+  border-color: transparent;
+}
+
+.scorecard-ai-empty {
+  margin: 24rpx;
+  padding: 32rpx;
+  border-radius: 20rpx;
+  background: #fff;
+  border: 1rpx dashed #cbd5e1;
+}
+
+.scorecard-ai-empty-text {
+  font-size: 26rpx;
+  color: #64748b;
+  text-align: center;
+  line-height: 1.5;
 }
 
 .scorecard-ai-headline {
