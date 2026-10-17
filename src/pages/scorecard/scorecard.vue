@@ -164,7 +164,7 @@ onLoad((query) => {
     mid = parseSceneMatchId(sceneOnly);
   }
 
-  /** 应用内导航（栈深 > 1）或本机已有 prefill/缓存时并非分享冷启动落地，勿因 enterOptions.scene 残留把整页卡在异步隐私校验后 */
+  /** 应用内导航（栈深 > 1）不是分享落地；勿因冷启动 enterOptions.scene 残留走邀请流程 */
   const hasAppNavHistory = (() => {
     try {
       const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : [];
@@ -189,8 +189,8 @@ onLoad((query) => {
       /* ignore */
     }
   }
-  /** 即使分享进入，若本机已有缓存/prefill 也先同步设 matchId 触发首帧秒开，云侧隐私在 loadMatchForScorecard 内拦截 */
-  if (enteredViaInvite.value && mid && !MatchManager.peekLocalMatch(mid)) {
+  /** 隐私 gate 后再 bootstrap；已加入名单的用户由 maybeRunInviteFlow 跳过加入弹层 */
+  if (enteredViaInvite.value && mid) {
     // #ifdef MP-WEIXIN
     void (async () => {
       const need = await getPrivacyNeedAuthorizationAsync();
@@ -755,6 +755,57 @@ function paintScorecardFromLocalOrPrefill(
   return true;
 }
 
+/**
+ * 首帧无洞分时直读 matches（无云函数冷启动，通常 <1s）；getMatch 返回后仍按 scoreTs 合并。
+ * 集合权限不允许读时返回空，不影响后续 getMatch。
+ */
+async function paintScoresFromDirectDb(routeMid: string, seq: number): Promise<void> {
+  // #ifdef MP-WEIXIN
+  try {
+    await db.waitForInit();
+    if (typeof wx === 'undefined' || !wx.cloud?.database) return;
+    const snap = await Promise.race([
+      wx.cloud.database().collection('matches').where({ match_id: routeMid }).limit(5).get(),
+      new Promise<null>((r) => setTimeout(() => r(null), 6000)),
+    ]);
+    const rows = ((snap as { data?: unknown[] } | null)?.data ?? []) as Record<string, unknown>[];
+    let best: Record<string, unknown> | null = null;
+    let bestN = 0;
+    for (const raw of rows) {
+      const row = { ...raw };
+      if (row.user_list == null && row.players != null) row.user_list = row.players;
+      if (row.hole_scores == null && row.scores != null) row.hole_scores = row.scores;
+      if (row.pk_rules == null && row.pk_results != null) row.pk_rules = row.pk_results;
+      normalizeMatchHoleScoresForClient(row);
+      const n = strokeCountInHoleList(row.hole_scores);
+      if (n > bestN) {
+        best = row;
+        bestN = n;
+      }
+    }
+    if (!best || seq !== scorecardBootstrapSeq) return;
+    if (strokeCountInHoleList(matchStore.holeScores) > 0) return;
+    if (currentMatch.value) {
+      mergeCloudRosterIntoScorecard(best);
+      mergeHoleScoresFromCloud(best);
+    } else {
+      const doc = enrichMatchKickoffFromDoc(best) as any;
+      currentMatch.value = doc;
+      matchStore.initMatch(doc);
+      matchStore.ensureEighteenHoles();
+      seedRosterAvatarDisplayFromMatchDoc(doc);
+      seedRosterAvatarDisplayFromCache();
+      bootstrapPreviewRoster.value = [];
+      lastLocalScoreCommitAt.value = Date.now();
+      refreshSavedRuleAndMetaFingerprints();
+    }
+    debugInfo('[scorecard] paint scores from direct db', { match_id: routeMid, strokes: bestN });
+  } catch (e) {
+    console.warn('[scorecard] paintScoresFromDirectDb', e);
+  }
+  // #endif
+}
+
 async function loadMatchForScorecard(
   mid: string,
   opts?: { minRosterCount?: number },
@@ -1301,6 +1352,10 @@ async function bootstrapScorecardPage() {
     matchStore.ensureEighteenHoles();
     await maybeRunInviteFlow(null);
     return;
+  }
+
+  if (strokeCountInHoleList(matchStore.holeScores) === 0) {
+    void paintScoresFromDirectDb(routeMid, seq);
   }
 
   let match = await loadMatchForScorecard(routeMid, {
@@ -4338,7 +4393,7 @@ const posterPreviewTitle = ref('计分海报');
         <span class="scorecard-bottom-label">AI盘口</span>
       </button>
 
-      <button type="button" @click="onTapSettings" class="scorecard-bottom-item flex flex-col items-center gap-1.5 bg-transparent border-0 p-0 m-0"
+      <button type="button" @click="onTapSettings" class="scorecard-bottom-item flex flex-col items-center gap-1.5 bg-transparent border-0 p-0 m-0">
         <view class="scorecard-bottom-circle scorecard-bottom-circle--gear">
           <uni-icons type="gear-filled" :size="24" color="#cbd5e1" />
         </view>
