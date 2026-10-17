@@ -52,12 +52,77 @@ function assertEq(actual, expected, label) {
   }
 }
 
-// 顶平过：1 洞顶 + 帕赢 → 2 洞分，无额外加分
+// 顶平过若调用方已把顶洞本金算进本洞分，这里不再额外加分（挂洞结算本身不会把本金算进去）
 assertEq(
   applyTieHoleAdjustments(2, 1, 1, '顶平过', 1),
   2,
-  '顶平过 par win after 1 tie'
+  '顶平过 does not add a further bonus'
 );
+
+function isWashTieHole(tieHole) {
+  const th = String(tieHole ?? '').trim();
+  return th === '顶平过' || th === '下洞不加分';
+}
+
+function isMultiplierTieHole(tieHole) {
+  const th = String(tieHole || '').trim();
+  return th === '加倍（含奖励）' || th === '加倍（不含奖励）' || th === '连续翻倍';
+}
+
+/** 与 pkTieHole.settleMatchPlayHole 保持同步 */
+function settleMatchPlayHole(input) {
+  const wash = isWashTieHole(input.tieHole);
+  const winSign = input.winSign === 0 ? 0 : input.winSign > 0 ? 1 : -1;
+  if (winSign === 0) {
+    return { signedProfit: 0, nextCarryover: wash ? 0 : input.carryover + 1 };
+  }
+  if (wash) {
+    return { signedProfit: winSign * input.holeWinVal, nextCarryover: 0 };
+  }
+  const collectAmount = Math.max(0, input.collectAmount);
+  const th = String(input.tieHole || '').trim();
+  const addCollectedBase = !isMultiplierTieHole(th);
+  let signedProfit =
+    winSign * input.holeWinVal + (addCollectedBase ? winSign * collectAmount * input.baseScore : 0);
+  if (collectAmount > 0) {
+    signedProfit = applyTieHoleAdjustments(signedProfit, winSign, collectAmount, th, input.baseScore);
+  }
+  return { signedProfit, nextCarryover: input.carryover - collectAmount };
+}
+
+// 挂洞顶平过：平洞后下洞只拿本洞 1 分，不再加 1
+const washWin = settleMatchPlayHole({
+  winSign: 1,
+  carryover: 1,
+  tieHole: '顶平过',
+  baseScore: 1,
+  holeWinVal: 1,
+  collectAmount: 1,
+});
+assertEq(washWin.signedProfit, 1, '顶平过 next hole is base only');
+assertEq(washWin.nextCarryover, 0, '顶平过 clears carry');
+const washTie = settleMatchPlayHole({
+  winSign: 0,
+  carryover: 0,
+  tieHole: '顶平过',
+  baseScore: 1,
+  holeWinVal: 1,
+  collectAmount: 0,
+});
+assertEq(washTie.signedProfit, 0, '顶平过 tie scores 0');
+assertEq(washTie.nextCarryover, 0, '顶平过 tie does not press');
+
+// 下洞加1分：收 1 顶洞本金 + 再加 1
+const addOne = settleMatchPlayHole({
+  winSign: 1,
+  carryover: 1,
+  tieHole: '下洞加1分',
+  baseScore: 1,
+  holeWinVal: 1,
+  collectAmount: 1,
+});
+assertEq(addOne.signedProfit, 3, '下洞加1分 collects stake and adds 1');
+assertEq(addOne.nextCarryover, 0, '下洞加1分 consumes carry');
 
 // 下洞加1分：收 1 顶洞 + 帕赢 1 → 2 + 1 bonus
 assertEq(
@@ -122,6 +187,13 @@ if (!storeSrc.includes("from '@/utils/pkTieHole'")) {
 }
 if (!storeSrc.includes('tieHoleMultiplier')) {
   failures.push('matchStore.ts should use tieHoleMultiplier for 挂8421');
+}
+if (!storeSrc.includes('settleMatchPlayHole') || !storeSrc.includes('isWashTieHole')) {
+  failures.push('matchStore.ts should settle 挂洞 through settleMatchPlayHole / isWashTieHole');
+}
+const tieSrc = readFileSync(path.join(root, 'src/utils/pkTieHole.ts'), 'utf-8');
+if (!tieSrc.includes('export function isWashTieHole') || !tieSrc.includes('export function settleMatchPlayHole')) {
+  failures.push('pkTieHole.ts should export isWashTieHole and settleMatchPlayHole');
 }
 const scorecardSrc = readFileSync(path.join(root, 'src/pages/scorecard/scorecard.vue'), 'utf-8');
 if (!scorecardSrc.includes('HOLES_TIE_HOLE_OPTIONS')) {

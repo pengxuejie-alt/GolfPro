@@ -6,7 +6,9 @@ import {
   applyTieHoleAdjustments,
   computeCarryoverCollectAmount,
   isMultiplierTieHole,
+  isWashTieHole,
   resolveTieHole,
+  settleMatchPlayHole,
   tieHoleMultiplier,
 } from '@/utils/pkTieHole';
 
@@ -745,9 +747,11 @@ export const useMatchStore = defineStore('match', {
           const sortedPoints = [...pPoints].sort((a, b) => b - a);
           const isTieForFirst = sortedPoints.length > 1 && sortedPoints[0] === sortedPoints[1];
 
+          const wash8421 = isWashTieHole(resolveTieHole(rule));
           if (isTieForFirst) {
-            nextCarryover = carryover + 1;
-          } else if (!isTieForFirst && carryover > 0) {
+            // 顶平过：并列不滚分
+            if (!wash8421) nextCarryover = carryover + 1;
+          } else if (!wash8421 && !isTieForFirst && carryover > 0) {
             const skip8421Collect = this.isRoundStartHole(rule, holeIndex) && carryover > 0;
             const winnerIdx = pPoints.indexOf(sortedPoints[0]);
             const winnerRel = scores[pIndices[winnerIdx]] - hole.par;
@@ -1138,42 +1142,28 @@ export const useMatchStore = defineStore('match', {
 
         const baseVal = rule.base_score || 1;
         const roundStart = this.isRoundStartHole(rule, holeIndex);
-        let diff = 0;
-
-        if (winA === 0) {
-          nextCarryover = carryover + 1;
-          diff = 0;
-        } else {
-          const winnerRel = winA > 0 ? relA : relB;
-          const skipCollect = roundStart && carryover > 0;
-          const collectAmount = computeCarryoverCollectAmount(
-            carryover,
-            winnerRel,
-            rule.collect_tie_type,
-            skipCollect
-          );
-          nextCarryover = carryover - collectAmount;
-          // 奖励分（鸟/鹰/HIO）为赢洞总分，不再叠加 baseVal，避免 +1
-          let holeWinVal = baseVal;
-          if (rule.reward_config) {
-            const reward = this.getRewardValue(winnerRel, rule.reward_config);
-            if (reward > 0) holeWinVal = reward;
-          }
-          const th = resolveTieHole(rule);
-          // 加倍/连续翻倍：上一洞以倍率计入本洞，不再先加 collect×基数再乘，否则 1 洞顶洞会变成 ×4
-          const addCollectedBase = !isMultiplierTieHole(th);
-          let signedProfit = winA * holeWinVal + (addCollectedBase ? winA * collectAmount * baseVal : 0);
-          if (collectAmount > 0) {
-            signedProfit = applyTieHoleAdjustments(
-              signedProfit,
-              winA,
-              collectAmount,
-              th,
-              baseVal
-            );
-          }
-          diff = signedProfit;
+        const winnerRel = winA > 0 ? relA : relB;
+        const skipCollect = roundStart && carryover > 0 && winA !== 0;
+        const collectAmount =
+          winA === 0
+            ? 0
+            : computeCarryoverCollectAmount(carryover, winnerRel, rule.collect_tie_type, skipCollect);
+        // 奖励分（鸟/鹰/HIO）为赢洞总分，不再叠加 baseVal，避免 +1
+        let holeWinVal = baseVal;
+        if (winA !== 0 && rule.reward_config) {
+          const reward = this.getRewardValue(winnerRel, rule.reward_config);
+          if (reward > 0) holeWinVal = reward;
         }
+        const settled = settleMatchPlayHole({
+          winSign: winA,
+          carryover,
+          tieHole: resolveTieHole(rule),
+          baseScore: baseVal,
+          holeWinVal,
+          collectAmount,
+        });
+        let diff = settled.signedProfit;
+        nextCarryover = settled.nextCarryover;
 
         if (rule.landmines && rule.landmines.assignedHoles.includes(holeIndex + 1)) {
           diff *= (rule.landmines.multiplier || 2);

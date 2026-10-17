@@ -29,6 +29,15 @@ export function resolveTieHole(rule: { tie_hole?: string; tie_type?: string } | 
   return '顶平过';
 }
 
+/**
+ * 顶平过 / 下洞不加分：平洞作废，不把本洞分数滚进下洞。
+ * 挂洞若仍按「收顶洞本金」结算，平洞后的下一洞会多出 1 分，表现成下洞加 1 分。
+ */
+export function isWashTieHole(tieHole: string | null | undefined): boolean {
+  const th = String(tieHole ?? '').trim();
+  return th === '顶平过' || th === '下洞不加分';
+}
+
 /** 加倍类顶洞：对本洞得分做倍数，不要先把挂平本金加进去再乘 */
 export function isMultiplierTieHole(tieHole: string | null | undefined): boolean {
   const th = String(tieHole || '').trim();
@@ -101,4 +110,37 @@ export function applyTieHoleAdjustments(
 
   result += pkCount > 0 ? tieBonus : -tieBonus;
   return result;
+}
+
+/**
+ * 挂洞（比洞 1v1）单洞输赢分。
+ * - 顶平过：平洞 0 分，下洞只计本洞赢分
+ * - 下洞加 N：平洞滚入 1 个顶洞，赢洞时收走本金并再加 N
+ * winSign：1 甲方赢，-1 乙方赢，0 平
+ */
+export function settleMatchPlayHole(input: {
+  winSign: number;
+  carryover: number;
+  tieHole: string;
+  baseScore: number;
+  holeWinVal: number;
+  collectAmount: number;
+}): { signedProfit: number; nextCarryover: number } {
+  const wash = isWashTieHole(input.tieHole);
+  const winSign = input.winSign === 0 ? 0 : input.winSign > 0 ? 1 : -1;
+  if (winSign === 0) {
+    return { signedProfit: 0, nextCarryover: wash ? 0 : input.carryover + 1 };
+  }
+  if (wash) {
+    return { signedProfit: winSign * input.holeWinVal, nextCarryover: 0 };
+  }
+  const collectAmount = Math.max(0, input.collectAmount);
+  const th = String(input.tieHole || '').trim();
+  const addCollectedBase = !isMultiplierTieHole(th);
+  let signedProfit =
+    winSign * input.holeWinVal + (addCollectedBase ? winSign * collectAmount * input.baseScore : 0);
+  if (collectAmount > 0) {
+    signedProfit = applyTieHoleAdjustments(signedProfit, winSign, collectAmount, th, input.baseScore);
+  }
+  return { signedProfit, nextCarryover: input.carryover - collectAmount };
 }
