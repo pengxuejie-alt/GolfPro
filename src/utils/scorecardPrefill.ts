@@ -73,7 +73,7 @@ export function stashScorecardPrefillFromIndex(
   match: Record<string, unknown>,
   matchAvatarDisplayMap: Record<string, string> = {},
 ): void {
-  const mid = String(match.match_id ?? match.id ?? '').trim();
+  const mid = String(match.match_id ?? match._id ?? match.id ?? '').trim();
   if (!mid) return;
 
   const avatarsByOpenId: Record<string, string> = {};
@@ -82,12 +82,18 @@ export function stashScorecardPrefillFromIndex(
 
   for (const roster of [match.user_list, match.players]) {
     if (!Array.isArray(roster)) continue;
-    for (const p of roster) {
-      const pid = resolvePlayerOpenId(p);
+    for (let i = 0; i < roster.length; i++) {
+      const p = roster[i];
+      const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
+      const fallbackRaw = o.id ?? o.uid ?? o.openId ?? o.openid ?? o.player_uid;
+      const pid =
+        resolvePlayerOpenId(p) ||
+        (fallbackRaw != null && String(fallbackRaw).trim() !== ''
+          ? String(fallbackRaw).trim()
+          : `anon_${i}`);
       if (!pid || seen.has(pid)) continue;
       seen.add(pid);
       const fromMap = matchAvatarDisplayMap[`${mid}:${pid}`];
-      const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
       const raw = fromMap || String(o.avatar ?? o.avatarUrl ?? '').trim();
       const av = avatarUrlForDisplayOrEmpty(raw);
       if (av) avatarsByOpenId[pid] = av;

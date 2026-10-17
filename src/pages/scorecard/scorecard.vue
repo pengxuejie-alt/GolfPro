@@ -164,7 +164,16 @@ onLoad((query) => {
     mid = parseSceneMatchId(sceneOnly);
   }
 
-  enteredViaInvite.value = detectScorecardInviteEntry(q, !!mid);
+  /** 应用内导航（栈深 > 1）或本机已有 prefill/缓存时并非分享冷启动落地，勿因 enterOptions.scene 残留把整页卡在异步隐私校验后 */
+  const hasAppNavHistory = (() => {
+    try {
+      const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : [];
+      return Array.isArray(pages) && pages.length > 1;
+    } catch {
+      return false;
+    }
+  })();
+  enteredViaInvite.value = !hasAppNavHistory && detectScorecardInviteEntry(q, !!mid);
   const invRaw = q.inviter ?? (q as { inviter_id?: unknown }).inviter_id;
   if (invRaw != null && String(invRaw).trim() !== '') {
     landingInviterOpenId.value = String(invRaw).trim();
@@ -180,8 +189,8 @@ onLoad((query) => {
       /* ignore */
     }
   }
-  /** 隐私 gate 后再 bootstrap；已加入名单的用户由 maybeRunInviteFlow 跳过加入弹层 */
-  if (enteredViaInvite.value && mid) {
+  /** 即使分享进入，若本机已有缓存/prefill 也先同步设 matchId 触发首帧秒开，云侧隐私在 loadMatchForScorecard 内拦截 */
+  if (enteredViaInvite.value && mid && !MatchManager.peekLocalMatch(mid)) {
     // #ifdef MP-WEIXIN
     void (async () => {
       const need = await getPrivacyNeedAuthorizationAsync();

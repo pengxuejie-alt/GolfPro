@@ -9,6 +9,7 @@ import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
 import { hydrateMatchListAvatarsForDisplay } from '@/utils/rosterAvatarDisplay';
 import { openRoute, goBack } from '@/utils/uniNav';
+import { stashScorecardPrefillFromIndex } from '@/utils/scorecardPrefill';
 
 const DEFAULT_AVATAR_URL = mpStaticAbsolute('tab/me.png');
 
@@ -41,6 +42,12 @@ const filteredMatches = computed(() => {
 const handleNavigate = (tab: Tab, params?: Record<string, any>) => {
   openRoute(tab, params);
 };
+
+function handleOpenScorecard(match: Record<string, unknown>) {
+  stashScorecardPrefillFromIndex(match, {});
+  const mid = match.match_id ?? match._id ?? match.id;
+  handleNavigate(Tab.SCORECARD, { match_id: mid });
+}
 
 const showDeleteModal = ref(false);
 const matchToDelete = ref<string | null>(null);
@@ -135,7 +142,7 @@ const executeDelete = async () => {
         <div 
           v-for="match in filteredMatches"
           :key="match.match_id"
-          @click="handleNavigate(Tab.SCORECARD, { match_id: match.match_id })"
+          @click="handleOpenScorecard(match)"
           class="bg-white rounded-3xl p-6 shadow-md border border-slate-100 relative overflow-hidden group active:scale-[0.98] transition-all cursor-pointer"
         >
           <div class="absolute right-0 top-0 z-10 flex items-center">

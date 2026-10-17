@@ -15,6 +15,7 @@ import MpPrivacyGateModal from '@/components/MpPrivacyGateModal.vue';
 import CreateMatchCoursePicker from '@/components/CreateMatchCoursePicker.vue';
 import { useMpPrivacyGate } from '@/composables/useMpPrivacyGate';
 import { coerceProfileHandicap } from '@/utils/simpleAverageHandicap';
+import { stashScorecardPrefillFromIndex } from '@/utils/scorecardPrefill';
 
 const matchStore = useMatchStore();
 const userStore = useUserStore();
@@ -317,6 +318,7 @@ const handleStart = async () => {
         }));
       }
       await MatchManager.updateMatch(oldMatch);
+      stashScorecardPrefillFromIndex(oldMatch as Record<string, unknown>, {});
       replaceRoute(Tab.SCORECARD, { match_id: oldMatch.match_id || editingMatchId.value });
       return;
     }
@@ -354,6 +356,7 @@ const handleStart = async () => {
 
     /** 只走 updateMatch→saveMatch→createMatch 一次 upsert，避免连调两次云函数竞态叉开 */
     await MatchManager.updateMatch(newMatch);
+    stashScorecardPrefillFromIndex(newMatch as Record<string, unknown>, {});
 
     replaceRoute(Tab.SCORECARD, { match_id: newMatch.match_id });
   } catch (e) {

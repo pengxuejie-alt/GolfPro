@@ -176,8 +176,12 @@ export const MatchManager = {
   peekLocalMatch: function (matchId) {
     const want = normalizeMid(matchId);
     if (!want) return undefined;
-    const fromList = (list) =>
-      (Array.isArray(list) ? list : []).find((m) => normalizeMid(m?.match_id ?? m?.id) === want);
+    const isHit = (m) => {
+      if (!m || typeof m !== 'object') return false;
+      const { mid, id } = matchRowIds(m);
+      return mid === want || id === want;
+    };
+    const fromList = (list) => (Array.isArray(list) ? list : []).find(isHit);
     try {
       const quick = uni.getStorageSync(MATCHES_QUICK_KEY);
       const hit = fromList(quick);
@@ -194,9 +198,7 @@ export const MatchManager = {
     }
     try {
       const last = uni.getStorageSync('last_match_cache');
-      if (last && (normalizeMid(last.match_id) === want || normalizeMid(last.id) === want)) {
-        return last;
-      }
+      if (isHit(last)) return last;
     } catch {
       /* ignore */
     }
