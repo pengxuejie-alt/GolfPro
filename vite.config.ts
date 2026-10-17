@@ -1,5 +1,5 @@
 import path from 'path';
-import { cpSync, existsSync, readFileSync, writeFileSync } from 'fs';
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { defineConfig, loadEnv } from 'vite';
 import type { Plugin } from 'vite';
 import dcloudioUni from '@dcloudio/vite-plugin-uni';
@@ -78,6 +78,16 @@ function ensureTabBarPngsOnWxRoot(wxRoot: string): void {
   }
 }
 
+/** 业务代码只引用 /static/…；publicDir 在包根的同名副本会让主包超过 2MB 上传上限 */
+const WX_ROOT_RESERVED = new Set(['static', 'pages', 'common', 'components', 'custom-tab-bar', 'node-modules', 'cloudfunctions']);
+function removePublicDirRootDuplicates(srcStatic: string, wxRoot: string): void {
+  for (const name of readdirSync(srcStatic)) {
+    if (WX_ROOT_RESERVED.has(name) || /^(app|project)\./i.test(name)) continue;
+    const p = path.join(wxRoot, name);
+    if (existsSync(p)) rmSync(p, { recursive: true, force: true });
+  }
+}
+
 /**
  * uni 将 publicDir（src/static）内容拷到包根时，子目录可能与 app.json 中 static/tab/ 不一致。
  * 每次 mp 写入产物时：
@@ -94,6 +104,7 @@ function postProcessMpWeixinOutput(): void {
     if (existsSync(srcStatic)) {
       const dest = path.join(wxRoot, 'static');
       cpSync(srcStatic, dest, { recursive: true });
+      removePublicDirRootDuplicates(srcStatic, wxRoot);
     }
     ensureTabBarPngsOnWxRoot(wxRoot);
     copyCloudfunctionsToWxRoot(wxRoot);
