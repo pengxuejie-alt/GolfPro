@@ -61,6 +61,7 @@ import {
   acquireMpPosterCanvas2d,
   exportMpPosterCanvas2dTempPath,
   loadMpCanvas2dImage,
+  paintGroupScorePoster2d,
   paintPersonalScorePoster2d,
 } from '@/utils/scorePosterMpCanvas2d';
 import {
@@ -3630,11 +3631,27 @@ const addRule = () => {
 };
 
 const showShareModal = ref(false);
-const sharePlayerId = ref('');
+/** 海报球手：可多选；仅 1 人走单人海报，2 人及以上合成同组海报 */
+const sharePlayerIds = ref<string[]>([]);
 
 function openSharePosterModal() {
   showShareModal.value = true;
-  sharePlayerId.value = leadPlayer.value?.id || players.value[0]?.id || '';
+  const lead = leadPlayer.value?.id || players.value[0]?.id || '';
+  sharePlayerIds.value = lead ? [lead] : [];
+}
+
+function toggleSharePlayer(id: string) {
+  const cur = sharePlayerIds.value;
+  if (cur.includes(id)) sharePlayerIds.value = cur.filter((x) => x !== id);
+  else sharePlayerIds.value = [...cur, id];
+}
+
+function toggleAllSharePlayers() {
+  if (players.value.length > 0 && sharePlayerIds.value.length === players.value.length) {
+    sharePlayerIds.value = [];
+    return;
+  }
+  sharePlayerIds.value = players.value.map((p) => p.id);
 }
 
 const handleShare = (type: 'friend' | 'moments') => {
@@ -3714,15 +3731,21 @@ async function posterGetPackagedImg(
   });
 }
 
+function posterPlayerAvatarPath(src: string): Promise<string> {
+  if (!src) return Promise.resolve('');
+  return new Promise((resolve) => {
+    uni.getImageInfo({
+      src,
+      success: (r) => resolve((r as { path?: string }).path || ''),
+      fail: () => resolve(''),
+    });
+  });
+}
+
 async function savePersonalScorePoster() {
-  const pid = sharePlayerId.value || leadPlayer.value?.id || '';
-  if (!pid) {
+  const selected = players.value.filter((p) => sharePlayerIds.value.includes(p.id));
+  if (!selected.length) {
     uni.showToast({ title: '请先选择球手', icon: 'none' });
-    return;
-  }
-  const player = players.value.find((p) => p.id === pid);
-  if (!player) {
-    uni.showToast({ title: '未找到该球手', icon: 'none' });
     return;
   }
   /** Canvas 2D：必须在首个 await 之前取实例；await 后继体里 getCurrentInstance() 常为空，不传 .in() 时真机取不到 #scorePosterCanvas2d。 */
@@ -3753,18 +3776,7 @@ async function savePersonalScorePoster() {
     let headerImg = await posterGetPackagedImg(POSTER_HEADER_BG_SRC);
     if (!headerImg) headerImg = await posterGetPackagedImg(SCORECARD_POSTER_BG_SRC);
 
-    const avatarPath = await new Promise<string>((resolve) => {
-      const src = player.avatar || '';
-      if (!src) {
-        resolve('');
-        return;
-      }
-      uni.getImageInfo({
-        src,
-        success: (r) => resolve(r.path),
-        fail: () => resolve(''),
-      });
-    });
+    const avatarPaths = await Promise.all(selected.map((p) => posterPlayerAvatarPath(p.avatar || '')));
     const qrPack = await posterGetPackagedImg(POSTER_MINIAPP_QR_SRC);
     let qrDrawPath =
       (qrPack?.path ? qrPack.path : '') ||
@@ -3774,13 +3786,6 @@ async function savePersonalScorePoster() {
     /** 海报：微信小程序 Canvas 2D（仅此生成路径） */
     await nextTick();
     await nextTick();
-
-    const total = getTotalStrokes(player.id);
-    const totalParPlayed = getPlayerTotalPar(player.id);
-    const diff = totalParPlayed > 0 ? total - totalParPlayed : 0;
-    const frontNine = getPosterNineHoleStats(player.id, 0);
-    const backNine = getPosterNineHoleStats(player.id, 9);
-    const stat = getPlayerStatCounts(player.id);
 
     const { canvas: posterCanvasNode, ctx: posterCtx2d, dpr } =
       await acquireMpPosterCanvas2d(posterWxCompProxy as never);
@@ -3795,40 +3800,78 @@ async function savePersonalScorePoster() {
       console.warn('[scorecard] poster2d header', e);
     }
 
-    let avatarBmp = null as Awaited<ReturnType<typeof loadMpCanvas2dImage>> | null;
-    if (avatarPath || player.avatar) {
+    const qrBmp = await loadMpCanvas2dImage(posterCanvasNode, POSTER_MINIAPP_QR_SRC, [qrDrawPath].filter(Boolean));
+    const courseName = scorecardCourseName.value;
+    const dateStr = formatMatchKickoffCn(currentMatch.value);
+    const getPar = (hi: number) => matchStore.holeScores[hi]?.par || 4;
+
+    const loadAvatarBmp = async (index: number) => {
+      const player = selected[index];
+      const avatarPath = avatarPaths[index] || '';
+      if (!player || (!avatarPath && !player.avatar)) return null;
       try {
-        avatarBmp = await loadMpCanvas2dImage(posterCanvasNode, avatarPath || '', [
+        return await loadMpCanvas2dImage(posterCanvasNode, avatarPath || '', [
           ...(player.avatar && player.avatar !== avatarPath ? [player.avatar] : []),
         ]);
       } catch (e) {
         console.warn('[scorecard] poster2d avatar', e);
+        return null;
       }
+    };
+
+    if (selected.length === 1) {
+      const player = selected[0]!;
+      const avatarBmp = await loadAvatarBmp(0);
+      const total = getTotalStrokes(player.id);
+      const totalParPlayed = getPlayerTotalPar(player.id);
+      const diff = totalParPlayed > 0 ? total - totalParPlayed : 0;
+      paintPersonalScorePoster2d(
+        posterCtx2d,
+        { header: headerBmp, qr: qrBmp, avatar: avatarBmp },
+        {
+          courseName,
+          dateStr,
+          nickname: player.nickname || '我自己',
+          total,
+          diff,
+          frontNine: getPosterNineHoleStats(player.id, 0),
+          backNine: getPosterNineHoleStats(player.id, 9),
+          stat: getPlayerStatCounts(player.id),
+          getScore: (hi) => getScore(player.id, hi),
+          getPar,
+        },
+      );
+    } else {
+      const avatarBmps = await Promise.all(selected.map((_, index) => loadAvatarBmp(index)));
+      paintGroupScorePoster2d(
+        posterCtx2d,
+        { header: headerBmp, qr: qrBmp },
+        {
+          courseName,
+          dateStr,
+          getPar,
+          players: selected.map((player, index) => {
+            const total = getTotalStrokes(player.id);
+            const totalParPlayed = getPlayerTotalPar(player.id);
+            return {
+              nickname: player.nickname || '球手',
+              avatar: avatarBmps[index] ?? null,
+              total,
+              diff: totalParPlayed > 0 ? total - totalParPlayed : 0,
+              frontNine: getPosterNineHoleStats(player.id, 0),
+              backNine: getPosterNineHoleStats(player.id, 9),
+              getScore: (hi: number) => getScore(player.id, hi),
+            };
+          }),
+        },
+      );
     }
-
-    const qrBmp = await loadMpCanvas2dImage(posterCanvasNode, POSTER_MINIAPP_QR_SRC, [qrDrawPath].filter(Boolean));
-
-    paintPersonalScorePoster2d(
-      posterCtx2d,
-      { header: headerBmp, qr: qrBmp, avatar: avatarBmp },
-      {
-        courseName: scorecardCourseName.value,
-        dateStr: formatMatchKickoffCn(currentMatch.value),
-        nickname: player.nickname || '我自己',
-        total,
-        diff,
-        frontNine,
-        backNine,
-        stat,
-        getScore: (hi) => getScore(player.id, hi),
-        getPar: (hi) => matchStore.holeScores[hi]?.par || 4,
-      },
-    );
 
     const tmpPath = await exportMpPosterCanvas2dTempPath(posterCanvasNode, dpr, posterWxCompProxy as never);
 
     endPosterLoading();
     posterPreviewSrc.value = tmpPath;
+    posterPreviewTitle.value = selected.length > 1 ? '同组计分海报' : '计分海报';
     showShareModal.value = false;
     showPosterPreviewModal.value = true;
 
@@ -3981,6 +4024,7 @@ const leadPlayerSummaryScore = computed(() => {
 // 海报预览
 const showPosterPreviewModal = ref(false);
 const posterPreviewSrc = ref('');
+const posterPreviewTitle = ref('计分海报');
 </script>
 
 <template>
@@ -6028,19 +6072,33 @@ const posterPreviewSrc = ref('');
     <div v-if="showShareModal" class="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm" @click.self="showShareModal = false">
       <div class="w-full max-w-lg bg-white rounded-t-3xl overflow-hidden animate-in slide-in-from-bottom duration-300">
         <div class="p-4 border-b border-slate-100">
-          <div class="text-sm font-bold text-slate-800 mb-2">选择要生成海报的球手</div>
-          <div class="flex gap-2 overflow-x-auto no-scrollbar">
+          <div class="flex items-start justify-between gap-3 mb-2">
+            <div class="min-w-0">
+              <div class="text-sm font-bold text-slate-800">选择要生成海报的球手</div>
+              <div class="text-xs text-slate-400 mt-1">可多选，多人合成一张同组海报</div>
+            </div>
+            <button
+              type="button"
+              hover-class="none"
+              class="shrink-0 text-xs font-bold text-[#07C160] bg-transparent border-0 px-1 py-1 leading-none"
+              @tap.stop="toggleAllSharePlayers"
+              @click.stop="toggleAllSharePlayers"
+            >
+              {{ sharePlayerIds.length === players.length && players.length > 0 ? '清空' : '全选' }}
+            </button>
+          </div>
+          <div class="flex flex-wrap gap-2">
             <button
               v-for="p in players"
               :key="'share-player-'+p.id"
               type="button"
               hover-class="none"
-              @tap.stop="sharePlayerId = p.id"
-              @click.stop="sharePlayerId = p.id"
+              @tap.stop="toggleSharePlayer(p.id)"
+              @click.stop="toggleSharePlayer(p.id)"
               class="px-3 py-1.5 rounded-full text-xs border transition-colors"
-              :class="sharePlayerId === p.id ? 'bg-[#07C160] border-[#07C160] text-white' : 'bg-white border-slate-200 text-slate-700'"
+              :class="sharePlayerIds.includes(p.id) ? 'bg-[#07C160] border-[#07C160] text-white' : 'bg-white border-slate-200 text-slate-700'"
             >
-              {{ p.nickname }}
+              {{ sharePlayerIds.includes(p.id) ? '✓ ' : '' }}{{ p.nickname }}
             </button>
           </div>
         </div>
@@ -6051,11 +6109,14 @@ const posterPreviewSrc = ref('');
             hover-class="opacity-90"
             @tap.stop="savePersonalScorePoster"
             class="w-full py-4 bg-[#07C160] text-white rounded-2xl font-bold text-base flex items-center justify-center gap-3 shadow-lg shadow-green-900/10 active:scale-95 transition-all border-0"
+            :class="sharePlayerIds.length ? '' : 'opacity-40'"
           >
             <view class="scorecard-uni-ico-slot"><uni-icons type="image-filled" :size="24" color="#ffffff" /></view>
-            生成完整计分海报
+            {{ sharePlayerIds.length > 1 ? `生成同组海报（${sharePlayerIds.length}人）` : '生成完整计分海报' }}
           </button>
-          <p class="text-center text-xs text-slate-400 mt-2">将生成包含18洞成绩的完整海报</p>
+          <p class="text-center text-xs text-slate-400 mt-2">
+            {{ sharePlayerIds.length > 1 ? '所选球手合成一张同组计分海报' : sharePlayerIds.length === 1 ? '将生成包含18洞成绩的完整海报' : '请至少选择一位球手' }}
+          </p>
         </div>
         <!-- #endif -->
         <div class="p-4 border-t border-slate-100">
@@ -6070,7 +6131,7 @@ const posterPreviewSrc = ref('');
         <button @click="showPosterPreviewModal = false" class="p-2 rounded-full bg-white/10">
           <view class="scorecard-uni-ico-slot"><uni-icons type="closeempty" :size="22" color="#ffffff" /></view>
         </button>
-        <span class="text-white font-bold">计分海报</span>
+        <span class="text-white font-bold">{{ posterPreviewTitle }}</span>
         <view class="w-10 h-10 shrink-0" />
       </div>
       <scroll-view scroll-y class="flex-1 flex items-center justify-center p-4 min-h-0">
