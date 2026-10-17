@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node 'd:\\golfpro\\.codex\\hooks\\auto-sync-github.mjs'",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}
