@@ -49,6 +49,74 @@ function normCourseKey(name: string): string {
     .trim();
 }
 
+const CITY_PREFIX =
+  /^(广州|深圳|东莞|惠州|佛山|珠海|清远|中山|肇庆|阳江|汕头|揭阳|汕尾|韶关|湛江|梅州|潮州|江门|番禺|顺德|南海|四会|惠阳)/;
+
+function coreCourseKey(name: string): string {
+  return normCourseKey(name).replace(CITY_PREFIX, '');
+}
+
+function formerNameKeys(name: string): string[] {
+  const keys: string[] = [];
+  const re = /[（(]原([^)）]+)[)）]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(name))) {
+    const key = coreCourseKey(m[1]);
+    if (key.length >= 2) keys.push(key);
+  }
+  return keys;
+}
+
+function scoreNameKeys(left: string, right: string, minLen: number): number {
+  if (!left || !right) return 0;
+  if (left === right && left.length >= minLen) return 100;
+  const [shorter, longer] = left.length <= right.length ? [left, right] : [right, left];
+  if (shorter.length >= minLen && longer.includes(shorter)) {
+    return Math.round((shorter.length / longer.length) * 100);
+  }
+  let i = 0;
+  const n = Math.min(left.length, right.length);
+  while (i < n && left[i] === right[i]) i += 1;
+  if (i >= minLen) return Math.round((i / Math.min(left.length, right.length)) * 100);
+  return 0;
+}
+
+/**
+ * 0–100。80 分及以上才当成同一球场；
+ * 40–79 分只跳过，避免把标准杆写到别的球场，或再追加一条重复记录。
+ */
+function courseMatchScore(a: string, b: string): number {
+  const ca = coreCourseKey(a);
+  const cb = coreCourseKey(b);
+  let score = 0;
+  if (ca.length >= 3 && cb.length >= 3) score = scoreNameKeys(ca, cb, 3);
+  if (!score) score = scoreNameKeys(normCourseKey(a), normCourseKey(b), 4);
+  for (const extra of [...formerNameKeys(a), ...formerNameKeys(b)]) {
+    const other = formerNameKeys(a).includes(extra) ? cb : ca;
+    if (extra.length >= 2 && (other === extra || other.endsWith(extra))) score = Math.max(score, 85);
+  }
+  return score;
+}
+
+function bestGuangdongMatch(name: string, courses: { name: string }[]): { index: number; score: number } {
+  let index = -1;
+  let score = 0;
+  courses.forEach((c, i) => {
+    const s = courseMatchScore(name, c.name);
+    if (s > score) {
+      score = s;
+      index = i;
+    }
+  });
+  return { index, score };
+}
+
+function completeNineCount(course: { sections?: { holes_par: number[] }[]; holes_par?: number[] }): number {
+  const fromSections = (course.sections ?? []).filter((s) => s.holes_par?.length === 9).length;
+  if (fromSections >= 2) return fromSections;
+  return course.holes_par?.length === 18 ? 2 : fromSections;
+}
+
 /** 广东手工库 → 全国库条目（全国库无同名时追加） */
 function patchGuangdongCourse(gd: (typeof gdCourseData)[string][number], city: string): NationalCourse {
   return {
@@ -116,19 +184,19 @@ function buildCourseCatalog(): Record<string, CatalogCourse[]> {
     const cityLabel = GD_CITY_MAP[gdCity] ?? gdCity;
     for (const gc of cityCourses) {
       if (gc.name.includes('南沙') || gc.name.includes('风神')) continue;
-      const key = normCourseKey(gc.name);
-      const idx = out['广东省'].findIndex((c) => {
-        const nk = normCourseKey(c.name);
-        return nk === key || nk.includes(key.slice(0, 4)) || key.includes(nk.slice(0, 4));
-      });
-      if (idx >= 0) {
-        out['广东省'][idx] = {
-          ...out['广东省'][idx],
+      const { index, score } = bestGuangdongMatch(gc.name, out['广东省']);
+      if (score >= 80 && index >= 0) {
+        const current = out['广东省'][index];
+        if (completeNineCount(current) >= 2) continue;
+        out['广东省'][index] = {
+          ...current,
           name: gc.name,
           total_par: gc.total_par,
-          holes_par: gc.holes_par ?? out['广东省'][idx].holes_par,
-          sections: gc.sections ?? out['广东省'][idx].sections,
+          holes_par: gc.holes_par ?? current.holes_par,
+          sections: gc.sections ?? current.sections,
         };
+      } else if (score >= 40) {
+        continue;
       } else if (gc.holes_par?.length === 18 || (gc.sections && gc.sections.length >= 2)) {
         out['广东省'].push(patchGuangdongCourse(gc, cityLabel));
       }

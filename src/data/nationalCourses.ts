@@ -1,7 +1,7 @@
 /**
  * 全国高尔夫球场（Par 以 GolfLive club_get 为准）
  * 生成: 2026-08-10T20:23:27.744Z
- * 球场数: 438；382 种子匹配: 243/382
+ * 球场数: 439；382 种子匹配: 243/382
  */
 export type NationalCourse = {
   id: string;
@@ -1481,6 +1481,17 @@ export const nationalCourseData: Record<string, NationalCourse[]> = {
       sections: [
         { name: "半场", holes_par: [4, 3, 4, 5, 4, 3, 4, 4, 5] },
         { name: "半场", holes_par: [4, 4, 3, 4, 4, 5, 4, 3, 5] },
+      ],
+    },
+    {
+      id: "gd-sihui-zhenhu",
+      name: "四会臻湖高尔夫球会",
+      city: "肇庆市",
+      total_par: 72,
+      holes_par: [4, 3, 4, 4, 3, 5, 4, 4, 5, 4, 5, 4, 3, 4, 3, 4, 4, 5],
+      sections: [
+        { name: "前9", holes_par: [4, 3, 4, 4, 3, 5, 4, 4, 5] },
+        { name: "后9", holes_par: [4, 5, 4, 3, 4, 3, 4, 4, 5] },
       ],
     },
     {

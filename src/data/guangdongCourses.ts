@@ -59,6 +59,10 @@ export const gdCourseData: Record<string, {
   ],
   "其他城市": [
     { name: "肇庆金立高尔夫", total_par: 72, holes_par: [4,4,3,5,4,4,3,4,5, 4,4,3,5,4,4,3,4,5] },
+    { name: "四会臻湖高尔夫球会", total_par: 72, holes_par: [4,3,4,4,3,5,4,4,5, 4,5,4,3,4,3,4,4,5], sections: [
+      { name: "前9", holes_par: [4,3,4,4,3,5,4,4,5] },
+      { name: "后9", holes_par: [4,5,4,3,4,3,4,4,5] }
+    ]},
     { name: "阳江候鸟高尔夫", total_par: 72, holes_par: [4,4,3,5,4,4,3,4,5, 4,4,3,5,4,4,3,4,5] }
   ]
 };
