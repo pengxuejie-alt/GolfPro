@@ -8,7 +8,17 @@ import { useUserStore } from '@/store/userStore';
 import { MatchManager } from '@/utils/match_manager';
 import { db } from '@/utils/db';
 import { courseCatalogData } from '@/data/courseCatalog';
-import { courseNeedsSectionCombo, sectionsForCoursePicker } from '@/utils/courseSections';
+import {
+  combinedHolesFromSections,
+  courseBaseName,
+  courseNeedsSectionCombo,
+  formatCourseHalfOrderName,
+  lookupCourseByIdOrName,
+  presentCourseHalfOrderTitle,
+  resolveSelectedSections,
+  sectionsForCoursePicker,
+  type CourseHalfOrderTitle,
+} from '@/utils/courseSections';
 import { openRoute, goBack, markScorecardReopenPkRulesModal, consumeScorecardReopenPkRulesModal } from '@/utils/uniNav';
 import { savePackagedImageToAlbum, saveImageToPhotosAlbumSafe } from '@/utils/savePosterToAlbum';
 import { signInWithWeChat } from '@/utils/auth';
@@ -263,20 +273,41 @@ async function finalizeCurrentMatchKickoffAutoEnd() {
   await MatchManager.updateMatch(ended);
 }
 
-const scorecardCourseName = computed(() => {
+function scorecardHolePars(): number[] {
+  const fromMatch = currentMatch.value?.hole_scores;
+  if (Array.isArray(fromMatch) && fromMatch.length >= 18) {
+    return fromMatch.map((h: { par?: number }) => Number(h?.par));
+  }
+  const fromStore = matchStore.holeScores;
+  if (Array.isArray(fromStore) && fromStore.length >= 18) {
+    return fromStore.map((h: { par?: number }) => Number(h?.par));
+  }
+  return [];
+}
+
+function rawScorecardCourseName(match: { course_name?: string; courseName?: string } | null | undefined): string {
+  const stored = String(match?.course_name || '').trim();
+  const alias = String(match?.courseName || '').trim();
+  const hasOrder = (name: string) => /[、]/.test(name) || /[(（].*[+＋].*[)）]/.test(name);
+  if (hasOrder(stored)) return stored;
+  if (hasOrder(alias)) return alias;
+  return alias || stored;
+}
+
+const scorecardCourseTitle = computed((): CourseHalfOrderTitle => {
   const mid = String(matchId.value || matchStore.match_id || '').trim();
-  const fromMatch =
-    currentMatch.value?.courseName ||
-    currentMatch.value?.course_name ||
-    '';
-  const trimmed = String(fromMatch).trim();
+  const trimmed = rawScorecardCourseName(currentMatch.value);
+  const courseId = String(currentMatch.value?.course_id || currentMatch.value?.courseId || '').trim();
+  const present = (name: string) => presentCourseHalfOrderTitle(name, courseId, scorecardHolePars());
   if (trimmed) {
     if (mid) stickyScorecardCourseName[mid] = trimmed;
-    return trimmed;
+    return present(trimmed);
   }
-  if (mid && stickyScorecardCourseName[mid]) return stickyScorecardCourseName[mid];
-  return '未命名球场';
+  if (mid && stickyScorecardCourseName[mid]) return present(stickyScorecardCourseName[mid]);
+  return { base: '未命名球场', suffix: '', full: '未命名球场' };
 });
+
+const scorecardCourseName = computed(() => scorecardCourseTitle.value.full);
 
 /** 同局内球场名只升不降：避免先「未命名」再被云同步刷成正式名 */
 const stickyScorecardCourseName: Record<string, string> = {};
@@ -1550,6 +1581,12 @@ const editMatchTime = ref('');
 const editMatchPrivacy = ref(false);
 const editSelectedCourse = ref<any>(null);
 const editSelectedSections = ref<any[]>([]);
+const editSectionOrderHint = computed(() => {
+  const list = editSelectedSections.value;
+  if (!list.length) return '';
+  if (list.length === 1) return `当前选择：前九 ${list[0].name}`;
+  return `当前选择：前九 ${list[0].name}、后九 ${list[1].name}`;
+});
 const editSearchKey = ref('');
 const quickAddName = ref('');
 
@@ -2097,10 +2134,34 @@ const handleSettingsAction = (action: string) => {
   }
 };
 
+function isSameEditCourse(a: any, b: any) {
+  if (!a || !b) return false;
+  const aid = String(a.id || '').trim();
+  const bid = String(b.id || '').trim();
+  if (aid && bid && aid === bid) return true;
+  return String(a.name || '') === String(b.name || '');
+}
+
 const handleEditCourseSelect = (course: any) => {
   if (courseNeedsSectionCombo(course)) {
+    const list = sectionsForCoursePicker(course);
+    let preset: any[] = [];
+    if (isSameEditCourse(editSelectedCourse.value, course) && editSelectedSections.value.length) {
+      preset = editSelectedSections.value
+        .map((section: any) => list.find((item) => item.name === section?.name))
+        .filter(Boolean);
+    } else {
+      const rawName = String(
+        currentMatch.value?.course_name || currentMatch.value?.courseName || '',
+      ).trim();
+      const matchCourseId = String(currentMatch.value?.course_id || currentMatch.value?.courseId || '').trim();
+      const lookedUp = lookupCourseByIdOrName(matchCourseId, rawName);
+      if (lookedUp && isSameEditCourse(lookedUp, course)) {
+        preset = resolveSelectedSections(rawName, scorecardHolePars(), list);
+      }
+    }
     editSelectedCourse.value = course;
-    editSelectedSections.value = [];
+    editSelectedSections.value = preset;
     showEditSectionPicker.value = true;
     showEditCoursePicker.value = false;
   } else {
@@ -2125,15 +2186,16 @@ const toggleEditSection = (section: any) => {
 
 const confirmEditSections = () => {
   if (editSelectedSections.value.length === 2) {
-    const combinedHoles = [
-      ...editSelectedSections.value[0].holes_par.map((par: number, i: number) => ({ no: i + 1, par })),
-      ...editSelectedSections.value[1].holes_par.map((par: number, i: number) => ({ no: i + 10, par }))
-    ];
+    const base = courseBaseName(editSelectedCourse.value, editSectionPickerList.value);
     editSelectedCourse.value = {
       ...editSelectedCourse.value,
-      name: `${editSelectedCourse.value.name} (${editSelectedSections.value[0].name}+${editSelectedSections.value[1].name})`,
-      holes: combinedHoles,
-      total_par: editSelectedSections.value[0].holes_par.reduce((a: number, b: number) => a + b, 0) + 
+      name: formatCourseHalfOrderName(
+        base,
+        editSelectedSections.value[0].name,
+        editSelectedSections.value[1].name,
+      ),
+      holes: combinedHolesFromSections(editSelectedSections.value),
+      total_par: editSelectedSections.value[0].holes_par.reduce((a: number, b: number) => a + b, 0) +
                  editSelectedSections.value[1].holes_par.reduce((a: number, b: number) => a + b, 0)
     };
     showEditSectionPicker.value = false;
@@ -2147,6 +2209,7 @@ const saveMatchEdits = async () => {
     currentMatch.value.is_private = editMatchPrivacy.value;
     if (editSelectedCourse.value.holes) {
       currentMatch.value.course_name = editSelectedCourse.value.name;
+      currentMatch.value.courseName = editSelectedCourse.value.name;
       // Update hole pars but keep existing scores
       currentMatch.value.hole_scores = editSelectedCourse.value.holes.map((h: any, i: number) => {
         const existing = currentMatch.value.hole_scores[i] || { scores: new Array(matchStore.user_list.length).fill(0) };
@@ -4157,7 +4220,10 @@ const posterPreviewTitle = ref('计分海报');
         <!-- #endif -->
       </div>
       <div class="flex flex-col items-center">
-        <h1 class="text-lg font-bold tracking-tight truncate max-w-[240px] text-slate-900">{{ scorecardCourseName }}</h1>
+        <h1 class="sc-course-title text-lg font-bold tracking-tight text-slate-900">
+          <text class="sc-course-title-base">{{ scorecardCourseTitle.base }}</text>
+          <text v-if="scorecardCourseTitle.suffix" class="sc-course-title-suffix">{{ scorecardCourseTitle.suffix }}</text>
+        </h1>
         <div class="text-sm text-slate-500">{{ formatMatchKickoffCn(currentMatch) }}</div>
       </div>
       <div class="w-24 flex justify-end items-center">
@@ -4204,7 +4270,10 @@ const posterPreviewTitle = ref('计分海报');
     <!-- 比赛信息条（轻量替代旧海报区） -->
     <view class="sc-info-bar shrink-0">
       <view class="sc-info-bar-left">
-        <text class="sc-info-bar-course">{{ scorecardCourseName }}</text>
+        <view class="sc-info-bar-course">
+          <text class="sc-course-title-base">{{ scorecardCourseTitle.base }}</text>
+          <text v-if="scorecardCourseTitle.suffix" class="sc-course-title-suffix">{{ scorecardCourseTitle.suffix }}</text>
+        </view>
         <text class="sc-info-bar-date">{{ formatMatchKickoffCn(currentMatch) }}</text>
       </view>
       <view v-if="selfRosterPlayer" class="sc-info-bar-right">
@@ -5647,6 +5716,7 @@ const posterPreviewTitle = ref('计分海报');
           <div>
             <h2 class="text-base font-bold text-slate-900">选择半场</h2>
             <p class="text-xs text-slate-500 mt-0.5">请选择两个 9 洞半场进行组合</p>
+            <p v-if="editSectionOrderHint" class="text-xs text-emerald-700 mt-0.5 font-medium">{{ editSectionOrderHint }}</p>
             <p v-if="showEditStandard18SectionHint" class="text-xs text-slate-500 mt-0.5">18 洞球场：可先选后九再选前九，数字表示击球顺序</p>
           </div>
           <button @click="showEditSectionPicker = false" class="p-2 hover:bg-slate-100 rounded-full transition-colors">
@@ -6335,10 +6405,29 @@ const posterPreviewTitle = ref('计分海报');
   min-width: 0;
 }
 .sc-info-bar-course {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
   font-size: 32rpx;
   font-weight: 800;
   color: #0f172a;
   line-height: 1.2;
+}
+.sc-course-title {
+  display: flex;
+  align-items: center;
+  max-width: 240px;
+  min-width: 0;
+}
+.sc-course-title-base {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.sc-course-title-suffix {
+  flex-shrink: 0;
 }
 .sc-info-bar-date {
   font-size: 24rpx;

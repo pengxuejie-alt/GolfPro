@@ -5,9 +5,18 @@ import { Tab } from '@/types';
 import { useMatchStore } from '@/store/matchStore';
 import { useUserStore } from '@/store/userStore';
 import { MatchManager } from '@/utils/match_manager';
-import { flattenCoursesForPicker } from '@/data/courseCatalog';
 import { goBack, replaceRoute } from '@/utils/uniNav';
-import { courseNeedsSectionCombo, sectionsForCoursePicker } from '@/utils/courseSections';
+import {
+  combinedHolesFromSections,
+  courseBaseName,
+  courseHalfOrderTitle,
+  courseNeedsSectionCombo,
+  formatCourseHalfOrderName,
+  lookupCourseByIdOrName,
+  resolveSelectedSections,
+  sectionsForCoursePicker,
+  splitStoredCourseHalfOrder,
+} from '@/utils/courseSections';
 import { ensureWxSessionForCloud } from '@/utils/auth';
 import { db } from '@/utils/db';
 import PrivacyPopup from '@/components/PrivacyPopup.vue';
@@ -91,7 +100,6 @@ const publishBtnText = computed(() => {
   if (publishInFlight.value) return isEditMode.value ? '保存中…' : '发布中…';
   return publishBtnLabel.value;
 });
-const allCoursesFlat = flattenCoursesForPicker();
 
 /** 半场组合弹层：多半场用 sections；标准 18 洞用合成的前 9 / 后 9 */
 const createMatchSectionPickerList = computed(() => sectionsForCoursePicker(selectedCourse.value));
@@ -102,12 +110,50 @@ const showStandard18SectionHint = computed(() => {
   return createMatchSectionPickerList.value.length === 2;
 });
 
+function isSameCourse(a: any, b: any) {
+  if (!a || !b) return false;
+  const aid = String(a.id || '').trim();
+  const bid = String(b.id || '').trim();
+  if (aid && bid && aid === bid) return true;
+  return String(a.name || '') === String(b.name || '');
+}
+
+function remapSections(prev: any[], course: any) {
+  const list = sectionsForCoursePicker(course);
+  return prev
+    .map((section) => list.find((item) => item.name === section?.name))
+    .filter(Boolean);
+}
+
+/** 打开半场弹层前记下已确认的球场，取消时还原 */
+let sectionPickerSnapshot: { course: any; sections: any[] } | null = null;
+
+function beginSectionPicker(course: any, preset: any[]) {
+  sectionPickerSnapshot = {
+    course: selectedCourse.value,
+    sections: [...selectedSections.value],
+  };
+  selectedCourse.value = course;
+  selectedSections.value = preset;
+  showSectionPicker.value = true;
+  showCoursePicker.value = false;
+}
+
+function cancelSectionPicker() {
+  if (sectionPickerSnapshot) {
+    selectedCourse.value = sectionPickerSnapshot.course;
+    selectedSections.value = sectionPickerSnapshot.sections;
+  }
+  sectionPickerSnapshot = null;
+  showSectionPicker.value = false;
+}
+
 const selectCourse = (course: any) => {
   if (courseNeedsSectionCombo(course)) {
-    selectedCourse.value = course;
-    selectedSections.value = [];
-    showSectionPicker.value = true;
-    showCoursePicker.value = false;
+    const preset = isSameCourse(selectedCourse.value, course)
+      ? remapSections(selectedSections.value, course)
+      : [];
+    beginSectionPicker(course, preset);
   } else {
     selectedCourse.value = course;
     selectedSections.value = [];
@@ -130,21 +176,66 @@ const toggleSection = (section: any) => {
 };
 
 const confirmSections = () => {
-  if (selectedSections.value.length === 2) {
-    const combinedHoles = [
-      ...selectedSections.value[0].holes_par.map((par: number, i: number) => ({ no: i + 1, par })),
-      ...selectedSections.value[1].holes_par.map((par: number, i: number) => ({ no: i + 10, par }))
-    ];
-    selectedCourse.value = {
-      ...selectedCourse.value,
-      name: `${selectedCourse.value.name} (${selectedSections.value[0].name}+${selectedSections.value[1].name})`,
-      holes: combinedHoles,
-      total_par: selectedSections.value[0].holes_par.reduce((a: number, b: number) => a + b, 0) + 
-                 selectedSections.value[1].holes_par.reduce((a: number, b: number) => a + b, 0)
-    };
-    showSectionPicker.value = false;
-  }
+  if (selectedSections.value.length !== 2) return;
+  sectionPickerSnapshot = null;
+  showSectionPicker.value = false;
 };
+
+const selectedCourseTitle = computed(() => {
+  const course = selectedCourse.value;
+  if (!course?.name) return { base: '', suffix: '', full: '' };
+  if (selectedSections.value.length === 2) {
+    const base = courseBaseName(course, sectionsForCoursePicker(course));
+    const first = selectedSections.value[0].name;
+    const second = selectedSections.value[1].name;
+    return {
+      base,
+      suffix: `${first}、${second}`,
+      full: formatCourseHalfOrderName(base, first, second),
+    };
+  }
+  const pars = Array.isArray(course.holes) ? course.holes.map((h: any) => Number(h?.par)) : [];
+  return courseHalfOrderTitle(String(course.name), sectionsForCoursePicker(course), pars);
+});
+
+const sectionOrderHint = computed(() => {
+  const list = selectedSections.value;
+  if (!list.length) return '';
+  if (list.length === 1) return `当前选择：前九 ${list[0].name}`;
+  return `当前选择：前九 ${list[0].name}、后九 ${list[1].name}`;
+});
+
+function holeParsFromMatch(match: any): number[] {
+  const rows = Array.isArray(match?.hole_scores) ? match.hole_scores : [];
+  return rows.map((h: any) => Number(h?.par));
+}
+
+function packedCourseForSave(): { course_name: string; course_id: string; holes: { no: number; par: number }[] } | null {
+  const course = selectedCourse.value;
+  if (!course) return null;
+  if (selectedSections.value.length === 2) {
+    const base = courseBaseName(course, sectionsForCoursePicker(course));
+    return {
+      course_name: formatCourseHalfOrderName(
+        base,
+        selectedSections.value[0].name,
+        selectedSections.value[1].name,
+      ),
+      course_id: String(course.id || ''),
+      holes: combinedHolesFromSections(selectedSections.value),
+    };
+  }
+  if (courseNeedsSectionCombo(course)) return null;
+  const holes = Array.isArray(course.holes) && course.holes.length
+    ? course.holes.map((h: any, i: number) => ({ no: Number(h?.no || i + 1), par: Number(h?.par || 4) }))
+    : [];
+  if (!holes.length) return null;
+  return {
+    course_name: String(course.name || ''),
+    course_id: String(course.id || ''),
+    holes,
+  };
+}
 
 const tempDate = ref(now.toISOString().split('T')[0]);
 const tempTime = ref(now.toTimeString().split(' ')[0].slice(0, 5));
@@ -201,9 +292,9 @@ function formatCloudSyncError(res: { step?: string; error?: string } | null): st
 
 const pickCourseByMatch = (match: any) => {
   const rawName = String(match?.course_name || match?.courseName || '').trim();
-  if (!rawName) return null;
-  const all = allCoursesFlat;
-  const found = all.find((c) => rawName === c.name || rawName.startsWith(c.name));
+  const courseId = String(match?.course_id || '').trim();
+  if (!rawName && !courseId) return null;
+  const found = lookupCourseByIdOrName(courseId, rawName);
   if (found) return found;
   const holes = Array.isArray(match?.hole_scores)
     ? match.hole_scores.map((h: any, idx: number) => ({ no: idx + 1, par: Number(h?.par || 4) }))
@@ -225,7 +316,20 @@ const fillFromMatch = (match: any) => {
     tempTime.value = tm.toTimeString().split(' ')[0].slice(0, 5);
   }
   isPrivate.value = !!(match?.is_private === true || match?.is_private === 1);
-  selectedCourse.value = pickCourseByMatch(match);
+  const course = pickCourseByMatch(match);
+  selectedCourse.value = course;
+  const rawName = String(match?.course_name || match?.courseName || '').trim();
+  const list = course ? sectionsForCoursePicker(course) : [];
+  const resolved = course ? resolveSelectedSections(rawName, holeParsFromMatch(match), list) : [];
+  const split = splitStoredCourseHalfOrder(rawName);
+  const resolvedLabel = resolved.length === 2 ? `${resolved[0].name}、${resolved[1].name}` : '';
+  const storedLabel = split.halves ? `${split.halves[0]}、${split.halves[1]}` : '';
+  const storedNamesConflict =
+    resolved.length === 2 &&
+    !!split.halves &&
+    split.halves[0] !== split.halves[1] &&
+    storedLabel !== resolvedLabel;
+  selectedSections.value = storedNamesConflict ? [] : resolved;
 };
 
 onLoad((query) => {
@@ -306,13 +410,14 @@ const handleStart = async () => {
       oldMatch.create_time = new Date(kickoffMsFromPicker()).toISOString();
       oldMatch.is_private = isPrivate.value;
       oldMatch.match_meta_sync_ts = Date.now();
-      if (selectedCourse.value) {
-        oldMatch.course_name = selectedCourse.value.name;
-        oldMatch.course_id = selectedCourse.value.id;
+      const packed = packedCourseForSave();
+      if (packed) {
+        oldMatch.course_name = packed.course_name;
+        oldMatch.courseName = packed.course_name;
+        oldMatch.course_id = packed.course_id;
         const existed = Array.isArray(oldMatch.hole_scores) ? oldMatch.hole_scores : [];
-        const holeTemplate = Array.isArray(selectedCourse.value.holes) ? selectedCourse.value.holes : [];
         const slotCount = Math.max(1, Array.isArray(oldMatch.user_list) ? oldMatch.user_list.length : 1);
-        oldMatch.hole_scores = holeTemplate.map((h: any, i: number) => ({
+        oldMatch.hole_scores = packed.holes.map((h, i) => ({
           scores: Array.isArray(existed[i]?.scores) ? existed[i].scores : Array.from({ length: slotCount }, () => 0),
           par: h.par,
         }));
@@ -334,14 +439,16 @@ const handleStart = async () => {
     newMatch.user_list = userList;
     newMatch.is_private = isPrivate.value;
 
-    if (selectedCourse.value) {
-      newMatch.course_name = selectedCourse.value.name;
-      newMatch.course_id = selectedCourse.value.id;
-      newMatch.hole_scores = selectedCourse.value.holes.map((h: any) => ({
+    const packed = packedCourseForSave();
+    if (packed) {
+      newMatch.course_name = packed.course_name;
+      newMatch.courseName = packed.course_name;
+      newMatch.course_id = packed.course_id;
+      newMatch.hole_scores = packed.holes.map((h) => ({
         scores: Array.from({ length: slotCount }, () => 0),
         par: h.par,
       }));
-      newMatch.holes = selectedCourse.value.holes.map((h: any) => ({
+      newMatch.holes = packed.holes.map((h) => ({
         num: h.no,
         par: h.par,
       }));
@@ -445,8 +552,14 @@ const handleStart = async () => {
             </div>
             <span class="text-sm font-medium text-slate-700">选择球场</span>
           </div>
-          <div class="flex items-center gap-2">
-            <span class="text-sm font-bold text-slate-900 truncate max-w-[150px]">{{ selectedCourse?.name || '请选择球场' }}</span>
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="text-sm font-bold text-slate-900 flex items-center min-w-0 max-w-[200px]">
+              <template v-if="selectedCourse">
+                <span class="truncate">{{ selectedCourseTitle.base }}</span>
+                <span v-if="selectedCourseTitle.suffix" class="shrink-0">{{ selectedCourseTitle.suffix }}</span>
+              </template>
+              <span v-else class="truncate">请选择球场</span>
+            </span>
             <uni-icons type="right" :size="16" color="#cbd5e1" />
           </div>
         </div>
@@ -536,9 +649,10 @@ const handleStart = async () => {
           <div>
             <h3 class="text-xl font-bold text-slate-900">选择半场</h3>
             <p class="text-xs text-slate-400 mt-1">请选择两个 9 洞半场进行组合</p>
+            <p v-if="sectionOrderHint" class="text-xs text-emerald-700 mt-1 font-medium">{{ sectionOrderHint }}</p>
             <p v-if="showStandard18SectionHint" class="text-xs text-slate-500 mt-0.5">18 洞球场：可先选后九再选前九，数字表示击球顺序</p>
           </div>
-          <view @click="showSectionPicker = false" class="w-10 h-10 flex items-center justify-center rounded-full bg-slate-100">
+          <view @click="cancelSectionPicker" class="w-10 h-10 flex items-center justify-center rounded-full bg-slate-100">
             <uni-icons type="closeempty" :size="20" color="#94a3b8" />
           </view>
         </div>
