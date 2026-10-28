@@ -4,9 +4,22 @@
  */
 
 import type { ComponentPublicInstance } from 'vue';
+import { paintCleanScorePoster } from './scorePosterLayout';
 
 export const POSTER_LOGICAL_WIDTH = 750;
 export const POSTER_LOGICAL_HEIGHT = 1334;
+/** 横屏海报：18 洞同一行 */
+export const POSTER_LANDSCAPE_WIDTH = 1334;
+export const POSTER_LANDSCAPE_HEIGHT = 750;
+
+export type PosterOrientation = 'portrait' | 'landscape';
+
+export function posterLogicalSize(orientation: PosterOrientation = 'portrait') {
+  if (orientation === 'landscape') {
+    return { width: POSTER_LANDSCAPE_WIDTH, height: POSTER_LANDSCAPE_HEIGHT };
+  }
+  return { width: POSTER_LOGICAL_WIDTH, height: POSTER_LOGICAL_HEIGHT };
+}
 
 export interface PersonalScorePoster2dImages {
   header: MiniCanvasImg | null;
@@ -178,9 +191,9 @@ function posterFormatSigned(d: number): string {
 export async function acquireMpPosterCanvas2d(
   componentInstance?: ComponentPublicInstance | null | undefined,
   selector = '#scorePosterCanvas2d',
+  orientation: PosterOrientation = 'portrait',
 ): Promise<{ canvas: AnyMiniCanvasNode; ctx: CanvasRenderingContext2D; dpr: number }> {
-  const logicalW = POSTER_LOGICAL_WIDTH;
-  const logicalH = POSTER_LOGICAL_HEIGHT;
+  const { width: logicalW, height: logicalH } = posterLogicalSize(orientation);
 
   const runQuery = (
     scope: ComponentPublicInstance | null | undefined,
@@ -202,7 +215,9 @@ export async function acquireMpPosterCanvas2d(
             reject(new Error('[poster2d] getContext("2d") failed'));
             return;
           }
-          const dpr = Number(uni.getSystemInfoSync().pixelRatio) || 1;
+          let dpr = Number(uni.getSystemInfoSync().pixelRatio) || 1;
+          const longSide = Math.max(logicalW, logicalH);
+          if (longSide * dpr > 4096) dpr = 4096 / longSide;
           canvasNode.width = Math.round(logicalW * dpr);
           canvasNode.height = Math.round(logicalH * dpr);
           ctx2.scale(dpr, dpr);
@@ -391,10 +406,10 @@ export async function exportMpPosterCanvas2dTempPath(
   canvasNode: AnyMiniCanvasNode,
   dpr: number,
   componentInstance?: ComponentPublicInstance | null | undefined,
+  orientation: PosterOrientation = 'portrait',
 ): Promise<string> {
   await posterDelayTwoFrames();
-  const logicalW = POSTER_LOGICAL_WIDTH;
-  const logicalH = POSTER_LOGICAL_HEIGHT;
+  const { width: logicalW, height: logicalH } = posterLogicalSize(orientation);
   return new Promise((resolve, reject) => {
     (uni as { canvasToTempFilePath: (opt: Record<string, unknown>, inst?: unknown) => void }).canvasToTempFilePath(
       {
@@ -409,333 +424,6 @@ export async function exportMpPosterCanvas2dTempPath(
       componentInstance,
     );
   });
-}
-
-/** 在给定已为逻辑坐标系的 ctx 上绘制整张海报（已 scale dpr） */
-export function paintPersonalScorePoster2d(
-  ctx: CanvasRenderingContext2D,
-  images: PersonalScorePoster2dImages,
-  model: PersonalScorePoster2dModel,
-) {
-  const w = POSTER_LOGICAL_WIDTH;
-  const h = POSTER_LOGICAL_HEIGHT;
-  const posterGreen = '#6b9b6e';
-  const posterGreenLine = '#cde2cf';
-  const posterMintRow = '#ecf8ec';
-  const posterMintStroke = '#c8e6ca';
-
-  const cardX = 20;
-  const cardW = 710;
-  const cardR = 24;
-  const innerPad = 18;
-  const labelColW = 56;
-  const rowLeft = cardX + innerPad;
-  const rowW = cardW - innerPad * 2;
-  const innerLeft = rowLeft + labelColW;
-  const cardInnerW = rowW - labelColW;
-  const colW = cardInnerW / 9;
-  const labelRight = rowLeft + labelColW - 8;
-
-  const summaryLineH = 58;
-  const blockGap = 18;
-  const statBlockH = 84;
-  const secTitleH = 30;
-  const R_H = 40;
-  const R_PAR = 34;
-  const R_SCORE = 32;
-  const R_DIFF = 64;
-  const oneNineH = secTitleH + R_H + R_PAR + R_SCORE + R_DIFF;
-  const cardH =
-    innerPad +
-    summaryLineH +
-    blockGap +
-    oneNineH +
-    blockGap +
-    oneNineH +
-    14 +
-    statBlockH +
-    innerPad;
-  const HEAD_H = 392;
-  const cardY = HEAD_H + 14;
-  const footY = cardY + cardH + 12;
-
-  const { total, diff, frontNine, backNine, stat, nickname, courseName, dateStr, getScore, getPar } = model;
-
-  const posterNineLine = (s: PosterNineSummary): string => {
-    if (s.played === 0) return '—';
-    const d = s.diff;
-    if (d === null) return `${s.strokes}杆`;
-    const tail = d === 0 ? ' · E' : d > 0 ? ` · +${d}` : ` · ${d}`;
-    return `${s.strokes}杆${tail}`;
-  };
-
-  const posterDiffText = (d: number): string =>
-    d === 0 ? 'E' : d > 0 ? `+${d}` : `${d}`;
-
-  /** 清空（避免热重绘叠影） */
-  ctx.clearRect(0, 0, w, h);
-
-  if (images.header) {
-    ctx.drawImage(images.header as unknown as CanvasImageSource, 0, 0, w, HEAD_H);
-  } else {
-    const bg = ctx.createLinearGradient(0, 0, w, HEAD_H + 140);
-    bg.addColorStop(0, '#1a4d38');
-    bg.addColorStop(1, '#c5ddcc');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, w, HEAD_H + 140);
-  }
-
-  const featherY = HEAD_H - 52;
-  const bodyG = ctx.createLinearGradient(0, featherY, 0, Math.min(h, HEAD_H + 280));
-  bodyG.addColorStop(0, 'rgba(255,255,255,0)');
-  bodyG.addColorStop(0.15, '#f0f6f2');
-  bodyG.addColorStop(0.4, '#f8fafc');
-  bodyG.addColorStop(1, '#ffffff');
-  ctx.fillStyle = bodyG;
-  ctx.fillRect(0, featherY, w, h - featherY);
-
-  const hGradTop = ctx.createLinearGradient(0, 0, 0, HEAD_H);
-  hGradTop.addColorStop(0, 'rgba(0, 16, 10, 0.58)');
-  hGradTop.addColorStop(0.45, 'rgba(0, 26, 16, 0.36)');
-  hGradTop.addColorStop(1, 'rgba(0, 38, 24, 0.2)');
-  ctx.fillStyle = hGradTop;
-  ctx.fillRect(0, 0, w, HEAD_H);
-
-  ctx.fillStyle = 'rgba(5, 28, 18, 0.55)';
-  posterFillRoundRect(ctx, 14, 44, 528, 278, 20);
-
-  const posterMainTitle = 'Golfdate计分';
-  posterStrokeFillText(ctx, posterMainTitle, 36, 96, 52, '#ffffff', 'rgba(0,24,14,0.78)', 'left');
-
-  ctx.font = posterFont(52);
-  const titleUnderlineW = Math.max(340, ctx.measureText(posterMainTitle).width || 400);
-  ctx.strokeStyle = '#c8f565';
-  ctx.lineWidth = 4;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(36, 114);
-  ctx.lineTo(36 + titleUnderlineW, 114);
-  ctx.stroke();
-
-  posterStrokeFillText(
-    ctx,
-    '挥杆 · 记录 · 超越',
-    36,
-    146,
-    20,
-    'rgba(255,255,255,0.96)',
-    'rgba(0,24,14,0.72)',
-    'left',
-  );
-  posterStrokeFillText(ctx, courseName, 36, 178, 24, '#ffffff', 'rgba(0,24,14,0.78)', 'left');
-  posterStrokeFillText(ctx, dateStr, 36, 210, 20, 'rgba(255,255,255,0.94)', 'rgba(0,24,14,0.72)', 'left');
-
-  if (images.avatar) {
-    const avR = 41;
-    const avCx = 88;
-    const avCy = 271;
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(avCx, avCy, avR, 0, Math.PI * 2);
-    ctx.clip();
-    ctx.drawImage(images.avatar as unknown as CanvasImageSource, avCx - avR, avCy - avR, avR * 2, avR * 2);
-    ctx.restore();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.arc(avCx, avCy, avR, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-  posterStrokeFillText(ctx, nickname || '我自己', 154, 279, 31, '#ffffff', 'rgba(0,24,14,0.78)', 'left');
-  posterStrokeFillText(ctx, '总杆', 706, 228, 23, 'rgba(255,255,255,0.92)', 'rgba(0,24,14,0.72)', 'right');
-  posterStrokeFillText(ctx, `${total || 0}`, 706, 304, 74, '#ffffff', 'rgba(0,24,14,0.78)', 'right');
-
-  ctx.fillStyle = '#ffffff';
-  posterFillRoundRect(ctx, cardX, cardY, cardW, cardH, cardR);
-  ctx.strokeStyle = '#dfe8e6';
-  ctx.lineWidth = 1.5;
-  posterStrokeRoundRect(ctx, cardX, cardY, cardW, cardH, cardR);
-
-  let yIn = cardY + innerPad;
-
-  ctx.font = posterFont(20);
-  ctx.fillStyle = '#334155';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillText(`前九 OUT  ${posterNineLine(frontNine)}`, rowLeft, yIn + 24);
-  ctx.textAlign = 'right';
-  ctx.fillStyle = '#475569';
-  ctx.font = posterFont(20);
-  ctx.fillText(`后九 IN  ${posterNineLine(backNine)}`, rowLeft + rowW, yIn + 24);
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#64748b';
-  ctx.font = posterFont(17);
-  const playedAll = frontNine.played + backNine.played;
-  ctx.fillText(
-    `总杆 ${total || 0}  ·  较标准杆 ${posterDiffText(diff)}  ·  已打 ${playedAll}/18 洞`,
-    cardX + cardW / 2,
-    yIn + 50,
-  );
-  yIn += summaryLineH + blockGap;
-
-  const drawNineBlock = (startHole: number, sectionTitle: string) => {
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = '#334155';
-    ctx.font = posterFont(22);
-    ctx.fillText(sectionTitle, rowLeft, yIn + 20);
-    yIn += secTitleH;
-
-    ctx.fillStyle = posterGreen;
-    ctx.fillRect(rowLeft, yIn, rowW, R_H);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = posterFont(17);
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('洞数', labelRight, yIn + R_H / 2);
-    for (let col = 0; col < 9; col++) {
-      const hi = startHole + col;
-      const tcx = innerLeft + col * colW + colW / 2;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font = posterFont(19);
-      ctx.fillText(`${hi + 1}`, tcx, yIn + R_H / 2);
-    }
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    yIn += R_H;
-
-    ctx.fillStyle = posterMintRow;
-    ctx.fillRect(rowLeft, yIn, rowW, R_PAR);
-    ctx.strokeStyle = posterMintStroke;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(rowLeft, yIn, rowW, R_PAR);
-    ctx.fillStyle = '#166534';
-    ctx.font = posterFont(16);
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('标准杆', labelRight, yIn + R_PAR / 2);
-    for (let col = 0; col < 9; col++) {
-      const hi = startHole + col;
-      const par = getPar(hi);
-      const tcx = innerLeft + col * colW + colW / 2;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font = posterFont(20);
-      ctx.fillText(`${par}`, tcx, yIn + R_PAR / 2);
-    }
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    yIn += R_PAR;
-
-    ctx.fillStyle = '#fafafa';
-    ctx.fillRect(rowLeft, yIn, rowW, R_SCORE);
-    ctx.strokeStyle = posterGreenLine;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(rowLeft, yIn, rowW, R_SCORE);
-    ctx.fillStyle = '#334155';
-    ctx.font = posterFont(16);
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('杆数', labelRight, yIn + R_SCORE / 2);
-    for (let col = 0; col < 9; col++) {
-      const hi = startHole + col;
-      const sc = getScore(hi);
-      const tcx = innerLeft + col * colW + colW / 2;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font = posterFont(19);
-      ctx.fillStyle = sc > 0 ? '#0f172a' : '#94a3b8';
-      ctx.fillText(sc > 0 ? `${sc}` : '—', tcx, yIn + R_SCORE / 2);
-    }
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    yIn += R_SCORE;
-
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(rowLeft, yIn, rowW, R_DIFF);
-    ctx.strokeStyle = posterGreenLine;
-    ctx.strokeRect(rowLeft, yIn, rowW, R_DIFF);
-    ctx.fillStyle = '#64748b';
-    ctx.font = posterFont(16);
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('杆差', labelRight, yIn + R_DIFF / 2);
-    for (let col = 0; col < 9; col++) {
-      const hi = startHole + col;
-      const sc = getScore(hi);
-      const par = getPar(hi);
-      const delta = sc > 0 ? sc - par : 0;
-      const tcx = innerLeft + col * colW + colW / 2;
-      const tcy = yIn + R_DIFF / 2;
-      drawPosterHoleScoreFrame(ctx, tcx, tcy, delta, sc > 0);
-      const diffLabel = sc > 0 ? (delta === 0 ? '0' : delta > 0 ? `+${delta}` : `${delta}`) : '—';
-      if (!sc) {
-        ctx.fillStyle = '#94a3b8';
-      } else if (delta < 0) {
-        ctx.fillStyle = '#ffffff';
-      } else {
-        ctx.fillStyle = '#0f172a';
-      }
-      ctx.font = posterFont(sc > 0 && delta > 1 ? 18 : 21);
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(diffLabel, tcx, tcy);
-    }
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    yIn += R_DIFF;
-  };
-
-  drawNineBlock(0, '前九 · OUT');
-  yIn += blockGap;
-  drawNineBlock(9, '后九 · IN');
-
-  const statPadX = Math.max(cardX + innerPad, 24);
-  ctx.fillStyle = '#334155';
-  ctx.font = posterFont(23);
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-  const statLine1 = `老鹰+ ${stat.eagleOrBetter} 洞  ·  小鸟 ${stat.birdie} 洞`;
-  const statLine2 = `保帕 ${stat.par} 洞  ·  柏忌+ ${stat.bogeyPlus} 洞`;
-  ctx.fillText(statLine1, statPadX, yIn + 30);
-  ctx.fillText(statLine2, statPadX, yIn + 62);
-
-  /** 小程序码区：不再有底部绿色总杆条幅（曾与码重叠）；总杆已在头部与纪要行展示 */
-  const qrSize = 138;
-  const qrBottomMargin = 16;
-  const qrGapUnderCard = 18;
-  const qrBandTop = Math.min(footY + qrGapUnderCard, h - qrSize - qrBottomMargin);
-  const qrX = cardX + 18;
-  const qrCx = qrX + qrSize / 2;
-  const qrCy = qrBandTop + qrSize / 2;
-
-  ctx.fillStyle = '#cbd5e1';
-  ctx.beginPath();
-  ctx.arc(qrCx, qrCy, qrSize / 2 + 2, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(qrCx, qrCy, qrSize / 2, 0, Math.PI * 2);
-  ctx.clip();
-  ctx.drawImage(images.qr as unknown as CanvasImageSource, qrX, qrBandTop, qrSize, qrSize);
-  ctx.restore();
-
-  ctx.strokeStyle = '#94a3b8';
-  ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  ctx.arc(qrCx, qrCy, qrSize / 2, 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.fillStyle = '#475569';
-  ctx.font = posterFont(22);
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('长按识别小程序码', qrX + qrSize + 16, qrBandTop + 46);
-  ctx.fillStyle = '#64748b';
-  ctx.font = posterFont(19);
-  ctx.fillText('记录每一次挥杆时刻', qrX + qrSize + 16, qrBandTop + 82);
 }
 
 export interface GroupScorePosterPlayer {
@@ -761,376 +449,48 @@ export interface GroupScorePoster2dModel {
   getPar: (holeIndex: number) => number;
 }
 
-function drawPosterAvatarOrInitial(
+/** 单人记分卡海报 */
+export function paintPersonalScorePoster2d(
   ctx: CanvasRenderingContext2D,
-  img: MiniCanvasImg | null,
-  cx: number,
-  cy: number,
-  r: number,
-  name: string,
+  images: PersonalScorePoster2dImages,
+  model: PersonalScorePoster2dModel,
+  orientation: PosterOrientation = 'portrait',
 ) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.clip();
-  if (img) {
-    ctx.drawImage(img as unknown as CanvasImageSource, cx - r, cy - r, r * 2, r * 2);
-  } else {
-    ctx.fillStyle = '#15803d';
-    ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = posterFont(Math.max(12, Math.round(r)));
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const ch = String(name || '球').trim().slice(0, 1) || '球';
-    ctx.fillText(ch, cx, cy);
-  }
-  ctx.restore();
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.strokeStyle = '#bbf7d0';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
+  paintCleanScorePoster(ctx, orientation, {
+    courseName: model.courseName,
+    dateStr: model.dateStr,
+    qr: images.qr,
+    getPar: model.getPar,
+    players: [
+      {
+        nickname: model.nickname,
+        total: model.total,
+        frontNine: model.frontNine,
+        backNine: model.backNine,
+        getScore: model.getScore,
+      },
+    ],
+  });
 }
 
-/** 多人选中时的同组海报：前九/后九按人分行，格内为杆差 */
+/** 同组记分卡海报（最多 8 人） */
 export function paintGroupScorePoster2d(
   ctx: CanvasRenderingContext2D,
   images: GroupScorePoster2dImages,
   model: GroupScorePoster2dModel,
+  orientation: PosterOrientation = 'portrait',
 ) {
-  const players = model.players.slice(0, 8);
-  const n = players.length;
-  const w = POSTER_LOGICAL_WIDTH;
-  const h = POSTER_LOGICAL_HEIGHT;
-  ctx.clearRect(0, 0, w, h);
-  if (!n) return;
-
-  const posterGreen = '#6b9b6e';
-  const posterGreenLine = '#cde2cf';
-  const posterMintRow = '#ecf8ec';
-  const posterMintStroke = '#c8e6ca';
-
-  const qrSize = 118;
-  const qrBottom = 18;
-  const qrGap = 14;
-  const headH = n >= 5 ? 292 : 340;
-  const cardX = 18;
-  const cardW = 714;
-  const cardR = 22;
-  const innerPad = 14;
-  const cardY = headH + 10;
-
-  const nameColW = 136;
-  const sumColW = 64;
-  const rowLeft = cardX + innerPad;
-  const rowW = cardW - innerPad * 2;
-  const holesLeft = rowLeft + nameColW;
-  const holesW = rowW - nameColW - sumColW;
-  const colW = holesW / 9;
-  const sumLeft = holesLeft + holesW;
-
-  const secTitleH = 26;
-  const holeH = 32;
-  const parH = 28;
-  const blockGap = 10;
-  const summaryGap = 12;
-  const summaryTitleH = 26;
-  const summaryHeadH = 22;
-  const summaryRowH = n >= 5 ? 28 : 34;
-  const fixed =
-    innerPad * 2 +
-    (secTitleH + holeH + parH) * 2 +
-    blockGap +
-    summaryGap +
-    summaryTitleH +
-    summaryHeadH +
-    n * summaryRowH;
-  const targetCardH = h - qrSize - qrBottom - qrGap - cardY;
-  let rowH = Math.floor((targetCardH - fixed) / (n * 2));
-  rowH = Math.max(44, Math.min(64, rowH));
-  const cardH = fixed + rowH * n * 2;
-  const markScale = Math.min(1, (colW - 8) / 50, (rowH - 8) / 50);
-  const scoreFont = rowH >= 56 ? 17 : 15;
-
-  if (images.header) {
-    ctx.drawImage(images.header as unknown as CanvasImageSource, 0, 0, w, headH);
-  } else {
-    const bg = ctx.createLinearGradient(0, 0, w, headH + 80);
-    bg.addColorStop(0, '#1a4d38');
-    bg.addColorStop(1, '#c5ddcc');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, w, headH + 80);
-  }
-
-  const featherY = headH - 48;
-  const bodyG = ctx.createLinearGradient(0, featherY, 0, Math.min(h, headH + 220));
-  bodyG.addColorStop(0, 'rgba(255,255,255,0)');
-  bodyG.addColorStop(0.18, '#f0f6f2');
-  bodyG.addColorStop(0.45, '#f8fafc');
-  bodyG.addColorStop(1, '#ffffff');
-  ctx.fillStyle = bodyG;
-  ctx.fillRect(0, featherY, w, h - featherY);
-
-  const hGradTop = ctx.createLinearGradient(0, 0, 0, headH);
-  hGradTop.addColorStop(0, 'rgba(0, 16, 10, 0.58)');
-  hGradTop.addColorStop(0.45, 'rgba(0, 26, 16, 0.36)');
-  hGradTop.addColorStop(1, 'rgba(0, 38, 24, 0.22)');
-  ctx.fillStyle = hGradTop;
-  ctx.fillRect(0, 0, w, headH);
-
-  ctx.fillStyle = 'rgba(5, 28, 18, 0.55)';
-  posterFillRoundRect(ctx, 14, 32, 520, headH - 78, 20);
-
-  const posterMainTitle = 'Golfdate计分';
-  posterStrokeFillText(ctx, posterMainTitle, 36, 86, 46, '#ffffff', 'rgba(0,24,14,0.78)', 'left');
-  ctx.font = posterFont(46);
-  const titleUnderlineW = Math.max(300, ctx.measureText(posterMainTitle).width || 360);
-  ctx.strokeStyle = '#c8f565';
-  ctx.lineWidth = 4;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(36, 100);
-  ctx.lineTo(36 + titleUnderlineW, 100);
-  ctx.stroke();
-
-  posterStrokeFillText(ctx, '挥杆 · 记录 · 超越', 36, 132, 18, 'rgba(255,255,255,0.96)', 'rgba(0,24,14,0.72)', 'left');
-  posterStrokeFillText(
-    ctx,
-    posterFitText(ctx, model.courseName || '球场', 460, 22),
-    36,
-    166,
-    22,
-    '#ffffff',
-    'rgba(0,24,14,0.78)',
-    'left',
-  );
-  posterStrokeFillText(
-    ctx,
-    posterFitText(ctx, model.dateStr || '', 460, 18),
-    36,
-    196,
-    18,
-    'rgba(255,255,255,0.94)',
-    'rgba(0,24,14,0.72)',
-    'left',
-  );
-  const joinedNames = players.map((p) => p.nickname || '球手').join(' · ');
-  posterStrokeFillText(
-    ctx,
-    posterFitText(ctx, joinedNames, 468, 20),
-    36,
-    headH - 78,
-    20,
-    '#ffffff',
-    'rgba(0,24,14,0.78)',
-    'left',
-  );
-
-  posterStrokeFillText(ctx, '同组', 706, headH - 148, 22, 'rgba(255,255,255,0.92)', 'rgba(0,24,14,0.72)', 'right');
-  posterStrokeFillText(ctx, `${n}`, 706, headH - 72, 64, '#ffffff', 'rgba(0,24,14,0.78)', 'right');
-
-  ctx.fillStyle = '#ffffff';
-  posterFillRoundRect(ctx, cardX, cardY, cardW, cardH, cardR);
-  ctx.strokeStyle = '#dfe8e6';
-  ctx.lineWidth = 1.5;
-  posterStrokeRoundRect(ctx, cardX, cardY, cardW, cardH, cardR);
-
-  let yIn = cardY + innerPad;
-  const { getPar } = model;
-
-  const drawNineBlock = (
-    startHole: number,
-    sectionTitle: string,
-    sumLabel: string,
-    nineOf: (player: GroupScorePosterPlayer) => PosterNineSummary,
-  ) => {
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = '#334155';
-    ctx.font = posterFont(20);
-    ctx.fillText(sectionTitle, rowLeft, yIn + 18);
-    yIn += secTitleH;
-
-    ctx.fillStyle = posterGreen;
-    ctx.fillRect(rowLeft, yIn, rowW, holeH);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = posterFont(15);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('球手', rowLeft + nameColW / 2, yIn + holeH / 2);
-    for (let col = 0; col < 9; col++) {
-      const tcx = holesLeft + col * colW + colW / 2;
-      ctx.font = posterFont(16);
-      ctx.fillText(`${startHole + col + 1}`, tcx, yIn + holeH / 2);
-    }
-    ctx.font = posterFont(15);
-    ctx.fillText(sumLabel, sumLeft + sumColW / 2, yIn + holeH / 2);
-    yIn += holeH;
-
-    ctx.fillStyle = posterMintRow;
-    ctx.fillRect(rowLeft, yIn, rowW, parH);
-    ctx.strokeStyle = posterMintStroke;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(rowLeft, yIn, rowW, parH);
-    ctx.fillStyle = '#166534';
-    ctx.font = posterFont(14);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('标准杆', rowLeft + nameColW / 2, yIn + parH / 2);
-    let parSum = 0;
-    for (let col = 0; col < 9; col++) {
-      const par = getPar(startHole + col);
-      parSum += par;
-      const tcx = holesLeft + col * colW + colW / 2;
-      ctx.font = posterFont(16);
-      ctx.fillText(`${par}`, tcx, yIn + parH / 2);
-    }
-    ctx.font = posterFont(15);
-    ctx.fillText(`${parSum}`, sumLeft + sumColW / 2, yIn + parH / 2);
-    yIn += parH;
-
-    for (let i = 0; i < n; i++) {
-      const player = players[i]!;
-      ctx.fillStyle = i % 2 === 0 ? '#ffffff' : '#f3faf4';
-      ctx.fillRect(rowLeft, yIn, rowW, rowH);
-      ctx.strokeStyle = posterGreenLine;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(rowLeft, yIn, rowW, rowH);
-      ctx.beginPath();
-      ctx.moveTo(sumLeft, yIn);
-      ctx.lineTo(sumLeft, yIn + rowH);
-      ctx.stroke();
-
-      const midY = yIn + rowH / 2;
-      const avR = Math.min(15, Math.max(11, rowH / 2 - 7));
-      const avCx = rowLeft + 8 + avR;
-      drawPosterAvatarOrInitial(ctx, player.avatar, avCx, midY, avR, player.nickname);
-      const nameX = avCx + avR + 6;
-      const nameMax = rowLeft + nameColW - 8 - nameX;
-      ctx.fillStyle = '#0f172a';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(posterFitText(ctx, player.nickname || '球手', nameMax, 15), nameX, midY);
-
-      for (let col = 0; col < 9; col++) {
-        const hi = startHole + col;
-        const sc = player.getScore(hi);
-        const par = getPar(hi);
-        const delta = sc > 0 ? sc - par : 0;
-        const tcx = holesLeft + col * colW + colW / 2;
-        drawPosterHoleScoreFrame(ctx, tcx, midY, delta, sc > 0, markScale);
-        const diffLabel = sc > 0 ? (delta === 0 ? '0' : delta > 0 ? `+${delta}` : `${delta}`) : '—';
-        if (!sc) ctx.fillStyle = '#94a3b8';
-        else if (delta < 0) ctx.fillStyle = '#ffffff';
-        else ctx.fillStyle = '#0f172a';
-        ctx.font = posterFont(diffLabel.length >= 3 ? scoreFont - 2 : scoreFont);
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(diffLabel, tcx, midY);
-      }
-
-      const nine = nineOf(player);
-      const sumText = nine.played > 0 && nine.diff != null ? posterFormatSigned(nine.diff) : '—';
-      if (!nine.played || nine.diff == null) ctx.fillStyle = '#94a3b8';
-      else if (nine.diff < 0) ctx.fillStyle = '#15803d';
-      else if (nine.diff > 0) ctx.fillStyle = '#dc2626';
-      else ctx.fillStyle = '#0f172a';
-      ctx.font = posterFont(16);
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(sumText, sumLeft + sumColW / 2, midY);
-      yIn += rowH;
-    }
-  };
-
-  drawNineBlock(0, '前九 · OUT', 'OUT', (p) => p.frontNine);
-  yIn += blockGap;
-  drawNineBlock(9, '后九 · IN', 'IN', (p) => p.backNine);
-
-  yIn += summaryGap;
-  ctx.fillStyle = '#334155';
-  ctx.font = posterFont(18);
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillText('成绩汇总', rowLeft, yIn + 18);
-  yIn += summaryTitleH;
-
-  const sumNameW = nameColW;
-  const metricW = (rowW - sumNameW) / 4;
-  const metricLabels = ['前九', '后九', '总杆', '杆差'];
-  ctx.fillStyle = '#64748b';
-  ctx.font = posterFont(14);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  for (let i = 0; i < metricLabels.length; i++) {
-    ctx.fillText(metricLabels[i]!, rowLeft + sumNameW + metricW * i + metricW / 2, yIn + 10);
-  }
-  yIn += 22;
-
-  for (let i = 0; i < n; i++) {
-    const player = players[i]!;
-    const played = player.frontNine.played + player.backNine.played;
-    const rowMid = yIn + summaryRowH / 2;
-    if (i % 2 === 1) {
-      ctx.fillStyle = '#f8fafc';
-      ctx.fillRect(rowLeft, yIn, rowW, summaryRowH);
-    }
-    ctx.fillStyle = '#0f172a';
-    ctx.font = posterFont(15);
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(posterFitText(ctx, player.nickname || '球手', sumNameW - 12, 15), rowLeft + 4, rowMid);
-
-    const frontText = player.frontNine.played > 0 ? `${player.frontNine.strokes}` : '—';
-    const backText = player.backNine.played > 0 ? `${player.backNine.strokes}` : '—';
-    const totalText = played > 0 ? `${player.total || 0}` : '—';
-    const diffText = played > 0 ? posterFormatSigned(player.diff) : '—';
-    const metricValues = [frontText, backText, totalText, diffText];
-    for (let c = 0; c < metricValues.length; c++) {
-      if (c === 3) {
-        if (!played) ctx.fillStyle = '#94a3b8';
-        else if (player.diff < 0) ctx.fillStyle = '#15803d';
-        else if (player.diff > 0) ctx.fillStyle = '#dc2626';
-        else ctx.fillStyle = '#0f172a';
-        ctx.font = posterFont(16);
-      } else {
-        ctx.fillStyle = metricValues[c] === '—' ? '#94a3b8' : '#0f172a';
-        ctx.font = posterFont(16);
-      }
-      ctx.textAlign = 'center';
-      ctx.fillText(metricValues[c]!, rowLeft + sumNameW + metricW * c + metricW / 2, rowMid);
-    }
-    yIn += summaryRowH;
-  }
-
-  const qrBandTop = Math.min(h - qrSize - qrBottom, cardY + cardH + 16);
-  const qrX = cardX + 16;
-  const qrCx = qrX + qrSize / 2;
-  const qrCy = qrBandTop + qrSize / 2;
-
-  ctx.fillStyle = '#cbd5e1';
-  ctx.beginPath();
-  ctx.arc(qrCx, qrCy, qrSize / 2 + 2, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(qrCx, qrCy, qrSize / 2, 0, Math.PI * 2);
-  ctx.clip();
-  ctx.drawImage(images.qr as unknown as CanvasImageSource, qrX, qrBandTop, qrSize, qrSize);
-  ctx.restore();
-  ctx.strokeStyle = '#94a3b8';
-  ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  ctx.arc(qrCx, qrCy, qrSize / 2, 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.fillStyle = '#475569';
-  ctx.font = posterFont(22);
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('长按识别小程序码', qrX + qrSize + 16, qrBandTop + 40);
-  ctx.fillStyle = '#64748b';
-  ctx.font = posterFont(18);
-  ctx.fillText('同组成绩 · 记录每一次挥杆', qrX + qrSize + 16, qrBandTop + 74);
+  paintCleanScorePoster(ctx, orientation, {
+    courseName: model.courseName,
+    dateStr: model.dateStr,
+    qr: images.qr,
+    getPar: model.getPar,
+    players: model.players.slice(0, 8).map((p) => ({
+      nickname: p.nickname,
+      total: p.total,
+      frontNine: p.frontNine,
+      backNine: p.backNine,
+      getScore: p.getScore,
+    })),
+  });
 }

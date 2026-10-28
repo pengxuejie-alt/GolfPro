@@ -65,7 +65,7 @@ import { debugInfo, debugLog } from '@/utils/mpDebugLog';
 import { hydrateUserProfileFromCloud } from '@/utils/hydrateUserProfileFromCloud';
 import { golfScoreCellMarkClasses, golfHoleMarkKind } from '@/utils/golfScoreShapes';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
-import { formatMatchKickoffCn, shouldAutoEndByKickoffTtl } from '@/utils/matchKickoff';
+import { formatMatchKickoffCn, kickoffTimeMs, shouldAutoEndByKickoffTtl } from '@/utils/matchKickoff';
 import { strokeCountInHoleList, normalizeMatchHoleScoresForClient } from '@/utils/matchHoleScoresNormalize';
 import {
   acquireMpPosterCanvas2d,
@@ -3774,6 +3774,18 @@ const addRule = () => {
 const showShareModal = ref(false);
 /** 海报球手：可多选；仅 1 人走单人海报，2 人及以上合成同组海报 */
 const sharePlayerIds = ref<string[]>([]);
+/** 竖屏：前九、后九上下排列；横屏：18 洞同一行 */
+const posterOrientation = ref<'portrait' | 'landscape'>('portrait');
+
+function formatPosterKickoff(match: unknown): string {
+  const ms = kickoffTimeMs(match);
+  if (ms == null || !Number.isFinite(ms)) return '—';
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return '—';
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+  const weeks = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${weeks[d.getDay()]} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 function openSharePosterModal() {
   showShareModal.value = true;
@@ -3889,6 +3901,8 @@ async function savePersonalScorePoster() {
     uni.showToast({ title: '请先选择球手', icon: 'none' });
     return;
   }
+  const orientation = posterOrientation.value;
+  const posterSelector = orientation === 'landscape' ? '#scorePosterCanvas2dLand' : '#scorePosterCanvas2d';
   /** Canvas 2D：必须在首个 await 之前取实例；await 后继体里 getCurrentInstance() 常为空，不传 .in() 时真机取不到 #scorePosterCanvas2d。 */
   const posterWxCompProxy = getCurrentInstance()?.proxy;
   let posterWatchdog: ReturnType<typeof setTimeout> | null = null;
@@ -3929,7 +3943,7 @@ async function savePersonalScorePoster() {
     await nextTick();
 
     const { canvas: posterCanvasNode, ctx: posterCtx2d, dpr } =
-      await acquireMpPosterCanvas2d(posterWxCompProxy as never);
+      await acquireMpPosterCanvas2d(posterWxCompProxy as never, posterSelector, orientation);
 
     let headerBmp = null as Awaited<ReturnType<typeof loadMpCanvas2dImage>> | null;
     try {
@@ -3943,7 +3957,7 @@ async function savePersonalScorePoster() {
 
     const qrBmp = await loadMpCanvas2dImage(posterCanvasNode, POSTER_MINIAPP_QR_SRC, [qrDrawPath].filter(Boolean));
     const courseName = scorecardCourseName.value;
-    const dateStr = formatMatchKickoffCn(currentMatch.value);
+    const dateStr = formatPosterKickoff(currentMatch.value);
     const getPar = (hi: number) => matchStore.holeScores[hi]?.par || 4;
 
     const loadAvatarBmp = async (index: number) => {
@@ -3981,6 +3995,7 @@ async function savePersonalScorePoster() {
           getScore: (hi) => getScore(player.id, hi),
           getPar,
         },
+        orientation,
       );
     } else {
       const avatarBmps = await Promise.all(selected.map((_, index) => loadAvatarBmp(index)));
@@ -4005,14 +4020,21 @@ async function savePersonalScorePoster() {
             };
           }),
         },
+        orientation,
       );
     }
 
-    const tmpPath = await exportMpPosterCanvas2dTempPath(posterCanvasNode, dpr, posterWxCompProxy as never);
+    const tmpPath = await exportMpPosterCanvas2dTempPath(
+      posterCanvasNode,
+      dpr,
+      posterWxCompProxy as never,
+      orientation,
+    );
 
     endPosterLoading();
     posterPreviewSrc.value = tmpPath;
-    posterPreviewTitle.value = selected.length > 1 ? '同组计分海报' : '计分海报';
+    const orientLabel = orientation === 'landscape' ? '横屏' : '竖屏';
+    posterPreviewTitle.value = selected.length > 1 ? `${orientLabel}同组计分海报` : `${orientLabel}计分海报`;
     showShareModal.value = false;
     showPosterPreviewModal.value = true;
 
@@ -6253,19 +6275,38 @@ const posterPreviewTitle = ref('计分海报');
           </div>
         </div>
         <!-- #ifdef MP-WEIXIN -->
-        <div class="p-6">
+        <div class="px-6 pt-4 pb-6">
+          <div class="text-xs font-bold text-slate-500 mb-2">版式</div>
+          <div class="poster-orient-row">
+            <div
+              class="poster-orient-btn"
+              :class="{ 'poster-orient-btn--on': posterOrientation === 'portrait' }"
+              @tap.stop="posterOrientation = 'portrait'"
+            >
+              <div class="poster-orient-title">竖屏</div>
+              <div class="poster-orient-sub">前九、后九上下排列</div>
+            </div>
+            <div
+              class="poster-orient-btn"
+              :class="{ 'poster-orient-btn--on': posterOrientation === 'landscape' }"
+              @tap.stop="posterOrientation = 'landscape'"
+            >
+              <div class="poster-orient-title">横屏</div>
+              <div class="poster-orient-sub">18 洞同一行</div>
+            </div>
+          </div>
           <button
             type="button"
             hover-class="opacity-90"
             @tap.stop="savePersonalScorePoster"
-            class="w-full py-4 bg-[#07C160] text-white rounded-2xl font-bold text-base flex items-center justify-center gap-3 shadow-lg shadow-green-900/10 active:scale-95 transition-all border-0"
+            class="w-full mt-4 py-4 bg-[#07C160] text-white rounded-2xl font-bold text-base flex items-center justify-center gap-3 shadow-lg shadow-green-900/10 active:scale-95 transition-all border-0"
             :class="sharePlayerIds.length ? '' : 'opacity-40'"
           >
             <view class="scorecard-uni-ico-slot"><uni-icons type="image-filled" :size="24" color="#ffffff" /></view>
-            {{ sharePlayerIds.length > 1 ? `生成同组海报（${sharePlayerIds.length}人）` : '生成完整计分海报' }}
+            {{ sharePlayerIds.length > 1 ? `生成${posterOrientation === 'landscape' ? '横屏' : '竖屏'}同组海报（${sharePlayerIds.length}人）` : `生成${posterOrientation === 'landscape' ? '横屏' : '竖屏'}计分海报` }}
           </button>
           <p class="text-center text-xs text-slate-400 mt-2">
-            {{ sharePlayerIds.length > 1 ? '所选球手合成一张同组计分海报' : sharePlayerIds.length === 1 ? '将生成包含18洞成绩的完整海报' : '请至少选择一位球手' }}
+            {{ !sharePlayerIds.length ? '请至少选择一位球手' : posterOrientation === 'landscape' ? '横屏宽图，18 洞排在同一行' : '竖屏长图，前九与后九上下排列' }}
           </p>
         </div>
         <!-- #endif -->
@@ -6315,6 +6356,11 @@ const posterPreviewTitle = ref('计分海报');
       id="scorePosterCanvas2d"
       style="position: fixed; left: -9999px; top: -9999px; width: 750px; height: 1334px;"
     />
+    <canvas
+      type="2d"
+      id="scorePosterCanvas2dLand"
+      style="position: fixed; left: -9999px; top: -9999px; width: 1334px; height: 750px;"
+    />
     <!-- #endif -->
     <!-- #ifndef MP-WEIXIN -->
     <canvas
@@ -6326,6 +6372,40 @@ const posterPreviewTitle = ref('计分海报');
 </template>
 
 <style scoped>
+.poster-orient-row {
+  display: flex;
+  flex-direction: row;
+}
+.poster-orient-btn {
+  flex: 1;
+  width: 0;
+  box-sizing: border-box;
+  border-radius: 24rpx;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #334155;
+  padding: 16rpx 12rpx;
+  text-align: center;
+}
+.poster-orient-btn + .poster-orient-btn {
+  margin-left: 16rpx;
+}
+.poster-orient-btn--on {
+  background: #07c160;
+  border-color: #07c160;
+  color: #fff;
+}
+.poster-orient-title {
+  font-size: 28rpx;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.poster-orient-sub {
+  margin-top: 4rpx;
+  font-size: 20rpx;
+  line-height: 1.3;
+  opacity: 0.75;
+}
 .animate-in {
   animation: animate-in 0.3s ease-out;
 }
