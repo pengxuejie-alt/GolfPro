@@ -43,6 +43,7 @@ import {
 } from '@/utils/selfAvatarResolve';
 import { formatMatchKickoffCn } from '@/utils/matchKickoff';
 import { golfHoleMarkKind, type GolfHoleMarkKind } from '@/utils/golfScoreShapes';
+import { selfRosterScoreIndex } from '@/utils/selfRosterScoreIndex';
 import {
   requestDeviceLocationCached,
   hasWeatherRefreshedThisSession,
@@ -1145,14 +1146,16 @@ const HOME_MATCH_SECTION_LIMIT = 5;
 
 const HOLE_IDX_RANGE = Array.from({ length: 18 }, (_, i) => i);
 
-/** 历史卡片总杆差：相对标准杆之和（仅统计已记杆洞） */
+/** 历史卡片总杆差：相对标准杆之和（仅统计当前用户已记杆洞） */
 function getMatchTotalParDiffDisplay(m: any): string {
+  const col = selfRosterScoreIndex(m, userStore.openId);
+  if (col < 0) return '—';
   const holeScores = Array.isArray(m?.hole_scores) ? m.hole_scores : [];
   let diff = 0;
   let hasAny = false;
   for (let i = 0; i < holeScores.length; i++) {
     const h = holeScores[i];
-    const score = Number(h?.scores?.[0] || 0);
+    const score = Number(h?.scores?.[col] || 0);
     const par = Number(h?.par ?? 4);
     if (score > 0) {
       hasAny = true;
@@ -1168,10 +1171,12 @@ function getMatchTotalParDiffDisplay(m: any): string {
 type HoleMiniCell = { kind: GolfHoleMarkKind; text: string };
 
 function getHoleMiniDisplay(m: any, holeIndex: number): HoleMiniCell {
+  const col = selfRosterScoreIndex(m, userStore.openId);
+  if (col < 0) return { kind: 'empty', text: '-' };
   const hs = Array.isArray(m?.hole_scores) ? m.hole_scores : [];
   const hole = hs[holeIndex];
   if (!hole) return { kind: 'empty', text: '-' };
-  const score = Number(hole?.scores?.[0] || 0);
+  const score = Number(hole?.scores?.[col] || 0);
   const par = Number(hole?.par ?? 4);
   const kind = golfHoleMarkKind(score, par);
   if (kind === 'empty') return { kind, text: '-' };

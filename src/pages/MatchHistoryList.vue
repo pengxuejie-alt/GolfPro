@@ -10,6 +10,7 @@ import { mpStaticAbsolute } from '@/utils/mpAssetPath';
 import { getMpMatchListNavShellStyle } from '@/utils/mpCapsuleSafeInset';
 import { MP_BATCH_CHECK_OFF, MP_BATCH_CHECK_ON, MP_BATCH_CHECK_ICON_COLOR } from '@/utils/mpBatchCheckStyle';
 import { stashScorecardPrefillFromIndex } from '@/utils/scorecardPrefill';
+import { selfRosterScoreIndex } from '@/utils/selfRosterScoreIndex';
 
 const userStore = useUserStore();
 const SHARE_CARD_POSTER_BG = mpStaticAbsolute('share-card.png');
@@ -224,8 +225,10 @@ function formatMatchWhen(m: any, dateOnly = false): string {
 }
 
 function getMatchTotalStrokes(m: any): number {
+  const col = selfRosterScoreIndex(m, userStore.openId);
+  if (col < 0) return 0;
   const holeScores = Array.isArray(m?.hole_scores) ? m.hole_scores : [];
-  return holeScores.reduce((sum: number, h: any) => sum + Number(h?.scores?.[0] || 0), 0);
+  return holeScores.reduce((sum: number, h: any) => sum + Number(h?.scores?.[col] || 0), 0);
 }
 </script>
 
