@@ -3426,6 +3426,20 @@ const leadPlayerTotal = computed(() => {
   return getTotalStrokes(leadPlayer.value.id);
 });
 
+/** 信息条右侧总杆：只显示当前登录用户；围观或不在名单里则不显示 */
+const selfRosterPlayer = computed(() => {
+  if (isSpectatorMode.value) return null;
+  const oid = String(userStore.openId || '').trim();
+  if (!oid) return null;
+  return (
+    players.value.find((p) => {
+      const resolved = resolvePlayerOpenId(p);
+      const id = String(p.id || '').trim();
+      return (resolved && resolved === oid) || id === oid;
+    }) ?? null
+  );
+});
+
 // Score Helpers
 const getScore = (pid: string, holeIndex: number) => {
   const pIdx = players.value.findIndex(p => p.id === pid);
@@ -4057,10 +4071,11 @@ onShareTimeline(() => {
   };
 });
 
-// 信息条右侧：显示主球手进度
+// 信息条右侧：当前用户的进度；未参赛不显示
 const leadPlayerSummaryLabel = computed(() => {
-  if (!leadPlayer.value) return '总杆';
-  const completed = getCompletedHolesCount(leadPlayer.value.id);
+  const self = selfRosterPlayer.value;
+  if (!self) return '';
+  const completed = getCompletedHolesCount(self.id);
   if (completed === 0) return '待开球';
   const isFinished = currentMatch.value?.status === 2 || completed >= 18;
   if (isFinished) return '总杆';
@@ -4068,13 +4083,14 @@ const leadPlayerSummaryLabel = computed(() => {
 });
 
 const leadPlayerSummaryScore = computed(() => {
-  if (!leadPlayer.value) return '--';
-  const completed = getCompletedHolesCount(leadPlayer.value.id);
+  const self = selfRosterPlayer.value;
+  if (!self) return '';
+  const completed = getCompletedHolesCount(self.id);
   if (completed === 0) return '--';
-  const total = getTotalStrokes(leadPlayer.value.id);
+  const total = getTotalStrokes(self.id);
   const isFinished = currentMatch.value?.status === 2 || completed >= 18;
   if (isFinished) return `${total || '--'}`;
-  const pIdx = players.value.findIndex((p) => p.id === leadPlayer.value!.id);
+  const pIdx = players.value.findIndex((p) => p.id === self.id);
   const completedPar = pIdx >= 0
     ? matchStore.holeScores
         .filter((h) => h.scores[pIdx] > 0)
@@ -4191,7 +4207,7 @@ const posterPreviewTitle = ref('计分海报');
         <text class="sc-info-bar-course">{{ scorecardCourseName }}</text>
         <text class="sc-info-bar-date">{{ formatMatchKickoffCn(currentMatch) }}</text>
       </view>
-      <view class="sc-info-bar-right">
+      <view v-if="selfRosterPlayer" class="sc-info-bar-right">
         <text class="sc-info-bar-label">{{ leadPlayerSummaryLabel }}</text>
         <text class="sc-info-bar-score">{{ leadPlayerSummaryScore }}</text>
       </view>
