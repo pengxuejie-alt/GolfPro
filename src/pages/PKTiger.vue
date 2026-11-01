@@ -3,8 +3,9 @@ import { ref, onMounted, computed } from 'vue';
 // lucide removed — use uni-icons for WeChat compatibility
 import { useMatchStore, Player } from '@/store/matchStore';
 import { onLoad } from '@dcloudio/uni-app';
-import { openRoute, goBackFromPkRulePage } from '@/utils/uniNav';
+import { goBackFromPkRulePage } from '@/utils/uniNav';
 import { useMpPkRuleHeaderPad } from '@/utils/mpPkRuleHeaderPad';
+import { MatchManager } from '@/utils/match_manager';
 
 const { headerPadStyle } = useMpPkRuleHeaderPad();
 
@@ -67,6 +68,12 @@ const selectStartingHole = (n: number) => {
 
 onMounted(() => {
   console.log('PKTiger mounted with params:', { matchId: matchId.value, ruleId: ruleId.value });
+  if (matchId.value && (matchStore.match_id !== matchId.value || matchStore.user_list.length === 0)) {
+    const local = MatchManager.peekLocalMatch(matchId.value);
+    if (local) {
+      matchStore.initMatch(local);
+    }
+  }
   if (ruleId.value) {
     const rule = matchStore.activeRules.find(r => r.id === ruleId.value);
     if (rule && rule.config) {
@@ -129,7 +136,7 @@ const toggleHole = (hole: number) => {
 
 const handleSave = async () => {
   if (!config.value.tiger_id || config.value.participant_ids.length < 2) {
-    alert('请选择老虎和至少两位参与者');
+    uni.showToast({ title: '请选择老虎和至少两位参与者', icon: 'none' });
     return;
   }
 
@@ -147,8 +154,8 @@ const handleSave = async () => {
       fixed_landlord_id: config.value.tiger_id
     }
   });
-  await matchStore.saveMatch();
-  openRoute('SCORECARD', { match_id: matchId.value });
+  await matchStore.saveMatch(matchId.value);
+  goBackFromPkRulePage(matchId.value);
 };
 
 </script>

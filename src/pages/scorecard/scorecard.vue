@@ -1470,6 +1470,12 @@ async function bootstrapScorecardPage() {
     mergeHoleScoresFromCloud(match);
     seedRosterAvatarDisplayFromMatchDoc(match as Record<string, unknown>);
   } else {
+    const prevActiveRules = matchStore.activeRules.length > 0 ? [...matchStore.activeRules] : [];
+    const incomingRules = match.pk_rules ?? match.pk_results;
+    if (prevActiveRules.length > 0 && (!Array.isArray(incomingRules) || incomingRules.length === 0)) {
+      match.pk_rules = prevActiveRules;
+      match.pk_results = prevActiveRules;
+    }
     currentMatch.value = match;
     const bootCourse = String(match.course_name ?? match.courseName ?? '').trim();
     if (bootCourse) stickyScorecardCourseName[routeMid] = bootCourse;
@@ -2553,6 +2559,12 @@ const getPKRuleTitle = (rule: PKRule) => {
     extras.push(is8421 ? '8421' : '打3分');
   } else if (rule.type === 'tiger') {
     extras.push(String(conf.category || conf.compare_type || ''));
+  } else if (rule.type === 'vegas_4') {
+    extras.push(String(conf.grouping || '乱拉'));
+    if (conf.scoring_mode === '8421') extras.push('8421');
+    else if (conf.scoring_mode === 'product') extras.push('公鸡母鸡');
+    else if (conf.scoring_mode === 'sum') extras.push('杆数相加');
+    else extras.push('比3分');
   }
   return [typeName, extras.filter(Boolean).join(' '), who].filter(Boolean).join(' ');
 };
@@ -3387,11 +3399,28 @@ async function syncMatchFromCloud(
 }
 
 onShow(() => {
+  const mid = String(matchId.value || '').trim();
+  if (currentMatch.value && mid && matchStore.match_id === mid) {
+    const storeRulesJson = JSON.stringify(matchStore.activeRules);
+    if (storeRulesJson !== lastSavedPkRulesJson) {
+      const now = Date.now();
+      currentMatch.value.pk_rules = matchStore.activeRules;
+      currentMatch.value.pk_results = matchStore.activeRules;
+      currentMatch.value.pk_rules_sync_ts = now;
+      lastSavedPkRulesJson = storeRulesJson;
+      lastLocalScoreCommitAt.value = now;
+    }
+  }
+  if (
+    selectedPKRuleId.value !== 'all' &&
+    !matchStore.activeRules.some((r) => r.id === selectedPKRuleId.value)
+  ) {
+    selectedPKRuleId.value = 'all';
+  }
   if (consumeScorecardReopenPkRulesModal()) {
     showRulesModal.value = true;
   }
   if (scorecardBootstrapInFlight) return;
-  const mid = String(matchId.value || '').trim();
   if (!mid || !currentMatch.value) return;
   if (Date.now() - scorecardBootstrapFinishedAt < 4000) return;
   void syncMatchFromCloud('show', { gentle: true });
@@ -3563,10 +3592,11 @@ const getScoreRelativeText = (pid: string, holeIndex: number) => {
 const getPKTotal = (pid: string) => getPKScoreTotal(pid);
 
 const currentPKProfits = computed(() => {
-  if (selectedPKRuleId.value === 'all') {
+  const effId = selectedPKRuleOption.value?.id || 'all';
+  if (effId === 'all') {
     return matchStore.holeProfits;
   } else {
-    return matchStore.getProfitsByRule(selectedPKRuleId.value);
+    return matchStore.getProfitsByRule(effId);
   }
 });
 

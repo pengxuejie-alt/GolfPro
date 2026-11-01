@@ -409,8 +409,10 @@ function mapMatchToCreateMatchEvent(matchData) {
     is_private: !!(matchData.is_private === true || matchData.is_private === 1),
     hole_scores: Array.isArray(holeScores) ? holeScores : undefined,
     status: matchData.status ?? 1,
-    pk_rules: Array.isArray(pk) && pk.length > 0 ? pk : undefined,
-    pk_results: Array.isArray(pk) && pk.length > 0 ? pk : undefined,
+    pk_rules: Array.isArray(pk) ? pk : undefined,
+    pk_results: Array.isArray(pk) ? pk : undefined,
+    pk_rules_sync_ts: Number(matchData.pk_rules_sync_ts || 0) || undefined,
+    match_meta_sync_ts: Number(matchData.match_meta_sync_ts || 0) || undefined,
   };
 }
 

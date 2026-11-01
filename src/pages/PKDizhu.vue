@@ -3,8 +3,9 @@ import { ref, onMounted, computed } from 'vue';
 // lucide removed — use uni-icons for WeChat compatibility
 import { useMatchStore } from '@/store/matchStore';
 import { onLoad } from '@dcloudio/uni-app';
-import { openRoute, goBackFromPkRulePage } from '@/utils/uniNav';
+import { goBackFromPkRulePage } from '@/utils/uniNav';
 import { useMpPkRuleHeaderPad } from '@/utils/mpPkRuleHeaderPad';
+import { MatchManager } from '@/utils/match_manager';
 
 const { headerPadStyle } = useMpPkRuleHeaderPad();
 
@@ -133,6 +134,12 @@ const selectStartingHole = (n: number) => {
 };
 
 onMounted(() => {
+  if (matchId.value && (matchStore.match_id !== matchId.value || matchStore.user_list.length === 0)) {
+    const local = MatchManager.peekLocalMatch(matchId.value);
+    if (local) {
+      matchStore.initMatch(local);
+    }
+  }
   if (ruleId.value) {
     const rule = matchStore.activeRules.find(r => r.id === ruleId.value);
     if (rule && rule.config) {
@@ -213,11 +220,11 @@ const togglePlayerSelection = (playerId: string) => {
 
 const handleSave = async () => {
   if (config.value.selected_player_ids.length !== 3) {
-    alert('请选择3位参赛者进行斗地主');
+    uni.showToast({ title: '请选择3位参赛者进行斗地主', icon: 'none' });
     return;
   }
   if (isDesignateLandlord.value && !config.value.fixed_landlord_id) {
-    alert('请指定出发洞地主');
+    uni.showToast({ title: '请指定出发洞地主', icon: 'none' });
     return;
   }
   if (!isDesignateLandlord.value) {
@@ -225,7 +232,7 @@ const handleSave = async () => {
       if (config.value.selected_player_ids.length === 3) {
         drawLandlord();
       } else {
-        alert('请先抽出发洞地主');
+        uni.showToast({ title: '请先抽出发洞地主', icon: 'none' });
         return;
       }
     }
@@ -235,7 +242,7 @@ const handleSave = async () => {
   }
   if (config.value.scoring_mode !== '8421') {
     if (!config.value.pk_good && !config.value.pk_bad && !config.value.pk_avg) {
-      alert('请至少选择一项计分维度');
+      uni.showToast({ title: '请至少选择一项计分维度', icon: 'none' });
       return;
     }
   } else {
@@ -254,8 +261,8 @@ const handleSave = async () => {
     player_8421: config.value.scoring_mode === '8421' ? { ...config.value.player_8421 } : undefined,
     config: { ...config.value }
   });
-  await matchStore.saveMatch();
-  openRoute('SCORECARD', { match_id: matchId.value });
+  await matchStore.saveMatch(matchId.value);
+  goBackFromPkRulePage(matchId.value);
 };
 
 const toggleHole = (hole: number) => {

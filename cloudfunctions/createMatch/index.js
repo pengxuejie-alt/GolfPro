@@ -90,6 +90,8 @@ exports.main = async (event) => {
     status: statusIn,
     pk_results,
     pk_rules,
+    pk_rules_sync_ts,
+    match_meta_sync_ts,
   } = event;
 
   const mid = match_id || `m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -118,8 +120,15 @@ exports.main = async (event) => {
     created_at: db.serverDate(),
   };
 
-  if (pkPayload && pkPayload.length > 0) {
+  if (pkPayload) {
     matchPayload.pk_results = pkPayload;
+    matchPayload.pk_rules = pkPayload;
+  }
+  if (Number(pk_rules_sync_ts) > 0) {
+    matchPayload.pk_rules_sync_ts = Number(pk_rules_sync_ts);
+  }
+  if (Number(match_meta_sync_ts) > 0) {
+    matchPayload.match_meta_sync_ts = Number(match_meta_sync_ts);
   }
 
   const result = { matchOk: false, scoresOk: 0, friendsOk: 0, userOk: false, upsert: 'add', deduped: 0 };
@@ -160,9 +169,16 @@ exports.main = async (event) => {
         };
         if (!existingFinished) {
           updateData.scores = matchPayload.scores;
-          if (pkPayload && pkPayload.length > 0) {
+          if (pkPayload) {
             updateData.pk_results = pkPayload;
+            updateData.pk_rules = pkPayload;
           }
+          if (Number(pk_rules_sync_ts) > 0) {
+            updateData.pk_rules_sync_ts = Number(pk_rules_sync_ts);
+          }
+        }
+        if (Number(match_meta_sync_ts) > 0) {
+          updateData.match_meta_sync_ts = Number(match_meta_sync_ts);
         }
         await db.collection('matches').doc(docId).update({ data: updateData });
         result.matchOk = true;

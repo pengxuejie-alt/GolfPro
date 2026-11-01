@@ -518,18 +518,59 @@ export const useMatchStore = defineStore('match', {
       return playerScores[0].idx;
     },
 
-    getVegasGrouping(holeIndex: number, rule: PKRule): { teamA: number[], teamB: number[] } {
+    findPlayerIndexById(id: string): number {
+      const target = String(id || '').trim();
+      if (!target) return -1;
+      return this.user_list.findIndex((p) => {
+        if (String(p.id || '').trim() === target) return true;
+        const oid = resolvePlayerOpenId(p);
+        return !!(oid && oid === target);
+      });
+    },
+
+    resolveVegasPlayerIndices(rule: PKRule): number[] {
       const pIds = rule.player_ids || [];
-      const pIndices = pIds.map(id => this.user_list.findIndex(p => p.id === id)).filter(idx => idx !== -1);
+      const seen = new Set<number>();
+      const out: number[] = [];
+      for (const rawId of pIds) {
+        const idx = this.findPlayerIndexById(String(rawId || ''));
+        if (idx !== -1 && !seen.has(idx)) {
+          seen.add(idx);
+          out.push(idx);
+        }
+      }
+      if (out.length < 4 && this.user_list.length >= 4) {
+        for (let i = 0; i < this.user_list.length && out.length < 4; i++) {
+          if (!seen.has(i)) {
+            seen.add(i);
+            out.push(i);
+          }
+        }
+      }
+      return out.slice(0, 4);
+    },
+
+    getVegasGrouping(holeIndex: number, rule: PKRule): { teamA: number[], teamB: number[] } {
+      const pIndices = this.resolveVegasPlayerIndices(rule);
       
       if (pIndices.length < 4) return { teamA: [], teamB: [] };
 
       const config = rule.config || {};
       
-      if (config.grouping === '固拉') {
-        const teamAIds = config.team_a || [];
-        const teamA = teamAIds.map((id: string) => this.user_list.findIndex(p => p.id === id)).filter((idx: number) => idx !== -1);
-        const teamB = pIndices.filter(idx => !teamA.includes(idx));
+      if (config.grouping === '固拉' || config.fz_style === 1) {
+        const teamAIds = Array.isArray(config.team_a) ? config.team_a : [];
+        const teamA: number[] = [];
+        for (const rawId of teamAIds) {
+          const idx = this.findPlayerIndexById(String(rawId || ''));
+          if (idx !== -1 && pIndices.includes(idx) && !teamA.includes(idx)) {
+            teamA.push(idx);
+          }
+        }
+        if (teamA.length === 1) {
+          const next = pIndices.find((idx) => !teamA.includes(idx));
+          if (next !== undefined) teamA.push(next);
+        }
+        const teamB = pIndices.filter((idx) => !teamA.includes(idx));
         if (teamA.length === 2 && teamB.length === 2) {
           return { teamA, teamB };
         }
@@ -694,10 +735,13 @@ export const useMatchStore = defineStore('match', {
       const relScores = scores.map(s => s - par);
 
       const hang8421Like = rule.type === '8421_1v1' || rule.type === '8421';
+      const vegasLike = rule.type === 'vegas_4' || rule.type === 'vegas_big';
       const pIdsRaw = rule.player_ids || [];
-      let pIndices = pIdsRaw.map(id => this.user_list.findIndex(p => p.id === id)).filter(idx => idx !== -1);
+      let pIndices = vegasLike
+        ? this.resolveVegasPlayerIndices(rule)
+        : pIdsRaw.map(id => this.findPlayerIndexById(id)).filter(idx => idx !== -1);
 
-      if (!hang8421Like && pIdsRaw.length === 0) return { profits, nextCarryover };
+      if (!hang8421Like && !vegasLike && pIdsRaw.length === 0) return { profits, nextCarryover };
       if (hang8421Like && pIndices.length === 0 && this.user_list.length > 0) {
         pIndices = this.user_list.map((_, idx) => idx);
       }
@@ -930,12 +974,19 @@ export const useMatchStore = defineStore('match', {
       } else if (rule.type === 'vegas_4') {
         const config = rule.config;
         if (!config) return { profits, nextCarryover };
+        if (
+          Array.isArray(config.active_holes) &&
+          config.active_holes.length > 0 &&
+          !config.active_holes.includes(holeIndex + 1)
+        ) {
+          return { profits, nextCarryover: carryover };
+        }
 
         const { teamA, teamB } = this.getVegasGrouping(holeIndex, rule);
         if (teamA.length < 2 || teamB.length < 2) return { profits, nextCarryover };
 
-        const sA = teamA.map(idx => scores[idx]);
-        const sB = teamB.map(idx => scores[idx]);
+        const sA = teamA.map(idx => fin(scores[idx]));
+        const sB = teamB.map(idx => fin(scores[idx]));
 
         if (sA.some(s => s === 0) || sB.some(s => s === 0)) return { profits, nextCarryover };
 
@@ -975,19 +1026,23 @@ export const useMatchStore = defineStore('match', {
           const teamBPoints = pB0 + pB1;
           pkPoints = teamAPoints - teamBPoints;
         } else {
-          if (config.pk_good) {
+          const useAllDefault = !config.pk_good && !config.pk_bad && !config.pk_total;
+          const useGood = useAllDefault ? true : !!config.pk_good;
+          const useBad = useAllDefault ? true : !!config.pk_bad;
+          const useTotal = useAllDefault ? true : !!config.pk_total;
+          if (useGood) {
             const bestA = Math.min(...sA);
             const bestB = Math.min(...sB);
             if (bestA < bestB) pkPoints += 1;
             else if (bestA > bestB) pkPoints -= 1;
           }
-          if (config.pk_bad) {
+          if (useBad) {
             const worstA = Math.max(...sA);
             const worstB = Math.max(...sB);
             if (worstA < worstB) pkPoints += 1;
             else if (worstA > worstB) pkPoints -= 1;
           }
-          if (config.pk_total) {
+          if (useTotal) {
             const totalA = sA.reduce((a, b) => a + b, 0);
             const totalB = sB.reduce((a, b) => a + b, 0);
             if (totalA < totalB) pkPoints += 1;
@@ -1449,11 +1504,16 @@ export const useMatchStore = defineStore('match', {
       }
     },
     
-    async saveMatch() {
-      if (!this.match_id) return;
-      const match = await MatchManager.getMatch(this.match_id);
+    async saveMatch(matchIdOverride?: string) {
+      const mid = String(matchIdOverride || this.match_id || '').trim();
+      if (!mid) return;
+      this.match_id = mid;
+      const match = await MatchManager.getMatch(mid);
       if (match) {
+        const now = Date.now();
         match.pk_rules = this.activeRules;
+        match.pk_results = this.activeRules;
+        match.pk_rules_sync_ts = now;
         match.hole_scores = this.holeScores;
         match.user_list = this.user_list;
         await MatchManager.updateMatch(match);

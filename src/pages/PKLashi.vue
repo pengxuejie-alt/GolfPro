@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 // lucide removed — use uni-icons for WeChat compatibility
 import { useMatchStore, Player } from '@/store/matchStore';
 import { onLoad } from '@dcloudio/uni-app';
-import { openRoute, goBackFromPkRulePage } from '@/utils/uniNav';
+import { goBackFromPkRulePage } from '@/utils/uniNav';
 import { useMpPkRuleHeaderPad } from '@/utils/mpPkRuleHeaderPad';
+import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
+import { mpStaticAbsolute } from '@/utils/mpAssetPath';
+import { MatchManager } from '@/utils/match_manager';
 
 const { headerPadStyle } = useMpPkRuleHeaderPad();
+const DEFAULT_AVATAR = mpStaticAbsolute('tab/me.png');
+const avatarForPlayer = (p?: Player | null) => mpAvatarImgSrcForDisplay(p?.avatar, DEFAULT_AVATAR);
 
 const matchId = ref('');
 const ruleId = ref('');
@@ -115,6 +120,14 @@ const deductionNames: Record<string, string> = {
 
 const selectOption = (key: string, val: string) => {
   (config.value as any)[key] = val;
+  if (key === 'grouping' && val === '固拉') {
+    ensureTeamADefaults();
+  }
+  if (key === 'scoring_mode' && val === 'points_3') {
+    config.value.pk_good = true;
+    config.value.pk_bad = true;
+    config.value.pk_total = true;
+  }
   showModal.value = null;
 };
 
@@ -123,7 +136,40 @@ const selectStartingHole = (n: number) => {
   showModal.value = null;
 };
 
+const allPlayers = computed(() => matchStore.user_list);
+const selectedPlayers = computed(() => {
+  return allPlayers.value.slice(0, 4);
+});
+
+const ensureTeamADefaults = () => {
+  const validIds = selectedPlayers.value.map((p) => p.id).filter(Boolean);
+  const filtered = (Array.isArray(config.value.team_a) ? config.value.team_a : []).filter((id) =>
+    validIds.includes(id)
+  );
+  for (const id of validIds) {
+    if (filtered.length >= 2) break;
+    if (!filtered.includes(id)) filtered.push(id);
+  }
+  config.value.team_a = filtered.slice(0, 2);
+};
+
+watch(
+  selectedPlayers,
+  () => {
+    if (config.value.grouping === '固拉') {
+      ensureTeamADefaults();
+    }
+  },
+  { deep: true }
+);
+
 onMounted(() => {
+  if (matchId.value && (matchStore.match_id !== matchId.value || matchStore.user_list.length === 0)) {
+    const local = MatchManager.peekLocalMatch(matchId.value);
+    if (local) {
+      matchStore.initMatch(local);
+    }
+  }
   if (ruleId.value) {
     const rule = matchStore.activeRules.find(r => r.id === ruleId.value);
     if (rule && rule.config) {
@@ -138,12 +184,14 @@ onMounted(() => {
       }
     }
   }
+  if (config.value.grouping === '固拉') {
+    ensureTeamADefaults();
+  }
 });
 
-const allPlayers = computed(() => matchStore.user_list);
-const selectedPlayers = computed(() => {
-  return allPlayers.value.slice(0, 4);
-});
+const togglePkDim = (key: 'pk_good' | 'pk_bad' | 'pk_total') => {
+  config.value[key] = !config.value[key];
+};
 
 const toggleTeamA = (playerId: string) => {
   const idx = config.value.team_a.indexOf(playerId);
@@ -170,8 +218,19 @@ const toggleHole = (hole: number) => {
 };
 
 const handleSave = async () => {
-  if (config.value.grouping === '固拉' && config.value.team_a.length !== 2) {
-    alert('请为队伍A选择2名球员');
+  if (config.value.grouping === '固拉') {
+    if (selectedPlayers.value.length >= 2 && config.value.team_a.length !== 2) {
+      uni.showToast({ title: '请为队伍A选择2名球员', icon: 'none' });
+      return;
+    }
+  }
+  if (
+    config.value.scoring_mode === 'points_3' &&
+    !config.value.pk_good &&
+    !config.value.pk_bad &&
+    !config.value.pk_total
+  ) {
+    uni.showToast({ title: '请至少选择一项计分维度', icon: 'none' });
     return;
   }
   matchStore.addRule({
@@ -184,8 +243,8 @@ const handleSave = async () => {
     player_ids: matchStore.user_list.slice(0, 4).map(p => p.id),
     config: { ...config.value, tab: activeTab.value }
   });
-  await matchStore.saveMatch();
-  openRoute('SCORECARD', { match_id: matchId.value });
+  await matchStore.saveMatch(matchId.value);
+  goBackFromPkRulePage(matchId.value);
 };
 
 </script>
@@ -265,15 +324,15 @@ const handleSave = async () => {
       </div>
 
       <div v-if="config.grouping === '固拉'" class="py-2 border-b border-slate-100 px-2 bg-white rounded-xl border border-slate-100 shadow-sm">
-        <span class="text-xs font-bold text-slate-600 mb-2 block">队伍A（2人）</span>
+        <span class="text-xs font-bold text-slate-600 mb-2 block">队伍A（点击选择2人，其余2人为队伍B）</span>
         <div class="flex gap-4">
           <div v-for="player in selectedPlayers" :key="player.id"
                @click="toggleTeamA(player.id)"
                class="relative cursor-pointer flex flex-col items-center gap-2">
-            <image :src="player.avatar" mode="aspectFill" class="w-12 h-12 rounded-full border-2 transition-all"
-                 :class="config.team_a.includes(player.id) ? 'border-blue-500 scale-110' : 'border-transparent opacity-50'" />
-            <span class="text-xs font-bold text-slate-400">{{ player.nickname }}</span>
-            <div v-if="config.team_a.includes(player.id)" class="absolute -top-1 -right-1 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center border-2 border-black">
+            <image :src="avatarForPlayer(player)" mode="aspectFill" class="w-12 h-12 rounded-full border-2 transition-all bg-slate-100"
+                 :class="config.team_a.includes(player.id) ? 'border-blue-500 scale-110' : 'border-slate-200 opacity-60'" />
+            <span class="text-xs font-bold" :class="config.team_a.includes(player.id) ? 'text-blue-600' : 'text-slate-400'">{{ player.nickname }}</span>
+            <div v-if="config.team_a.includes(player.id)" class="absolute -top-1 -right-1 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center border-2 border-white">
               <uni-icons type="checkmarkempty" :size="8" color="#ffffff" />
             </div>
           </div>
@@ -308,35 +367,35 @@ const handleSave = async () => {
         <!-- 3 Points Mode -->
         <div v-if="config.scoring_mode === 'points_3'" class="flex justify-between items-center">
           <div class="space-y-2 flex-1">
-            <label class="flex items-center gap-3 cursor-pointer group">
+            <view class="flex items-center gap-3 active:opacity-80" @click="togglePkDim('pk_good')">
               <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
-                   :class="config.pk_good ? 'bg-white border-slate-800' : 'bg-transparent'">
-                <uni-icons v-if="config.pk_good" type="checkmarkempty" :size="14" color="#0f172a" />
+                   :class="config.pk_good ? 'bg-[#15803d] border-[#15803d]' : 'bg-transparent'">
+                <uni-icons v-if="config.pk_good" type="checkmarkempty" :size="14" color="#ffffff" />
               </div>
-              <input type="checkbox" v-model="config.pk_good" class="hidden" />
-              <span class="text-xs font-bold text-slate-400 group-active:text-slate-900">较好成绩PK</span>
-              <div class="bg-emerald-100 px-2 py-0.5 rounded text-xs font-black text-[#15803d] ml-auto">1</div>
-            </label>
+              <span class="text-xs font-bold text-slate-600">较好成绩PK</span>
+              <div class="px-2 py-0.5 rounded text-xs font-black ml-auto transition-colors"
+                   :class="config.pk_good ? 'bg-[#15803d] text-white' : 'bg-slate-200 text-slate-600'">1</div>
+            </view>
 
-            <label class="flex items-center gap-3 cursor-pointer group">
+            <view class="flex items-center gap-3 active:opacity-80" @click="togglePkDim('pk_bad')">
               <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
-                   :class="config.pk_bad ? 'bg-white border-slate-800' : 'bg-transparent'">
-                <uni-icons v-if="config.pk_bad" type="checkmarkempty" :size="14" color="#0f172a" />
+                   :class="config.pk_bad ? 'bg-[#15803d] border-[#15803d]' : 'bg-transparent'">
+                <uni-icons v-if="config.pk_bad" type="checkmarkempty" :size="14" color="#ffffff" />
               </div>
-              <input type="checkbox" v-model="config.pk_bad" class="hidden" />
-              <span class="text-xs font-bold text-slate-400 group-active:text-slate-900">较差成绩PK</span>
-              <div class="bg-emerald-100 px-2 py-0.5 rounded text-xs font-black text-[#15803d] ml-auto">1</div>
-            </label>
+              <span class="text-xs font-bold text-slate-600">较差成绩PK</span>
+              <div class="px-2 py-0.5 rounded text-xs font-black ml-auto transition-colors"
+                   :class="config.pk_bad ? 'bg-[#15803d] text-white' : 'bg-slate-200 text-slate-600'">1</div>
+            </view>
 
-            <label class="flex items-center gap-3 cursor-pointer group">
+            <view class="flex items-center gap-3 active:opacity-80" @click="togglePkDim('pk_total')">
               <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
-                   :class="config.pk_total ? 'bg-white border-slate-800' : 'bg-transparent'">
-                <uni-icons v-if="config.pk_total" type="checkmarkempty" :size="14" color="#0f172a" />
+                   :class="config.pk_total ? 'bg-[#15803d] border-[#15803d]' : 'bg-transparent'">
+                <uni-icons v-if="config.pk_total" type="checkmarkempty" :size="14" color="#ffffff" />
               </div>
-              <input type="checkbox" v-model="config.pk_total" class="hidden" />
-              <span class="text-xs font-bold text-slate-400 group-active:text-slate-900">双方总杆PK</span>
-              <div class="bg-emerald-100 px-2 py-0.5 rounded text-xs font-black text-[#15803d] ml-auto">1</div>
-            </label>
+              <span class="text-xs font-bold text-slate-600">双方总杆PK</span>
+              <div class="px-2 py-0.5 rounded text-xs font-black ml-auto transition-colors"
+                   :class="config.pk_total ? 'bg-[#15803d] text-white' : 'bg-slate-200 text-slate-600'">1</div>
+            </view>
           </div>
 
           <div class="w-20 flex flex-col items-center justify-center border-l border-slate-200 ml-4">
@@ -347,57 +406,52 @@ const handleSave = async () => {
         <!-- 8421 Mode -->
         <div v-else-if="config.scoring_mode === '8421'" class="space-y-4">
           <div class="space-y-3">
-            <label class="flex items-center gap-3 cursor-pointer group">
+            <view class="flex items-center gap-3 active:opacity-80" @click="config.deduction_type = 'progressive'">
               <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
-                   :class="config.deduction_type === 'progressive' ? 'bg-white border-slate-800' : 'bg-transparent'">
-                <uni-icons v-if="config.deduction_type === 'progressive'" type="checkmarkempty" :size="14" color="#0f172a" />
+                   :class="config.deduction_type === 'progressive' ? 'bg-[#15803d] border-[#15803d]' : 'bg-transparent'">
+                <uni-icons v-if="config.deduction_type === 'progressive'" type="checkmarkempty" :size="14" color="#ffffff" />
               </div>
-              <input type="radio" v-model="config.deduction_type" value="progressive" class="hidden" />
-              <span class="text-xs font-bold text-slate-400 group-active:text-slate-900">一直扣 (+4扣1分+5扣2分...以此类推)</span>
-            </label>
+              <span class="text-xs font-bold text-slate-600">一直扣 (+4扣1分+5扣2分...以此类推)</span>
+            </view>
             <div v-if="config.deduction_type === 'progressive'" class="pl-8">
-              <label class="flex items-center gap-3 cursor-pointer group">
+              <view class="flex items-center gap-3 active:opacity-80" @click="config.deduction_par3_plus3 = !config.deduction_par3_plus3">
                 <div class="w-4 h-4 rounded border border-slate-300 flex items-center justify-center transition-colors"
-                     :class="config.deduction_par3_plus3 ? 'bg-white border-slate-800' : 'bg-transparent'">
-                  <uni-icons v-if="config.deduction_par3_plus3" type="checkmarkempty" :size="12" color="#0f172a" />
+                     :class="config.deduction_par3_plus3 ? 'bg-[#15803d] border-[#15803d]' : 'bg-transparent'">
+                  <uni-icons v-if="config.deduction_par3_plus3" type="checkmarkempty" :size="12" color="#ffffff" />
                 </div>
-                <input type="checkbox" v-model="config.deduction_par3_plus3" class="hidden" />
-                <span class="text-xs font-bold text-slate-500 group-active:text-slate-900">3杆洞从+3开始扣分</span>
-              </label>
+                <span class="text-xs font-bold text-slate-500">3杆洞从+3开始扣分</span>
+              </view>
             </div>
 
-            <label class="flex items-center gap-3 cursor-pointer group">
+            <view class="flex items-center gap-3 active:opacity-80" @click="config.deduction_type = 'single_plus4'">
               <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
-                   :class="config.deduction_type === 'single_plus4' ? 'bg-white border-slate-800' : 'bg-transparent'">
-                <uni-icons v-if="config.deduction_type === 'single_plus4'" type="checkmarkempty" :size="14" color="#0f172a" />
+                   :class="config.deduction_type === 'single_plus4' ? 'bg-[#15803d] border-[#15803d]' : 'bg-transparent'">
+                <uni-icons v-if="config.deduction_type === 'single_plus4'" type="checkmarkempty" :size="14" color="#ffffff" />
               </div>
-              <input type="radio" v-model="config.deduction_type" value="single_plus4" class="hidden" />
-              <span class="text-xs font-bold text-slate-400 group-active:text-slate-900">最多扣1分 (+4开始扣)</span>
-            </label>
+              <span class="text-xs font-bold text-slate-600">最多扣1分 (+4开始扣)</span>
+            </view>
 
-            <label class="flex items-center gap-3 cursor-pointer group">
+            <view class="flex items-center gap-3 active:opacity-80" @click="config.deduction_type = 'single_double_par'">
               <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
-                   :class="config.deduction_type === 'single_double_par' ? 'bg-white border-slate-800' : 'bg-transparent'">
-                <uni-icons v-if="config.deduction_type === 'single_double_par'" type="checkmarkempty" :size="14" color="#0f172a" />
+                   :class="config.deduction_type === 'single_double_par' ? 'bg-[#15803d] border-[#15803d]' : 'bg-transparent'">
+                <uni-icons v-if="config.deduction_type === 'single_double_par'" type="checkmarkempty" :size="14" color="#ffffff" />
               </div>
-              <input type="radio" v-model="config.deduction_type" value="single_double_par" class="hidden" />
-              <span class="text-xs font-bold text-slate-400 group-active:text-slate-900">最多扣1分 (双帕开始扣)</span>
-            </label>
+              <span class="text-xs font-bold text-slate-600">最多扣1分 (双帕开始扣)</span>
+            </view>
 
-            <label class="flex items-center gap-3 cursor-pointer group">
+            <view class="flex items-center gap-3 active:opacity-80" @click="config.deduction_type = 'none'">
               <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
-                   :class="config.deduction_type === 'none' ? 'bg-white border-slate-800' : 'bg-transparent'">
-                <uni-icons v-if="config.deduction_type === 'none'" type="checkmarkempty" :size="14" color="#0f172a" />
+                   :class="config.deduction_type === 'none' ? 'bg-[#15803d] border-[#15803d]' : 'bg-transparent'">
+                <uni-icons v-if="config.deduction_type === 'none'" type="checkmarkempty" :size="14" color="#ffffff" />
               </div>
-              <input type="radio" v-model="config.deduction_type" value="none" class="hidden" />
-              <span class="text-xs font-bold text-slate-400 group-active:text-slate-900">不扣分</span>
-            </label>
+              <span class="text-xs font-bold text-slate-600">不扣分</span>
+            </view>
           </div>
 
           <div class="space-y-3 pt-4 border-t border-slate-200">
             <div v-for="player in selectedPlayers" :key="player.id" class="flex items-center justify-between">
               <div class="flex items-center gap-2">
-                <image :src="player.avatar" mode="aspectFill" class="w-8 h-8 rounded-full border border-slate-200" />
+                <image :src="avatarForPlayer(player)" mode="aspectFill" class="w-8 h-8 rounded-full border border-slate-200 bg-slate-100" />
                 <span class="text-xs font-bold text-slate-600">{{ player.nickname }}</span>
               </div>
               <div class="flex items-center gap-2">

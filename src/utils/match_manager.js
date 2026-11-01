@@ -79,18 +79,19 @@ function preservePkRulesFromPrevMatch(prev, incoming) {
   if (!incoming || typeof incoming !== 'object') return incoming;
   const prevPk = prev?.pk_rules ?? prev?.pk_results;
   const incPk = incoming.pk_rules ?? incoming.pk_results;
-  const hasInc = Array.isArray(incPk) && incPk.length > 0;
-  if (hasInc) return incoming;
   const hasPrev = Array.isArray(prevPk) && prevPk.length > 0;
-  if (!hasPrev) return incoming;
+  const hasInc = Array.isArray(incPk) && incPk.length > 0;
   const prevTs = Number(prev?.pk_rules_sync_ts || 0);
   const incTs = Number(incoming.pk_rules_sync_ts || 0);
-  return {
-    ...incoming,
-    pk_rules: prevPk,
-    pk_results: prevPk,
-    pk_rules_sync_ts: Math.max(prevTs, incTs),
-  };
+  if (hasPrev && (!hasInc || prevTs >= incTs)) {
+    return {
+      ...incoming,
+      pk_rules: prevPk,
+      pk_results: prevPk,
+      pk_rules_sync_ts: Math.max(prevTs, incTs),
+    };
+  }
+  return incoming;
 }
 
 function callLeaveMatchCloud(matchId) {
