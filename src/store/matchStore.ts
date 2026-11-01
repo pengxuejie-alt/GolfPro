@@ -452,13 +452,13 @@ export const useMatchStore = defineStore('match', {
 
       if (this.isFixedLandlord(rule)) {
         const id = config.fixed_landlord_id || config.tiger_id || '';
-        return this.user_list.findIndex(p => p.id === id);
+        return this.findPlayerIndexById(String(id || ''));
       }
 
       // 斗地主：出发洞用地主（抽取或指定），之后按上一洞名次流动
       if (this.playOrderPosition(rule, holeIndex) === 0) {
         const firstId = config.drawn_landlord_id || config.fixed_landlord_id || pIds[0];
-        return this.user_list.findIndex(p => p.id === firstId);
+        return this.findPlayerIndexById(String(firstId || ''));
       }
 
       const prevIdx = this.prevHoleInPlayOrder(rule, holeIndex);
@@ -467,7 +467,7 @@ export const useMatchStore = defineStore('match', {
         return this.getLandlordIndex(prevIdx, rule);
       }
 
-      const pIndices = pIds.map(id => this.user_list.findIndex(p => p.id === id)).filter(idx => idx !== -1);
+      const pIndices = this.resolveRulePlayerIndices(pIds);
       const playerScores = pIndices.map(idx => ({
         idx,
         score: prevHole.scores[idx] || 999
@@ -526,6 +526,19 @@ export const useMatchStore = defineStore('match', {
         const oid = resolvePlayerOpenId(p);
         return !!(oid && oid === target);
       });
+    },
+
+    resolveRulePlayerIndices(ids: unknown[]): number[] {
+      const seen = new Set<number>();
+      const out: number[] = [];
+      for (const raw of ids) {
+        const idx = this.findPlayerIndexById(String(raw ?? ''));
+        if (idx !== -1 && !seen.has(idx)) {
+          seen.add(idx);
+          out.push(idx);
+        }
+      }
+      return out;
     },
 
     resolveVegasPlayerIndices(rule: PKRule): number[] {
@@ -863,12 +876,19 @@ export const useMatchStore = defineStore('match', {
       } else if (rule.type === 'landlord' || rule.type === 'tiger') {
         const config = rule.config;
         if (!config) return { profits, nextCarryover };
+        if (
+          Array.isArray(config.active_holes) &&
+          config.active_holes.length > 0 &&
+          !config.active_holes.includes(holeIndex + 1)
+        ) {
+          return { profits, nextCarryover: carryover };
+        }
 
         const landlordIdx = this.getLandlordIndex(holeIndex, rule);
         if (landlordIdx === -1) return { profits, nextCarryover };
 
         const pIds = rule.player_ids || [];
-        const pIndices = pIds.map(id => this.user_list.findIndex(p => p.id === id)).filter(idx => idx !== -1);
+        const pIndices = this.resolveRulePlayerIndices(pIds);
         const peasantIndices = pIndices.filter(idx => idx !== landlordIdx);
 
         if (peasantIndices.length < 2) return { profits, nextCarryover };

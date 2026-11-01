@@ -205,14 +205,20 @@ const saveAndStart = async () => {
           </div>
         </div>
 
-        <div class="p-4 flex items-center justify-between border-b border-slate-200">
+        <div class="p-4 flex items-center justify-between border-b border-slate-200 active:bg-slate-50" @click="ruleConfig.is_mon = !ruleConfig.is_mon">
           <text class="text-sm font-medium">闷分 (Mon)</text>
-          <input type="checkbox" v-model="ruleConfig.is_mon" class="accent-red-500 w-5 h-5" />
+          <div class="w-5 h-5 rounded border flex items-center justify-center"
+               :class="ruleConfig.is_mon ? 'bg-red-500 border-red-500' : 'bg-white border-slate-300'">
+            <uni-icons v-if="ruleConfig.is_mon" type="checkmarkempty" :size="14" color="#ffffff" />
+          </div>
         </div>
 
-        <div class="p-4 flex items-center justify-between border-b border-slate-200">
+        <div class="p-4 flex items-center justify-between border-b border-slate-200 active:bg-slate-50" @click="ruleConfig.birdie_double = !ruleConfig.birdie_double">
           <text class="text-sm font-medium">小鸟翻倍</text>
-          <input type="checkbox" v-model="ruleConfig.birdie_double" class="accent-red-500 w-5 h-5" />
+          <div class="w-5 h-5 rounded border flex items-center justify-center"
+               :class="ruleConfig.birdie_double ? 'bg-red-500 border-red-500' : 'bg-white border-slate-300'">
+            <uni-icons v-if="ruleConfig.birdie_double" type="checkmarkempty" :size="14" color="#ffffff" />
+          </div>
         </div>
 
         <div class="p-4 flex items-center justify-between">

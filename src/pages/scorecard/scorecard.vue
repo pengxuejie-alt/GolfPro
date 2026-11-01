@@ -5121,52 +5121,47 @@ const posterPreviewTitle = ref('计分海报');
                 
                 <div class="space-y-2 pl-0.5">
                   <div class="flex flex-col gap-2">
-                    <label class="flex items-center gap-3 cursor-pointer group">
+                    <view class="flex items-center gap-3 active:opacity-80" @click="currentConfigRule.deduction_type = 'progressive'">
                       <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
                            :class="currentConfigRule.deduction_type === 'progressive' ? 'bg-[#15803d] border-[#15803d]' : 'bg-slate-100'">
-                        <view class="scorecard-uni-ico-slot scorecard-uni-ico-slot--xs"><uni-icons type="checkmarkempty" :size="14" color="#ffffff" /></view>
+                        <view v-if="currentConfigRule.deduction_type === 'progressive'" class="scorecard-uni-ico-slot scorecard-uni-ico-slot--xs"><uni-icons type="checkmarkempty" :size="14" color="#ffffff" /></view>
                       </div>
-                      <input type="radio" v-model="currentConfigRule.deduction_type" value="progressive" class="hidden">
-                      <span class="text-sm text-slate-700 group-hover:text-emerald-900 transition-colors">扣分 (+4扣1分 +5扣2分...以此类推)</span>
-                    </label>
+                      <span class="text-sm text-slate-700">扣分 (+4扣1分 +5扣2分...以此类推)</span>
+                    </view>
                     
                     <div class="pl-8" v-if="currentConfigRule.deduction_type === 'progressive'">
-                      <label class="flex items-center gap-3 cursor-pointer group">
+                      <view class="flex items-center gap-3 active:opacity-80" @click="currentConfigRule.deduction_par3_plus3 = !currentConfigRule.deduction_par3_plus3">
                         <div class="w-4 h-4 rounded border border-slate-300 flex items-center justify-center transition-colors"
                              :class="currentConfigRule.deduction_par3_plus3 ? 'bg-[#15803d] border-[#15803d]' : 'bg-slate-100'">
-                          <view class="scorecard-uni-ico-slot scorecard-uni-ico-slot--xs"><uni-icons type="checkmarkempty" :size="16" color="#ffffff" /></view>
+                          <view v-if="currentConfigRule.deduction_par3_plus3" class="scorecard-uni-ico-slot scorecard-uni-ico-slot--xs"><uni-icons type="checkmarkempty" :size="16" color="#ffffff" /></view>
                         </div>
-                        <input type="checkbox" v-model="currentConfigRule.deduction_par3_plus3" class="hidden">
-                        <span class="text-sm text-slate-600 group-hover:text-slate-800 transition-colors">3杆洞从+3开始扣分</span>
-                      </label>
+                        <span class="text-sm text-slate-600">3杆洞从+3开始扣分</span>
+                      </view>
                     </div>
 
-                    <label class="flex items-center gap-3 cursor-pointer group">
+                    <view class="flex items-center gap-3 active:opacity-80" @click="currentConfigRule.deduction_type = 'single_plus4'">
                       <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
                            :class="currentConfigRule.deduction_type === 'single_plus4' ? 'bg-[#15803d] border-[#15803d]' : 'bg-slate-100'">
-                        <view class="scorecard-uni-ico-slot scorecard-uni-ico-slot--xs"><uni-icons type="checkmarkempty" :size="14" color="#ffffff" /></view>
+                        <view v-if="currentConfigRule.deduction_type === 'single_plus4'" class="scorecard-uni-ico-slot scorecard-uni-ico-slot--xs"><uni-icons type="checkmarkempty" :size="14" color="#ffffff" /></view>
                       </div>
-                      <input type="radio" v-model="currentConfigRule.deduction_type" value="single_plus4" class="hidden">
-                      <span class="text-sm text-slate-700 group-hover:text-emerald-900 transition-colors">只扣1分 (+4及以上)</span>
-                    </label>
+                      <span class="text-sm text-slate-700">只扣1分 (+4及以上)</span>
+                    </view>
 
-                    <label class="flex items-center gap-3 cursor-pointer group">
+                    <view class="flex items-center gap-3 active:opacity-80" @click="currentConfigRule.deduction_type = 'single_double_par'">
                       <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
                            :class="currentConfigRule.deduction_type === 'single_double_par' ? 'bg-[#15803d] border-[#15803d]' : 'bg-slate-100'">
-                        <view class="scorecard-uni-ico-slot scorecard-uni-ico-slot--xs"><uni-icons type="checkmarkempty" :size="14" color="#ffffff" /></view>
+                        <view v-if="currentConfigRule.deduction_type === 'single_double_par'" class="scorecard-uni-ico-slot scorecard-uni-ico-slot--xs"><uni-icons type="checkmarkempty" :size="14" color="#ffffff" /></view>
                       </div>
-                      <input type="radio" v-model="currentConfigRule.deduction_type" value="single_double_par" class="hidden">
-                      <span class="text-sm text-slate-700 group-hover:text-emerald-900 transition-colors">只扣1分 (双帕及以上)</span>
-                    </label>
+                      <span class="text-sm text-slate-700">只扣1分 (双帕及以上)</span>
+                    </view>
 
-                    <label class="flex items-center gap-3 cursor-pointer group">
+                    <view class="flex items-center gap-3 active:opacity-80" @click="currentConfigRule.deduction_type = 'none'">
                       <div class="w-5 h-5 rounded border border-slate-300 flex items-center justify-center transition-colors"
                            :class="currentConfigRule.deduction_type === 'none' ? 'bg-[#15803d] border-[#15803d]' : 'bg-slate-100'">
-                        <view class="scorecard-uni-ico-slot scorecard-uni-ico-slot--xs"><uni-icons type="checkmarkempty" :size="14" color="#ffffff" /></view>
+                        <view v-if="currentConfigRule.deduction_type === 'none'" class="scorecard-uni-ico-slot scorecard-uni-ico-slot--xs"><uni-icons type="checkmarkempty" :size="14" color="#ffffff" /></view>
                       </div>
-                      <input type="radio" v-model="currentConfigRule.deduction_type" value="none" class="hidden">
-                      <span class="text-sm text-slate-700 group-hover:text-emerald-900 transition-colors">不扣分</span>
-                    </label>
+                      <span class="text-sm text-slate-700">不扣分</span>
+                    </view>
                   </div>
                 </div>
               </div>
