@@ -12,17 +12,23 @@ import { fileURLToPath } from 'url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const BASE = 'https://app1.golflive.cn/index.php?s=/Home/ApiGolflive/'
 
-/** 应用内显示名（麓湖已校对，勿改 par） */
+/** 只改显示名。洞杆以 scripts/data/par-verified-lock.json 为准。 */
 const DISPLAY_OVERRIDES = {
   '12500-BA0C-0331': {
     name: '广州麓湖高尔夫',
-    holes_par: [5, 4, 4, 4, 3, 4, 4, 3, 5, 4, 4, 3, 5, 4, 4, 3, 5, 4],
-    total_par: 72,
   },
   '12400-363F-474D': {
     name: '广州仙村国际高尔夫',
   },
 }
+
+function loadVerifiedLock() {
+  const lockPath = path.join(__dirname, 'data/par-verified-lock.json')
+  const raw = JSON.parse(fs.readFileSync(lockPath, 'utf8'))
+  return raw.courses || {}
+}
+
+const VERIFIED_LOCK = loadVerifiedLock()
 
 const PROVINCE_NORM = {
   广西省: '广西',
@@ -130,15 +136,35 @@ function halvesToCourse(detail) {
   return out
 }
 
-function applyOverrides(course) {
-  const ov = DISPLAY_OVERRIDES[course.golflive_club_id]
-  if (!ov) return course
+function applyVerifiedLock(course) {
+  const lock = VERIFIED_LOCK[course.golflive_club_id]
+  if (!lock) return course
+  const sections = (lock.sections || []).map((locked, i) => {
+    const liveName = course.sections?.[i]?.name
+    const name = liveName && liveName !== '半场' ? liveName : locked.name
+    return { name, holes_par: [...locked.holes_par] }
+  })
+  const holes_par = sections.flatMap((s) => s.holes_par)
   return {
     ...course,
-    ...ov,
-    total_par: ov.total_par ?? course.total_par,
-    holes_par: ov.holes_par ?? course.holes_par,
+    name: lock.name || course.name,
+    total_par: holes_par.reduce((sum, n) => sum + n, 0),
+    holes_par,
+    sections,
   }
+}
+
+function applyOverrides(course) {
+  const ov = DISPLAY_OVERRIDES[course.golflive_club_id]
+  const named = ov
+    ? {
+        ...course,
+        ...ov,
+        total_par: ov.total_par ?? course.total_par,
+        holes_par: ov.holes_par ?? course.holes_par,
+      }
+    : course
+  return applyVerifiedLock(named)
 }
 
 function matchSeedToCourse(seedName, courses) {
