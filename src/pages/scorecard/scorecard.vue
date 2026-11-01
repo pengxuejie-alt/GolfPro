@@ -2287,6 +2287,7 @@ const selectRuleForConfig = (rule: any) => {
       handicap_type: 'strokes', // 'strokes' or 'holes'
       handicap_par_strokes: { par3: 0, par4: 0, par5: 0 },
       handicap_holes_count: 0,
+      handicap_receiver_index: rule.handicap_receiver_index === 0 ? 0 : 1,
       starting_hole: 1
     };
   } else if (rule.type === 'holes') {
@@ -2314,6 +2315,7 @@ const selectRuleForConfig = (rule: any) => {
       handicap_type: 'strokes', // 'strokes' or 'holes'
       handicap_par_strokes: { par3: 0, par4: 0, par5: 0 },
       handicap_holes_count: 0,
+      handicap_receiver_index: rule.handicap_receiver_index === 1 ? 1 : 0,
       starting_hole: 1
     };
   } else if (rule.type === '8421_1v1') {
@@ -3617,6 +3619,52 @@ const getPKScoreHole = (pid: string, holeIndex: number) => {
   return currentPKProfits.value[holeIndex][pIdx] || 0;
 };
 
+function pkRuleAppliesToHole(rule: { valid_holes?: number[]; config?: { active_holes?: number[] } }, holeIndex: number) {
+  const n = holeIndex + 1;
+  if (Array.isArray(rule.valid_holes) && !rule.valid_holes.includes(n)) return false;
+  const active = rule.config?.active_holes;
+  if (Array.isArray(active) && active.length > 0 && !active.includes(n)) return false;
+  return true;
+}
+
+function pkRuleParticipantIndices(rule: PKRule) {
+  if (rule.type === 'vegas_4' || rule.type === 'vegas_big') {
+    return matchStore.resolveVegasPlayerIndices(rule);
+  }
+  const ids = rule.player_ids || [];
+  let idxs = matchStore.resolveRulePlayerIndices(ids);
+  if ((rule.type === '8421_1v1' || rule.type === '8421') && idxs.length === 0 && matchStore.user_list.length > 0) {
+    idxs = matchStore.user_list.map((_, i) => i);
+  }
+  return idxs;
+}
+
+/** 本洞相关规则的参与者都已有杆数后才显示 PK，避免把未结算显示成 0 */
+function isPkHoleSettled(holeIndex: number) {
+  const effId = selectedPKRuleOption.value?.id || 'all';
+  const rules = effId === 'all'
+    ? matchStore.activeRules
+    : matchStore.activeRules.filter((r) => r.id === effId);
+  const applicable = rules.filter((r) => pkRuleAppliesToHole(r, holeIndex));
+  if (applicable.length === 0) return false;
+  const hole = matchStore.holeScores[holeIndex];
+  if (!hole) return false;
+  return applicable.every((rule) => {
+    const idxs = pkRuleParticipantIndices(rule);
+    if (idxs.length === 0) return false;
+    return idxs.every((i) => {
+      const n = Number(hole.scores[i]);
+      return Number.isFinite(n) && n > 0;
+    });
+  });
+}
+
+function pkAmountClass(n: number, positive: string, negative: string) {
+  if (n > 0) return positive;
+  if (n < 0) return negative;
+  return 'text-slate-400';
+}
+
 /** 同一洞可同时进行打老虎+斗地主：虎固定左上、地固定右上，避免重叠 */
 type RoleBadgesSplit = { showTiger: boolean; showLandlord: boolean };
 
@@ -3627,16 +3675,19 @@ const getRoleBadgesSplit = (pid: string, holeIndex: number): RoleBadgesSplit => 
 
   for (const rule of landlordRules) {
     if (!matchStore.isFixedLandlord(rule)) {
-      if (holeIndex > 0) {
-        const prevHole = matchStore.holeScores[holeIndex - 1];
+      if (matchStore.playOrderPosition(rule, holeIndex) > 0) {
+        const prevIdx = matchStore.prevHoleInPlayOrder(rule, holeIndex);
+        const prevHole = matchStore.holeScores[prevIdx];
         if (!prevHole || prevHole.scores.every((s) => s === 0)) continue;
       }
     }
 
     const lIdx = matchStore.getLandlordIndex(holeIndex, rule);
     if (lIdx === -1) continue;
-    const landlordId = matchStore.user_list[lIdx]?.id;
-    if (landlordId !== pid) continue;
+    const landlord = matchStore.user_list[lIdx];
+    if (!landlord) continue;
+    const landlordOpenId = resolvePlayerOpenId(landlord);
+    if (landlord.id !== pid && landlordOpenId !== pid) continue;
     if (rule.type === 'tiger') out.showTiger = true;
     if (rule.type === 'landlord') out.showLandlord = true;
   }
@@ -4455,13 +4506,12 @@ const posterPreviewTitle = ref('计分海报');
                       </template>
                     </view>
                     <view
-                      v-if="matchStore.activeRules.length > 0"
+                      v-if="matchStore.activeRules.length > 0 && getScore(player.id, h.index) && isPkHoleSettled(h.index)"
                       class="sc-profit-wrap"
                     >
                       <text
-                        v-if="getScore(player.id, h.index)"
                         class="sc-profit-text"
-                        :class="getHoleProfit(player.id, h.index) >= 0 ? 'text-red-400' : 'text-green-400'"
+                        :class="pkAmountClass(getHoleProfit(player.id, h.index), 'text-red-400', 'text-green-400')"
                       >
                         {{ getHoleProfit(player.id, h.index) > 0 ? '+' : '' }}{{ getHoleProfit(player.id, h.index) }}
                       </text>
@@ -4481,9 +4531,9 @@ const posterPreviewTitle = ref('计分海报');
             <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim sc-summary-val"><text class="sc-table-num text-slate-700">{{ getTotalDiff(player.id) }}</text></view>
             <view class="sc-cell sc-col-sum sc-border-rb sc-bg-dim sc-summary-val"><text class="sc-table-num text-[#07C160]">{{ getPlayerTotalDisplay(player.id) }}</text></view>
             <view class="sc-cell sc-col-pk sc-border-rb sc-bg-dim sc-summary-val">
-              <text class="sc-table-num" :class="getPKTotal(player.id) >= 0 ? 'text-red-500' : 'text-[#07C160]'">{{ getPKTotal(player.id) > 0 ? '+' : '' }}{{ getPKTotal(player.id) }}</text>
+              <text class="sc-table-num" :class="pkAmountClass(getPKTotal(player.id), 'text-red-500', 'text-[#07C160]')">{{ getPKTotal(player.id) > 0 ? '+' : '' }}{{ getPKTotal(player.id) }}</text>
             </view>
-            <view class="sc-cell sc-col-pk sc-border-b sc-bg-dim sc-summary-val"><text class="sc-table-num text-amber-600">{{ (get8421Points(player.id) || 0).toFixed(1) }}</text></view>
+            <view class="sc-cell sc-col-pk sc-border-b sc-bg-dim sc-summary-val"><text class="sc-table-num text-amber-600">{{ get8421Points(player.id) }}</text></view>
           </view>
 
         </view>
@@ -4975,6 +5025,18 @@ const posterPreviewTitle = ref('计分海报');
                 <div class="flex items-center gap-2">
                   <span class="text-sm text-slate-700">{{ getHandicapText(currentConfigRule?.handicap_config) }}</span>
                   <view class="scorecard-uni-ico-slot scorecard-uni-ico-slot--sm"><uni-icons type="right" :size="18" color="#475569" /></view>
+                </div>
+              </div>
+              <div v-if="currentConfigRule?.handicap_config?.type === 'none' && (currentConfigRule?.handicap_config?.value || 0) > 0" class="flex items-center justify-between py-2.5 px-3 bg-white border-b border-slate-100">
+                <span class="text-sm text-slate-600">受让方</span>
+                <div class="flex bg-slate-200 rounded-lg p-0.5">
+                  <button v-for="i in (currentConfigRule?.participant_count || 2)" :key="'recv-'+i"
+                          type="button"
+                          @click="currentConfigRule.handicap_receiver_index = i - 1"
+                          class="px-3 py-0.5 rounded-md text-xs font-bold"
+                          :class="(currentConfigRule.handicap_receiver_index ?? 1) === i - 1 ? 'bg-[#15803d] text-white' : 'text-slate-500'">
+                    选手{{ i }}
+                  </button>
                 </div>
               </div>
 
@@ -5864,7 +5926,7 @@ const posterPreviewTitle = ref('计分海报');
         <div class="p-3 space-y-2 pb-10 max-h-[60vh] overflow-y-auto">
           <button v-for="opt in ['none', '2', '3', '4', '5', 'virtual']" :key="opt" 
                   type="button"
-                  @click="currentConfigRule?.handicap_config && (currentConfigRule.handicap_config.type = opt); showHandicapModal = false; if(opt === 'none') showHandicapValueModal = true"
+                  @click="currentConfigRule?.handicap_config && (currentConfigRule.handicap_config.type = opt); showHandicapModal = false; if(opt === 'none') showTotalHandicapModal = true"
                   class="w-full py-3 px-4 rounded-2xl flex items-center justify-between transition-all border"
                   :class="currentConfigRule?.handicap_config?.type === opt ? 'bg-emerald-50 border-[#15803d]' : 'bg-slate-50 border-slate-200'">
             <span class="font-bold text-slate-900">{{ opt === 'none' ? '总分让杆' : opt === 'virtual' ? '虚让' : opt + '让1' }}</span>
@@ -6215,7 +6277,7 @@ const posterPreviewTitle = ref('计分海报');
         <view class="sc-row sc-pk-row--data" style="background:#f0f9f4;border-bottom:1rpx solid #e2e8f0;">
           <view class="sc-pk-cell-label sc-border-rb" style="background:#f0f9f4;"><text class="sc-pk-label-text text-slate-500">总分</text></view>
           <view v-for="player in players" :key="'total-'+player.id" class="sc-pk-cell sc-border-rb">
-            <text class="sc-pk-total-text font-bold" :class="getPKScoreTotal(player.id) >= 0 ? 'text-red-500' : 'text-[#07C160]'">
+            <text class="sc-pk-total-text font-bold" :class="pkAmountClass(getPKScoreTotal(player.id), 'text-red-500', 'text-[#07C160]')">
               {{ getPKScoreTotal(player.id) > 0 ? '+' : '' }}{{ getPKScoreTotal(player.id) }}
             </text>
           </view>
@@ -6224,10 +6286,9 @@ const posterPreviewTitle = ref('计分海报');
         <view v-for="i in 18" :key="i" class="sc-row sc-pk-row--data" style="border-bottom:1rpx solid #f1f5f9;">
           <view class="sc-pk-cell-label sc-border-rb" style="background:#f8fafc;"><text class="sc-pk-hole-num text-slate-600">{{ i }}</text></view>
           <view v-for="player in players" :key="player.id" class="sc-pk-cell sc-border-rb">
-            <text v-if="getPKScoreHole(player.id, i-1) !== 0" class="sc-pk-score-text" :class="getPKScoreHole(player.id, i-1) > 0 ? 'text-red-500' : 'text-[#07C160]'">
-              {{ getPKScoreHole(player.id, i-1) > 0 ? '+' : '' }}{{ getPKScoreHole(player.id, i-1) }}
+            <text v-if="isPkHoleSettled(i - 1)" class="sc-pk-score-text" :class="pkAmountClass(getPKScoreHole(player.id, i - 1), 'text-red-500', 'text-[#07C160]')">
+              {{ getPKScoreHole(player.id, i - 1) > 0 ? '+' : '' }}{{ getPKScoreHole(player.id, i - 1) }}
             </text>
-            <text v-else class="sc-pk-score-text sc-pk-score-zero">0</text>
           </view>
         </view>
       </scroll-view>

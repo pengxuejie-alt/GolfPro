@@ -300,6 +300,23 @@ export const useMatchStore = defineStore('match', {
     isRoundStartHole(rule: PKRule | undefined, holeIndex: number): boolean {
       return this.playOrderPosition(rule, holeIndex) === 0;
     },
+    /** 从出发洞起、跳过未勾选的有效洞后，本洞是第几个参赛洞（0 起）。未参赛返回 -1。 */
+    validPlayHoleOrdinal(rule: PKRule | undefined, holeIndex: number): number {
+      const start = (effectiveStartingHole(rule) - 1 + 18) % 18;
+      const valid = rule?.valid_holes;
+      if (Array.isArray(valid) && valid.length === 0) return -1;
+      let ordinal = 0;
+      for (let i = 0; i < 18; i++) {
+        const h = (start + i) % 18;
+        if (Array.isArray(valid) && !valid.includes(h + 1)) continue;
+        if (h === holeIndex) return ordinal;
+        ordinal++;
+      }
+      return -1;
+    },
+    isFirstValidPlayHole(rule: PKRule | undefined, holeIndex: number): boolean {
+      return this.validPlayHoleOrdinal(rule, holeIndex) === 0;
+    },
     /**
      * Get profits per hole for a specific rule, or all rules if ruleId is not provided
      */
@@ -785,7 +802,9 @@ export const useMatchStore = defineStore('match', {
         profits[2] = diff;
         profits[3] = diff;
       } else if (rule.type === '8421_1v1' || rule.type === '8421') {
-        if (rule.valid_holes && !rule.valid_holes.includes(holeIndex + 1)) return { profits, nextCarryover };
+        if (rule.valid_holes && !rule.valid_holes.includes(holeIndex + 1)) {
+          return { profits, nextCarryover: carryover };
+        }
 
         const playerCount = pIndices.length;
         const allPoints = this.calculate8421Points(holeIndex, rule);
@@ -1148,8 +1167,16 @@ export const useMatchStore = defineStore('match', {
           }
         }
       } else if (rule.type === 'strokes') {
-        if (pIndices.length < 2) return { profits, nextCarryover };
-        if (rule.valid_holes && !rule.valid_holes.includes(holeIndex + 1)) return { profits, nextCarryover };
+        if (pIndices.length < 2) return { profits, nextCarryover: carryover };
+        if (rule.valid_holes && !rule.valid_holes.includes(holeIndex + 1)) {
+          return { profits, nextCarryover: carryover };
+        }
+
+        const hc = rule.handicap_config;
+        const virtualLet = hc?.type === 'virtual';
+        const letN = hc && hc.type !== 'none' && hc.type !== 'virtual'
+          ? parseInt(String(hc.type).charAt(0), 10)
+          : NaN;
 
         for (let i = 0; i < pIndices.length; i++) {
           for (let j = i + 1; j < pIndices.length; j++) {
@@ -1162,13 +1189,13 @@ export const useMatchStore = defineStore('match', {
 
             let diff = scoreB - scoreA;
 
-            // Apply Handicap
-            if (rule.handicap_config && rule.handicap_config.type !== 'none') {
-              const n = parseInt(rule.handicap_config.type.charAt(0));
-              if (!isNaN(n)) {
-                if (diff > 0) diff = Math.max(0, diff - (n - 1));
-                else if (diff < 0) diff = -Math.max(0, -diff - (n - 1));
-              }
+            // 2让1 / 3让1：净胜杆先扣掉 (n-1)，再记分
+            if (!isNaN(letN) && letN >= 2) {
+              if (diff > 0) diff = Math.max(0, diff - (letN - 1));
+              else if (diff < 0) diff = -Math.max(0, -diff - (letN - 1));
+            } else if (virtualLet && diff !== 0) {
+              // 虚让：赢洞只记 1，不按杆差
+              diff = diff > 0 ? 1 : -1;
             }
 
             if (rule.reward_config) {
@@ -1184,9 +1211,25 @@ export const useMatchStore = defineStore('match', {
             profits[idxB] -= finalDiff;
           }
         }
+
+        // 总分让杆：整场只让一次，记在第一个有效洞上，便于每洞相加等于 PK 总分
+        const giveTotal = hc?.type === 'none' ? Math.max(0, Number(hc.value) || 0) : 0;
+        if (giveTotal > 0 && this.isFirstValidPlayHole(rule, holeIndex)) {
+          const rawSlot = Number(rule.handicap_receiver_index);
+          const recvSlot = Number.isInteger(rawSlot) && rawSlot >= 0 && rawSlot < pIndices.length
+            ? rawSlot
+            : Math.min(1, pIndices.length - 1);
+          const recvIdx = pIndices[recvSlot];
+          const unit = giveTotal * (rule.base_score || 1);
+          const others = pIndices.filter((idx) => idx !== recvIdx);
+          profits[recvIdx] += unit * others.length;
+          for (const idx of others) profits[idx] -= unit;
+        }
       } else if (rule.type === 'holes') {
-        if (pIndices.length < 2) return { profits, nextCarryover };
-        if (rule.valid_holes && !rule.valid_holes.includes(holeIndex + 1)) return { profits, nextCarryover };
+        if (pIndices.length < 2) return { profits, nextCarryover: carryover };
+        if (rule.valid_holes && !rule.valid_holes.includes(holeIndex + 1)) {
+          return { profits, nextCarryover: carryover };
+        }
 
         // Match Play is typically 1v1 in this app's current config
         const idxA = pIndices[0];
@@ -1196,17 +1239,20 @@ export const useMatchStore = defineStore('match', {
         const relA = relScores[idxA];
         const relB = relScores[idxB];
 
-        // Apply Handicap (让杆)
+        // Apply Handicap (让杆 / 让洞)
+        const recvIsB = rule.handicap_receiver_index === 1;
         if (rule.handicap_type === 'strokes' && rule.handicap_par_strokes) {
           const parKey = `par${par}`;
           const handicap = rule.handicap_par_strokes[parKey] || 0;
           if (handicap !== 0) {
-            const ri = rule.handicap_receiver_index;
-            if (ri === 0) {
-              scoreA -= handicap;
-            } else if (ri === 1) {
-              scoreB -= handicap;
-            }
+            if (recvIsB) scoreB -= handicap;
+            else scoreA -= handicap;
+          }
+        } else if (rule.handicap_type === 'holes') {
+          const concede = Math.max(0, Math.floor(Number(rule.handicap_holes_count) || 0));
+          if (concede > 0 && this.validPlayHoleOrdinal(rule, holeIndex) < concede) {
+            if (recvIsB) scoreB -= 1;
+            else scoreA -= 1;
           }
         }
 
