@@ -117,29 +117,28 @@ export async function buildRosterAvatarDisplayMap(
     const id = String(p.id ?? '').trim();
     if (!id) continue;
     const cached = getCachedAvatarDisplay(id);
-    if (cached) {
+    if (cached && !isWxCloudFileId(cached)) {
       out[id] = cached;
       continue;
     }
     const fromProfile = profileHttps?.get(id);
     const profCloud = fromProfile != null ? String(fromProfile).trim() : '';
     const profUrl = pickDisplayAvatarSrc(fromProfile);
-    if (profUrl) {
+    if (profUrl && !isWxCloudFileId(profUrl)) {
       out[id] = profUrl;
       setCachedAvatarDisplay(id, profUrl, isWxCloudFileId(profCloud) ? profCloud : undefined);
       continue;
     }
-    if (isWxCloudFileId(profCloud)) {
-      cloudIds.push(profCloud);
-    }
     const av = String(p.avatar ?? '').trim();
     const direct = pickDisplayAvatarSrc(av);
-    if (direct) {
+    if (direct && !isWxCloudFileId(direct)) {
       out[id] = direct;
       setCachedAvatarDisplay(id, direct);
-    } else if (isWxCloudFileId(av)) {
-      cloudIds.push(av);
+      continue;
     }
+    if (isWxCloudFileId(profCloud)) cloudIds.push(profCloud);
+    else if (isWxCloudFileId(profUrl)) cloudIds.push(profUrl);
+    if (isWxCloudFileId(av) && av !== profCloud) cloudIds.push(av);
   }
 
   if (!cloudIds.length) return out;
@@ -149,32 +148,25 @@ export async function buildRosterAvatarDisplayMap(
     const id = String(p.id ?? '').trim();
     if (!id || out[id]) continue;
     const av = String(p.avatar ?? '').trim();
-    if (!isWxCloudFileId(av)) continue;
-    const url = resolved.get(av);
-    const https = pickDisplayAvatarSrc(url);
-    if (https) {
-      out[id] = https;
-      setCachedAvatarDisplay(id, https, av);
-    } else {
-      // resolve 失败时真机可直绑 cloud://
-      out[id] = av;
-    }
-  }
-
-  // profile 来源的 cloud://
-  for (const p of players) {
-    const id = String(p.id ?? '').trim();
-    if (!id || out[id]) continue;
     const fromProfile = profileHttps?.get(id);
     const profCloud = fromProfile != null ? String(fromProfile).trim() : '';
-    if (!isWxCloudFileId(profCloud)) continue;
-    const url = resolved.get(profCloud);
-    const https = pickDisplayAvatarSrc(url);
+    const candidates = [av, profCloud].filter((fid) => isWxCloudFileId(fid));
+    let https = '';
+    let usedCloud = '';
+    for (const fid of candidates) {
+      const url = pickDisplayAvatarSrc(resolved.get(fid));
+      if (url && !isWxCloudFileId(url)) {
+        https = url;
+        usedCloud = fid;
+        break;
+      }
+    }
     if (https) {
       out[id] = https;
-      setCachedAvatarDisplay(id, https, profCloud);
-    } else {
-      out[id] = profCloud;
+      setCachedAvatarDisplay(id, https, usedCloud);
+    } else if (candidates[0]) {
+      // resolve 失败时真机可直绑 cloud://
+      out[id] = candidates[0];
     }
   }
 

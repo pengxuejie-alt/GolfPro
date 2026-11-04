@@ -34,6 +34,7 @@ import {
   mpAvatarImgSrcForDisplay,
   looksLikeExpiredProneTencentTempHttps,
   pickAvatarSrcForDisplay,
+  preferAvatarSrcForImage,
 } from '@/utils/mpAvatarSrc';
 import {
   applyScorecardPrefillToDisplay,
@@ -336,13 +337,13 @@ async function ensureRosterAvatarsStable(cloudMatch?: Record<string, unknown>): 
   for (const p of matchStore.user_list) {
     const id = resolvePlayerOpenId(p) || p.id;
     if (!id || id.startsWith('virtual_') || id.startsWith('temp_') || id.startsWith('anon_')) continue;
-    const has = pickAvatarSrcForDisplay(
-      rosterAvatarDisplay.value[id] ||
-        sessionPrefillAvatars.value[id] ||
-        getCachedAvatarDisplay(id) ||
-        p.avatar,
+    const best = preferAvatarSrcForImage(
+      rosterAvatarDisplay.value[id],
+      sessionPrefillAvatars.value[id],
+      getCachedAvatarDisplay(id),
+      p.avatar,
     );
-    if (!has) missingIds.push(id);
+    if (!best || best.startsWith('cloud://')) missingIds.push(id);
   }
   if (missingIds.length) {
     const profiles = await fetchUserProfilesForOpenIds(missingIds);
@@ -358,11 +359,12 @@ async function ensureRosterAvatarsStable(cloudMatch?: Record<string, unknown>): 
 
   matchStore.user_list = matchStore.user_list.map((pl) => {
     const id = resolvePlayerOpenId(pl) || pl.id;
-    const av =
-      rosterAvatarDisplay.value[id] ||
-      sessionPrefillAvatars.value[id] ||
-      getCachedAvatarDisplay(id);
-    const display = pickAvatarSrcForDisplay(av) || pickAvatarSrcForDisplay(pl.avatar);
+    const display = preferAvatarSrcForImage(
+      rosterAvatarDisplay.value[id],
+      sessionPrefillAvatars.value[id],
+      getCachedAvatarDisplay(id),
+      pl.avatar,
+    );
     if (display && display !== pl.avatar) return { ...pl, avatar: display };
     return pl;
   });
@@ -375,7 +377,7 @@ async function ensureRosterAvatarsStable(cloudMatch?: Record<string, unknown>): 
 }
 
 function seedRosterAvatarDisplayFromCache(): void {
-  const ids = matchStore.user_list.map((p) => p.id).filter(Boolean);
+  const ids = matchStore.user_list.map((p) => resolvePlayerOpenId(p) || p.id).filter(Boolean);
   const seeded = seedAvatarDisplayMapFromCache(ids);
   rosterAvatarDisplay.value = mergeAvatarDisplayMaps(rosterAvatarDisplay.value, seeded);
 }
@@ -410,9 +412,13 @@ function rosterStillNeedsAvatarDisplay(): boolean {
   return matchStore.user_list.some((p) => {
     const id = resolvePlayerOpenId(p) || p.id;
     if (!id || id.startsWith('virtual_') || id.startsWith('temp_') || id.startsWith('anon_')) return false;
-    const resolved = rosterAvatarDisplay.value[id] || getCachedAvatarDisplay(id);
-    if (pickAvatarSrcForDisplay(resolved)) return false;
-    return !pickAvatarSrcForDisplay(p.avatar);
+    const best = preferAvatarSrcForImage(
+      rosterAvatarDisplay.value[id],
+      sessionPrefillAvatars.value[id],
+      getCachedAvatarDisplay(id),
+      p.avatar,
+    );
+    return !best || best.startsWith('cloud://');
   });
 }
 
@@ -519,17 +525,16 @@ function isPlaceholderJoinNickname(nick: string | undefined, playerId?: string):
 
 function effectivePlayerAvatarForMerge(playerId: string, storeAv: string | undefined): string | undefined {
   const id = String(playerId || '').trim();
-  const fromDisplay = id
-    ? pickAvatarSrcForDisplay(
-        rosterAvatarDisplay.value[id] ||
-          sessionPrefillAvatars.value[id] ||
-          getCachedAvatarDisplay(id),
-      )
-    : '';
+  const picked = preferAvatarSrcForImage(
+    id ? rosterAvatarDisplay.value[id] : '',
+    id ? sessionPrefillAvatars.value[id] : '',
+    id ? getCachedAvatarDisplay(id) : '',
+    storeAv,
+  );
+  if (picked && !picked.startsWith('cloud://')) return picked;
   const store = storeAv != null && String(storeAv).trim() !== '' ? String(storeAv).trim() : '';
-  if (fromDisplay && fromDisplay.startsWith('https://')) return fromDisplay;
-  if (store && isShareableAvatarUrl(store)) return store;
-  if (fromDisplay) return fromDisplay;
+  if (store && isShareableAvatarUrl(store) && !store.startsWith('cloud://')) return store;
+  if (picked) return picked;
   return store || undefined;
 }
 
@@ -1002,14 +1007,22 @@ async function buildInviterUserForModal(match?: any | null): Promise<{
   const m = match ?? currentMatch.value;
   const fromMatch = rosterRowToDisplayUser(m?.user_list?.[0] ?? m?.players?.[0]);
   if (fromMatch) {
-    const displayAv = rosterAvatarDisplay.value[fromMatch.id] || getCachedAvatarDisplay(fromMatch.id);
+    const displayAv = preferAvatarSrcForImage(
+      rosterAvatarDisplay.value[fromMatch.id],
+      getCachedAvatarDisplay(fromMatch.id),
+      fromMatch.avatar,
+    );
     return { ...fromMatch, avatar: displayAv || fromMatch.avatar };
   }
   const inviterId = resolveInviterOpenId(match);
   if (inviterId) {
     const profiles = await fetchUsersProfilesByOpenIds([inviterId]);
     const prof = profiles.get(inviterId);
-    const displayAv = rosterAvatarDisplay.value[inviterId] || getCachedAvatarDisplay(inviterId);
+    const displayAv = preferAvatarSrcForImage(
+      rosterAvatarDisplay.value[inviterId],
+      getCachedAvatarDisplay(inviterId),
+      prof?.avatarUrl,
+    );
     return {
       id: inviterId,
       nickname: prof?.nickName || defaultJoinNickname(inviterId),
@@ -2950,11 +2963,11 @@ function mergeCloudRosterIntoScorecard(cloudMatch: any): boolean {
   const seen = new Set(matchStore.user_list.map((p) => normStorePlayerId(p)));
   for (const pl of cloudPlayers) {
     if (!seen.has(pl.id)) {
-      const displayAv = pickAvatarSrcForDisplay(
-        rosterAvatarDisplay.value[pl.id] ||
-          sessionPrefillAvatars.value[pl.id] ||
-          getCachedAvatarDisplay(pl.id) ||
-          pl.avatar,
+      const displayAv = preferAvatarSrcForImage(
+        rosterAvatarDisplay.value[pl.id],
+        sessionPrefillAvatars.value[pl.id],
+        getCachedAvatarDisplay(pl.id),
+        pl.avatar,
       );
       matchStore.addPlayer({
         ...pl,
@@ -3494,12 +3507,12 @@ const DEFAULT_RULE_SLOT_AVATAR = mpStaticAbsolute('tab/me.png');
 
 function avatarOrDefault(p: { id?: string; avatar?: string } | null | undefined): string {
   const id = (p ? resolvePlayerOpenId(p) || String(p.id || '').trim() : '') || '';
-  const resolved = id
-    ? rosterAvatarDisplay.value[id] ||
-      sessionPrefillAvatars.value[id] ||
-      getCachedAvatarDisplay(id)
-    : '';
-  const a = resolved || (p?.avatar != null ? String(p.avatar).trim() : '');
+  const a = preferAvatarSrcForImage(
+    id ? rosterAvatarDisplay.value[id] : '',
+    id ? sessionPrefillAvatars.value[id] : '',
+    id ? getCachedAvatarDisplay(id) : '',
+    p?.avatar,
+  );
   return mpAvatarImgSrcForDisplay(a, DEFAULT_RULE_SLOT_AVATAR);
 }
 
@@ -4408,7 +4421,13 @@ const posterPreviewTitle = ref('计分海报');
             <view v-if="player.isPending" class="scorecard-pending-avatar-slot rounded bg-slate-100 border border-dashed border-slate-300 flex items-center justify-center flex-shrink-0">
               <uni-icons type="personadd" :size="16" color="#94a3b8" />
             </view>
-            <image v-else :src="avatarOrDefault(player)" class="sc-avatar flex-shrink-0" mode="aspectFill" />
+            <image
+              v-else
+              :key="'av-' + player.id + '-' + avatarOrDefault(player)"
+              :src="avatarOrDefault(player)"
+              class="sc-avatar flex-shrink-0"
+              mode="aspectFill"
+            />
             <view class="flex flex-col min-w-0 flex-1 sc-fixed-player-meta">
               <view class="sc-player-nick text-slate-900">{{ player.nickname }}</view>
               <text class="sc-sub-text text-slate-500">{{ formatPlayerHandicapDisplay(player) }}</text>

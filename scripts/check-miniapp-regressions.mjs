@@ -107,6 +107,9 @@ const mpAvatar = readText('src/utils/mpAvatarSrc.ts');
 if (mpAvatar && !mpAvatar.includes('export function isAvatarUrlDisplayable')) {
   fail('mpAvatarSrc.ts 缺少 isAvatarUrlDisplayable');
 }
+if (mpAvatar && !mpAvatar.includes('export function preferAvatarSrcForImage')) {
+  fail('mpAvatarSrc.ts 缺少 preferAvatarSrcForImage（https 优先于 cloud://）');
+}
 
 const scorecard = readText('src/pages/scorecard/scorecard.vue');
 if (scorecard) {
@@ -119,6 +122,17 @@ if (scorecard) {
   if (!scorecard.includes('stashScorecardPrefillFromIndex') && !scorecard.includes('scorecardPrefill')) {
     warn('scorecard 未引用 scorecardPrefill 工具（确认首页 prefill 链路）');
   }
+  if (!scorecard.includes('preferAvatarSrcForImage')) {
+    fail('scorecard 头像应走 preferAvatarSrcForImage，避免 cloud:// 盖掉 https');
+  }
+  if (!scorecard.includes("best.startsWith('cloud://')")) {
+    fail('scorecard 不得把 cloud:// 当成已完成展示而跳过换链');
+  }
+}
+
+const rosterDisplay = readText('src/utils/rosterAvatarDisplay.ts');
+if (rosterDisplay && !rosterDisplay.includes('if (profUrl && !isWxCloudFileId(profUrl))')) {
+  fail('buildRosterAvatarDisplayMap 不得把 cloud:// 当成已换好的 https');
 }
 
 const indexVue = readText('src/pages/index/index.vue');

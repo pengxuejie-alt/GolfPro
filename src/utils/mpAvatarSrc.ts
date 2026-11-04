@@ -106,6 +106,24 @@ export function avatarUrlForDisplayOrEmpty(raw: unknown): string {
   return /^https:\/\//i.test(s) ? s : '';
 }
 
+/**
+ * 多个候选里优先 https / 本地路径。
+ * cloud:// 只作最后兜底，避免名单上的 fileID 盖掉已经换好的临时链（否则 <image> 空白）。
+ */
+export function preferAvatarSrcForImage(...raws: unknown[]): string {
+  let cloud = '';
+  for (const raw of raws) {
+    const s = pickAvatarSrcForDisplay(raw);
+    if (!s) continue;
+    if (isWxCloudFileId(s)) {
+      if (!cloud) cloud = s;
+      continue;
+    }
+    return s;
+  }
+  return cloud;
+}
+
 /** `<image :src>` 统一入口：展示层允许会话内临时 https；真机 MP-WEIXIN 可回退 cloud:// */
 export function mpAvatarImgSrcForDisplay(raw: unknown, fallback: string): string {
   const s = pickAvatarSrcForDisplay(raw);

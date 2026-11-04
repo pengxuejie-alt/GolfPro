@@ -15,7 +15,7 @@ import {
 } from '@/utils/mpPrivacyBridge';
 import PrivacyPopup from '@/components/PrivacyPopup.vue';
 import { mpStaticAbsolute } from '@/utils/mpAssetPath';
-import { mpAvatarImgSrcForDisplay } from '@/utils/mpAvatarSrc';
+import { mpAvatarImgSrcForDisplay, preferAvatarSrcForImage } from '@/utils/mpAvatarSrc';
 import {
   buildMatchListAvatarDisplayMap,
   buildRosterAvatarDisplayMap,
@@ -193,11 +193,12 @@ function rosterPlayerAvatarSrc(p: unknown, match: unknown): string {
       ? String((match as Record<string, unknown>).match_id ?? (match as Record<string, unknown>).id ?? '').trim()
       : '';
   const globalCached = pid ? getCachedAvatarDisplay(pid) : '';
-  if (globalCached) return mpAvatarImgSrcForDisplay(globalCached, DEFAULT_AVATAR_URL);
   const cached = mid && pid ? matchAvatarDisplayMap.value[`${mid}:${pid}`] : '';
-  if (cached) return mpAvatarImgSrcForDisplay(cached, DEFAULT_AVATAR_URL);
   const o = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
-  return mpAvatarImgSrcForDisplay(o.avatar ?? o.avatarUrl, DEFAULT_AVATAR_URL);
+  return mpAvatarImgSrcForDisplay(
+    preferAvatarSrcForImage(globalCached, cached, o.avatar, o.avatarUrl),
+    DEFAULT_AVATAR_URL,
+  );
 }
 
 function buildHomeShareTitle(): string {

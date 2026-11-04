@@ -37,7 +37,8 @@ function ensureHydrated(): void {
         }
       }
       selfOpenId = String(raw.selfOpenId || '').trim();
-      selfDisplayUrl = pickAvatarSrcForDisplay(raw.selfDisplayUrl);
+      const selfUrl = pickAvatarSrcForDisplay(raw.selfDisplayUrl);
+      selfDisplayUrl = selfUrl && !isWxCloudFileId(selfUrl) ? selfUrl : '';
     }
   } catch {
     /* ignore */
@@ -66,7 +67,9 @@ export function getCachedAvatarDisplay(openId: string): string {
   if (!id) return '';
   const entry = memory.get(id);
   if (!entry) return '';
-  return pickAvatarSrcForDisplay(entry.httpsUrl);
+  const url = pickAvatarSrcForDisplay(entry.httpsUrl);
+  if (!url || isWxCloudFileId(url)) return '';
+  return url;
 }
 
 export function getCachedAvatarCloudFileId(openId: string): string {
@@ -80,14 +83,28 @@ export function getCachedAvatarCloudFileId(openId: string): string {
 export function setCachedAvatarDisplay(openId: string, url: string, cloudFileId?: string): void {
   ensureHydrated();
   const id = String(openId || '').trim();
-  const https = pickAvatarSrcForDisplay(url);
-  if (!id || !https) return;
+  const raw = String(url || '').trim();
+  if (!id || !raw) return;
+  const prev = memory.get(id);
   const cfid =
     cloudFileId && isWxCloudFileId(cloudFileId)
-      ? cloudFileId
-      : isWxCloudFileId(url)
-        ? String(url).trim()
-        : undefined;
+      ? String(cloudFileId).trim()
+      : isWxCloudFileId(raw)
+        ? raw
+        : prev?.cloudFileId;
+  if (isWxCloudFileId(raw)) {
+    const kept = prev?.httpsUrl && !isWxCloudFileId(prev.httpsUrl) ? prev.httpsUrl : '';
+    memory.set(id, {
+      httpsUrl: kept,
+      cloudFileId: cfid,
+      fetchedAt: kept ? prev!.fetchedAt : Date.now(),
+    });
+    if (id === selfOpenId && kept) selfDisplayUrl = kept;
+    persist();
+    return;
+  }
+  const https = pickAvatarSrcForDisplay(raw);
+  if (!https) return;
   memory.set(id, { httpsUrl: https, cloudFileId: cfid, fetchedAt: Date.now() });
   if (id === selfOpenId) selfDisplayUrl = https;
   persist();
@@ -100,7 +117,8 @@ export function getCachedSelfAvatarDisplay(openId?: string): string {
     const fromMap = getCachedAvatarDisplay(oid);
     if (fromMap) return fromMap;
   }
-  return selfDisplayUrl;
+  const fallback = pickAvatarSrcForDisplay(selfDisplayUrl);
+  return fallback && !isWxCloudFileId(fallback) ? fallback : '';
 }
 
 export function setCachedSelfAvatarDisplay(openId: string, url: string, cloudFileId?: string): void {
@@ -109,7 +127,7 @@ export function setCachedSelfAvatarDisplay(openId: string, url: string, cloudFil
   if (oid) selfOpenId = oid;
   setCachedAvatarDisplay(oid || selfOpenId, url, cloudFileId);
   const https = pickAvatarSrcForDisplay(url);
-  if (https) {
+  if (https && !isWxCloudFileId(https)) {
     selfDisplayUrl = https;
     persist();
   }
@@ -127,7 +145,7 @@ export function seedAvatarDisplayMapFromCache(openIds: string[]): Record<string,
   return out;
 }
 
-/** 合并展示 map：patch 中非空值写入，永不写入空串覆盖已有 */
+/** 合并展示 map：非空才写入；cloud:// 不覆盖已有 https */
 export function mergeAvatarDisplayMaps(
   base: Record<string, string>,
   patch: Record<string, string>,
@@ -136,7 +154,10 @@ export function mergeAvatarDisplayMaps(
   const next = { ...base };
   for (const [k, v] of Object.entries(patch)) {
     const url = pickAvatarSrcForDisplay(v);
-    if (url) next[k] = url;
+    if (!url) continue;
+    const cur = pickAvatarSrcForDisplay(next[k]);
+    if (cur && isWxCloudFileId(url) && !isWxCloudFileId(cur)) continue;
+    next[k] = url;
   }
   return next;
 }
