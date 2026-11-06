@@ -459,15 +459,19 @@ export function paintPersonalScorePoster2d(
   paintCleanScorePoster(ctx, orientation, {
     courseName: model.courseName,
     dateStr: model.dateStr,
+    header: images.header,
     qr: images.qr,
     getPar: model.getPar,
     players: [
       {
         nickname: model.nickname,
+        avatar: images.avatar,
         total: model.total,
+        diff: model.diff,
         frontNine: model.frontNine,
         backNine: model.backNine,
         getScore: model.getScore,
+        stat: model.stat,
       },
     ],
   });
@@ -483,11 +487,14 @@ export function paintGroupScorePoster2d(
   paintCleanScorePoster(ctx, orientation, {
     courseName: model.courseName,
     dateStr: model.dateStr,
+    header: images.header,
     qr: images.qr,
     getPar: model.getPar,
     players: model.players.slice(0, 8).map((p) => ({
       nickname: p.nickname,
+      avatar: p.avatar,
       total: p.total,
+      diff: p.diff,
       frontNine: p.frontNine,
       backNine: p.backNine,
       getScore: p.getScore,

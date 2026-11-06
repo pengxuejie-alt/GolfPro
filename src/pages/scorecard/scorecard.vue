@@ -3877,8 +3877,7 @@ function formatPosterKickoff(match: unknown): string {
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return '—';
   const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
-  const weeks = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${weeks[d.getDay()]} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function openSharePosterModal() {
